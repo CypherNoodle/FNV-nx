@@ -1,6 +1,8 @@
 # Próximos hitos
 
-1. Integrar el SDK Horizon: memoria invitada, hilos, archivos, mandos y audio.
+1. Completar el build Horizon: ruta CMake y compilación CPU ya preparadas;
+   faltan enlazar el runtime con sus dependencias y comprobar memoria, hilos,
+   archivos, mandos y audio en consola.
 2. Compilar un NRO que lea los archivos propios junto a fnv-nx.nro y ejecute
    código real de Xbox; registrar el último punto alcanzado.
 3. Identificar la revisión XDK y el layout Direct3D del juego. Adaptar el

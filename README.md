@@ -56,3 +56,10 @@ desactivados en el proceso salvo que se soliciten en la prueba.
 
 Consulta [el punto de partida](docs/BASELINE.md), [los próximos hitos](docs/ROADMAP.md)
 y [las dependencias](THIRD_PARTY_NOTICES.md).
+
+## Trabajo para Switch
+
+La ruta CMake Horizon, el hook de carpetas SD y las herramientas de compilación
+están en preparación. Consulta [la integración Switch](docs/SWITCH_INTEGRATION.md)
+para sus dependencias y la comprobación de CPU con devkitA64. La generación de
+objetos ARM no acredita el enlace ni el arranque del NRO.

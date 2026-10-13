@@ -23,6 +23,17 @@ class FnvXboxApp : public rex::ReXApp {
   }
 
   // Override virtual hooks for customization:
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+#if defined(__SWITCH__)
+    const std::filesystem::path root{"sdmc:/switch/FNV-nx"};
+    paths.game_data_root = root;
+    paths.user_data_root = root / "user-data";
+    paths.update_data_root = root / "updates";
+    paths.cache_root = root / "cache";
+    paths.metadata_root = root / "metadata";
+    paths.config_path = root / "fnv-nx.toml";
+#endif
+  }
   void OnPreSetup(rex::RuntimeConfig& config) override {
     config.gpu_plugin = "xenos";
   }
