@@ -253,3 +253,30 @@ Las escrituras grandes del guardado alpha08 completaron sus bytes y devolvieron
 éxito; Close y DeviceState también devolvieron éxito con device1. Esto no explica
 el aviso. La observación ahora incluye flags del manager guest antes/después de
 la fase `0x825F67F8`, sin alterarlos, para localizar el fallo de validación posterior.
+
+## Prueba de resolución antes de DRS
+
+El usuario confirmó Pip-Boy y salida de la casa con alpha09; el registro recibido
+no contiene fatals ni fallos de protección. La lentitud persiste y los contadores
+del exterior incluyen intervalos con muchos draws/targets. No atribuir todo el
+coste a resolución o a un único tipo de carga sin una comparación equivalente.
+
+El SDK acepta `video_mode_width` desde 640 y `video_mode_height` desde 480, con
+reinicio. XGetVideoMode, VdQueryVideoMode y DisplayInformation usan esa selección.
+Los presets fijos 960×540 y 1280×720 conservan FSI, backoff, caché y perfil pasivo.
+No requieren recompilar el NRO. 960×540 pide 56,25% de los píxeles de 720p, pero
+no demuestra que el juego reduzca así el trabajo: puede escoger otro modo o
+crear targets de tamaño fijo; también cambia el flag guest de alta definición.
+
+La escala del renderer (`resolution_scale`/`draw_resolution_scale_x/y`) es entera
+y está limitada desde 1. Un valor fraccional no implementa downscaling. Cambiar
+solo tamaño de presentación tampoco reduce automáticamente el coste del mundo.
+
+Verificar primero en hardware imagen/HUD y tamaños/conteos de superficies y
+FPS con la misma escena/relojes/caché. Si el juego ignora el modo, se necesitan
+hooks de creación de targets/viewport/resolves antes de esta prueba. La DRS real
+necesita targets y recursos coherentes al cambiar tamaño, fences para retirar
+recursos en uso y un controlador con histéresis basado en tiempos GPU útiles;
+los ms de fence agregados del perfil no son tiempos GPU por pass. No recrear
+targets ni borrar caches cada frame. El escalado dinámico seguirá en la RHI
+nativa cuando se verifiquen esos contratos; estos presets no lo anuncian implementado.

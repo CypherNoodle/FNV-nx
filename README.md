@@ -27,6 +27,13 @@ prueba de backoff en la espera GPU verificada: tras 32 consultas sin avance,
 solicita una pausa de 50 microsegundos. Conserva resultados y timeout originales;
 no garantiza más FPS. El preset vuelve a perfil pasivo para comparar costes.
 
+La prueba alpha09 permitió navegar por el Pip-Boy y salir al exterior, según
+el usuario, sin nuevos fatals o fallos de protección en los logs recibidos.
+Para probar carga por píxel con ese mismo NRO, los presets
+`config/switch-resolution-540p.toml` y `switch-resolution-720p.toml` solicitan
+modos de vídeo guest de 960×540 y 1280×720. Son pruebas fijas: el juego puede
+conservar targets internos o elegir otro modo. No implementan resolución dinámica.
+
 El banco de referencia Windows ejecuta el código Xbox recompilado y muestra
 el menú original en español a 1280×720. Una prueba de 95 segundos verificó ocho
 capturas diferentes. El arranque conserva una barrera experimental y la prueba
