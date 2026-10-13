@@ -99,6 +99,26 @@ los datos originales. `tools/codegen.ps1` declara sus límites; con
 generados. Esta comprobación acota el fallo observado y ese patrón de saltos;
 no acredita cobertura completa de llamadas indirectas ni gameplay.
 
+La alpha02 superó esa llamada y reprodujo la cinemática inicial, lentamente;
+el siguiente cierre durante la carga señaló `0x82C17A70`. La revisión amplia
+de `tools/audit_function_entries.py` recorre valores alineados que apuntan a
+secciones ejecutables desde las secciones de datos (excepto relocaciones).
+Los compara con el registro y las extensiones PDATA. Verifica once funciones
+originales pequeñas fuera de PDATA, incluyendo su extensión y cierre del
+flujo de control. La alpha03 declara esos límites sin modificar el XEX.
+
+Las direcciones internas de rangos PDATA y los valores que parecen punteros
+quedan inventariados para revisión; no se registran automáticamente como
+funciones independientes. El análisis no cubre punteros calculados en ejecución
+ni prueba el despacho de excepciones. `--require-registered` comprueba también
+la presencia de los once cuerpos y entradas generados, y `--entry-audit` en
+el comprobador del binario verifica sus aliases enlazados.
+
+El preset alpha03 activa el muestreo de stacks del SDK, con un flag propio
+desactivado por defecto. La prueba pasiva mostró un hilo cercano al 100 %
+de un núcleo; no identificó su función. El muestreo modifica los tiempos:
+se usa para localizar el coste, no como benchmark ni prueba de una mejora.
+
 La barrera portable de arranque está en `src/switch_startup_gate.cpp` y usa
 dos wrappers propios sin editar los cuerpos generados. Su flag tiene valor
 false por defecto; el preset experimental `config/switch-alpha.toml` la activa

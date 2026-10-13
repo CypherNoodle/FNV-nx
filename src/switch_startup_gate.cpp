@@ -8,6 +8,8 @@
 // The original guest implementations remain available under __imp__ names.
 REXCVAR_DEFINE_BOOL(fnv_startup_barrier, false, "FNV",
                    "Experimental wait for the observed main initialization checkpoint");
+REXCVAR_DEFINE_BOOL(switch_profile_stacks, false, "FNV",
+                   "Diagnostic SDK stack sampling; pauses threads and affects timing");
 
 namespace {
 std::atomic<bool> ready{false};

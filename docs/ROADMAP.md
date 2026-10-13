@@ -1,8 +1,9 @@
 # Próximos hitos
 
 1. Superar el cierre al crear una partida en Switch. La primera prueba llegó
-   al menú con imagen, sonido y controles; se identificó una función indirecta
-   sin registrar y se añadieron límites para 22 saltos del mismo patrón.
+   al menú con imagen, sonido y controles. La alpha02 llegó a la cinemática;
+   la alpha03 incluye once entradas omitidas más y diagnóstico CPU para la
+   reproducción lenta y la carga tras saltarla.
 2. Validar cinemática, carga, escena jugable, controles, audio y guardado en
    una misma sesión útil. Revisar los logs ante cualquier nuevo bloqueo.
 3. Identificar el layout Direct3D de la revisión XDK documentada. Adaptar el

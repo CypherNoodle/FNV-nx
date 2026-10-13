@@ -17,8 +17,12 @@ de Switch, el usuario confirmó menú, imagen, sonido y controles. Crear una
 partida cerró el programa: el log y la traza identifican una llamada a
 `0x82D1E938` sin registrar. Se añadieron límites explícitos para ese pequeño
 salto y otros 21 del mismo patrón, verificados contra el ejecutable original.
-La nueva compilación requiere repetir la carga de partida en consola; todavía
-no hay gameplay ni rendimiento medidos. Consulta la
+La alpha02 superó ese fallo y reprodujo la cinemática inicial, lentamente. Al
+saltarla, la carga abortó por otra función sin registrar (`0x82C17A70`). La
+alpha03 incorpora once entradas originales verificadas tras revisar las
+referencias estáticas de las secciones de datos. Incluye un preset de muestreo
+para localizar el coste CPU; aún requiere prueba en consola y no hay gameplay
+validado. Consulta la
 [prueba de arranque](docs/FIRST_BOOT.md).
 
 ## Archivos del juego

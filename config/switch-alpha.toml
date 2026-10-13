@@ -1,6 +1,7 @@
-# First Xbox/Horizon boot prototype. This gate is based on Windows observations;
-# its effect on Switch still needs a hardware test. Set false to compare.
+# Xbox/Horizon diagnostic preset. Alpha02 reached the menu and intro on Switch.
 fnv_startup_barrier = true
+# Locate CPU hotspots during the slow intro/load. Disable for performance comparisons.
+switch_profile_stacks = true
 log_to_file = true
 log_level = "info"
 log_file = "/switch/FNV-nx/logs/fnv-nx.log"

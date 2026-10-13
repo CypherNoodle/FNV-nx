@@ -15,6 +15,8 @@ def main():
     parser.add_argument('--nm', required=True)
     parser.add_argument('--adjustor-audit', type=Path,
                         help='Require audited guest adjustors to exist as linked weak aliases')
+    parser.add_argument('--entry-audit', type=Path,
+                        help='Require audited original leaf entries to exist as linked weak aliases')
     args = parser.parse_args()
     elf = args.elf.read_bytes()
     nro = args.nro.read_bytes()
@@ -58,6 +60,16 @@ def main():
             body = re.search(r'^([0-9a-fA-F]+) T __imp__' + name + r'$', symbols, re.MULTILINE)
             assert alias and body and alias[1] == body[1], 'Adjustor alias/body missing: ' + name
             adjustor_count += 1
+    leaf_count = 0
+    if args.entry_audit:
+        audit = json.loads(args.entry_audit.read_text(encoding='utf-8-sig'))
+        assert audit['result'] == 'PASS' and audit['generated_bodies_checked']
+        for row in audit['leaf_entries']:
+            name = 'sub_' + row['address'][2:].upper()
+            alias = re.search(r'^([0-9a-fA-F]+) W ' + name + r'$', symbols, re.MULTILINE)
+            body = re.search(r'^([0-9a-fA-F]+) T __imp__' + name + r'$', symbols, re.MULTILINE)
+            assert alias and body and alias[1] == body[1], 'Leaf alias/body missing: ' + name
+            leaf_count += 1
     assert b'Mesa 26.2.4' in elf, 'Expected pinned Mesa driver fingerprint'
     assert b'/switch/FNV-nx/logs/fnv-nx.log' in elf, 'Missing absolute libnx log path'
     assert b'asset_pack_build = false' in elf, 'Missing inline-folder startup defaults'
@@ -66,6 +78,7 @@ def main():
               'title': title, 'author': author, 'requested_icon_verified': True,
               'startup_hooks_and_originals_verified': True, 'mesa_version': '26.2.4',
               'audited_adjustors_linked': adjustor_count,
+              'audited_leaf_entries_linked': leaf_count,
               'nro_sha256': hashlib.sha256(nro).hexdigest(),
               'hardware_tested': False, 'menu_on_switch_verified': False}
     print(json.dumps(report, indent=2))

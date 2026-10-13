@@ -7,9 +7,11 @@ los hooks de arranque. La primera ejecución en consola llegó al menú con
 imagen, sonido y controles, según la prueba del usuario. La carga de una
 partida falló por una función indirecta sin registrar (`0x82D1E938`).
 
-La alpha02 añade ese límite de función y otros 21 saltos de ajuste de puntero
-con el mismo patrón en tablas originales. Esta corrección conserva el código
-original; el siguiente test debe comprobar si supera ese fallo.
+La alpha02 añadió ese límite y otros 21 saltos, y llegó a la cinemática inicial.
+La prueba del usuario observó reproducción lenta y cierre durante la carga
+tras saltarla, por otra entrada sin registrar (`0x82C17A70`). La alpha03 añade
+once funciones originales verificadas mediante revisión estática y de su
+flujo de control. Debe comprobarse si supera ese nuevo fallo en consola.
 
 1. Copia `switch/FNV-nx/` del paquete a la SD. El destino del ejecutable es
    `sdmc:/switch/FNV-nx/fnv-nx.nro`.
@@ -27,6 +29,13 @@ el punto de inicialización observado en Windows durante un máximo de 120 s;
 el log indica si el worker esperó, se liberó o agotó el plazo. Este plazo no
 es una estimación del tiempo total de arranque. Se puede comparar poniendo
 `fnv_startup_barrier = false` en el mismo archivo.
+
+La alpha03 incluye `switch_profile_stacks = true` para localizar el trabajo
+CPU durante la cinemática y la carga. Copia también el nuevo `fnv-nx.toml`.
+El muestreo pausa brevemente los hilos y modifica el tiempo de ejecución:
+esta sesión sirve para diagnóstico, no para comparar FPS. Conserva
+`logs/rex/rex_profile.log` junto al log y cualquier registro del cierre.
+Para volver al perfil pasivo, usa `switch_profile_stacks = false`.
 
 Las rutas internas usan `/switch/FNV-nx` sobre el dispositivo SD de libnx,
 porque libstdc++ considera `sdmc:` una ruta relativa. El destino físico sigue
