@@ -7,6 +7,7 @@ parser.add_argument('--startup-barrier',action='store_true',help='Experimental o
 parser.add_argument('--barrier-phase',choices=['constructor','bootstrap','pre-loop'],default='constructor')
 parser.add_argument('--visible',action='store_true',help='Enable SDK presentation for guest-only frame capture')
 parser.add_argument('--test-pad',action='store_true',help='Opt-in synthetic guest pad: START at 8 s and A at 14 s')
+parser.add_argument('--dump-shaders',action='store_true',help='Collect private Xenos microcode and translated shader diagnostics')
 parser.add_argument('--seconds',type=int,default=45,help='Owned process deadline, 20 to 120 seconds')
 parser.add_argument("--game-root",type=Path,required=True)
 parser.add_argument("--exe",type=Path,default=Path(__file__).resolve().parents[1]/"out/host/fnv_xbox.exe")
@@ -23,6 +24,10 @@ runtime_log=HERE/('logs/host-boot-'+probe_id+'.log');console_log=ROOT/'reports/f
 command=[str(exe),'--game_data_root='+str(game),'--user_data_root='+str(HERE/'user-data'),
  '--cache_root='+str(HERE/'cache'),'--metadata_root='+str(HERE/'metadata'),
  '--log_file='+str(runtime_log),'--headless='+('false' if args.visible else 'true'),'--allow_game_relative_writes=false']
+shader_dir=HERE/'shaders'/probe_id
+if args.dump_shaders:
+ shader_dir.mkdir(parents=True,exist_ok=True)
+ command.append('--dump_shaders='+str(shader_dir))
 start=time.monotonic();timed_out=False
 affinity={'requested':args.single_core,'applied':False}
 observations={name:(exe.parent/name).stat().st_size if (exe.parent/name).exists() else 0
@@ -65,6 +70,9 @@ report={'result':'OBSERVATION_ONLY','command':command,'exit_code':code,
  'experimental_startup_barrier':args.startup_barrier,
  'barrier_phase':args.barrier_phase if args.startup_barrier else None,
  'presentation_requested':args.visible,'synthetic_test_pad':args.test_pad,'deadline_seconds':args.seconds,
+ 'shader_dump_requested':args.dump_shaders,
+ 'private_shader_directory':str(shader_dir) if args.dump_shaders else None,
+ 'shader_dump_files':len(list(shader_dir.glob('*'))) if args.dump_shaders else 0,
  'guest_capture_files':[str(path) for path in exe.parent.glob(f'fnv-host-guest-{process.pid}-*.ppm')]}
 (ROOT/'reports/fnv-xbox-host-boot.json').write_text(json.dumps(report,indent=2)+'\n')
 print(json.dumps(report,indent=2))

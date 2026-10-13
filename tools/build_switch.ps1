@@ -6,14 +6,15 @@ param(
     [string]$CMake = 'cmake',
     [string]$Ninja = 'ninja',
     [ValidateRange(1,16)][int]$Jobs = 4,
+    [ValidateRange(0,3)][int]$GuestOptimization = 2,
     [switch]$ConfigureOnly
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
-$sdk = (Resolve-Path -LiteralPath $HorizonSdk).Path
-$nvk = (Resolve-Path -LiteralPath $NvkSdk).Path
-$devkit = (Resolve-Path -LiteralPath $DevkitPro).Path
-$generated = (Resolve-Path -LiteralPath $GeneratedDir).Path
+$sdk = (Resolve-Path -LiteralPath $HorizonSdk).Path.Replace('\','/')
+$nvk = (Resolve-Path -LiteralPath $NvkSdk).Path.Replace('\','/')
+$devkit = (Resolve-Path -LiteralPath $DevkitPro).Path.Replace('\','/')
+$generated = (Resolve-Path -LiteralPath $GeneratedDir).Path.Replace('\','/')
 foreach ($required in @(
     (Join-Path $sdk 'cmake/rexglue_switch.cmake'),
     (Join-Path $nvk 'lib/libvulkan.a'),
@@ -28,7 +29,8 @@ $build = Join-Path $root 'out/switch'
     "-DCMAKE_TOOLCHAIN_FILE=$root/cmake/switch-devkitA64.cmake" `
     "-DCMAKE_MAKE_PROGRAM=$ninjaPath" "-DDEVKITPRO=$devkit" `
     "-DFNV_HORIZON_SDK=$sdk" "-DREXGLUE_SWITCH_NVK_SDK=$nvk" `
-    "-DFNV_GENERATED_DIR=$generated" '-DFNV_HOST_BOOT_TRACE=OFF'
+    "-DFNV_GENERATED_DIR=$generated" '-DFNV_HOST_BOOT_TRACE=OFF' `
+    "-DFNV_SWITCH_GUEST_OPTIMIZATION=$GuestOptimization"
 if ($LASTEXITCODE -ne 0) { throw "Switch configure failed ($LASTEXITCODE)" }
 if ($ConfigureOnly) { return }
 & $CMake --build $build --parallel $Jobs

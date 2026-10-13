@@ -1,10 +1,9 @@
 # Próximos hitos
 
-1. Completar el build Horizon: ruta CMake y compilación CPU ya preparadas;
-   faltan enlazar el runtime con sus dependencias y comprobar memoria, hilos,
-   archivos, mandos y audio en consola.
-2. Compilar un NRO que lea los archivos propios junto a fnv-nx.nro y ejecute
-   código real de Xbox; registrar el último punto alcanzado.
+1. Probar el primer NRO Horizon: runtime y NVK ya enlazados; comprobar memoria,
+   hilos, archivos, mandos, audio y el orden de arranque en consola.
+2. Registrar el último punto del código real Xbox alcanzado en consola y resolver
+   bloqueos de arranque con sus logs; mantener los archivos propios junto al NRO.
 3. Identificar la revisión XDK y el layout Direct3D del juego. Adaptar el
    renderer nativo y sus shaders usando la referencia Windows para comparar.
 4. Mostrar y navegar el menú en Switch. Agrupar verificaciones de gráficos,

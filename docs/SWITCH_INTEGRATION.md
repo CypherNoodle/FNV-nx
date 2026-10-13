@@ -19,6 +19,14 @@ La [guía de NFSMW-NX](https://github.com/StevensND/nfsmw-nx/blob/main/mesa/READ
 describe la construcción de Mesa/NVK. La instalación básica de devkitPro no
 contiene ese SDK completo. El script detiene la configuración si falta.
 
+El primer build completo usa Mesa 26.2.4 de `danfromtico/mesa-switch`, commit
+`606441c90e459028a50fca352daebfc20211f890`, con adaptación local de rutas MSYS2.
+Se construyeron `mesa_clc`, `vtn_bindgen2` y el driver Vulkan para Horizon.
+La biblioteca `libvulkan.a` contiene 1.533 objetos ELF AArch64, sin objetos host.
+SHA-256 del archive comprobado:
+`5bd7bebe6997bc54582dea202064381a42d1351dd1bd63c3d06391f3e3b6b26c`.
+No se aplicaron las optimizaciones específicas de NFSMW.
+
 ```powershell
 ./tools/build_switch.ps1 -HorizonSdk 'RUTA/sa2-nx/sdk' -NvkSdk 'RUTA/mesa-sdk/opt/devkitpro/portlibs/switch' -DevkitPro 'RUTA/devkitPro' -GeneratedDir 'RUTA/generated/default'
 ```
@@ -26,6 +34,9 @@ contiene ese SDK completo. El script detiene la configuración si falta.
 La ruta inicial conserva el plugin Xenos del SDK como referencia para el arranque.
 No acredita rendimiento ni corrección gráfica de New Vegas en Switch. El renderer
 directo del juego requiere identificar sus funciones D3D, layouts y shaders.
+`-GuestOptimization 1` se usó para este primer build. El script permite 0–3,
+con 2 por defecto. El empaquetado copia el nombre de target que usa el SDK al
+nombre final solicitado, `fnv-nx.nro`.
 
 ## Compilación de CPU independiente del driver
 
@@ -72,5 +83,17 @@ NVK facilita reutilizar inicialmente la ruta Vulkan del SDK. deko3d sigue siendo
 candidato para el renderer directo. No hay una comparación de rendimiento de
 ambos backends con New Vegas en hardware que justifique declarar uno más rápido.
 
-Todavía no se ha enlazado ni probado un NRO Xbox de FNV-nx. Primero deben completarse
-las dependencias gráficas y del runtime y verificarse el arranque real.
+El primer NRO Xbox ya está enlazado y pasó `tools/check_switch_binary.py`:
+AArch64, entrada ELF en cero, segmentos NRO válidos, título FNV-nx, icono
+solicitado, fingerprint Mesa 26.2.4 y los dos hooks con sus originales.
+La prueba de arranque en hardware sigue pendiente. Véase FIRST_BOOT.md.
+
+La barrera portable de arranque está en `src/switch_startup_gate.cpp` y usa
+dos wrappers propios sin editar los cuerpos generados. Su flag tiene valor
+false por defecto; el preset experimental `config/switch-alpha.toml` la activa
+para comparar con el checkpoint que permitió llegar al menú en Windows.
+
+La referencia Windows produjo una captura privada de 95 s con 7 programas
+Xenos observados, 5 vertex y 2 pixel. `--dump-shaders` en `probe_host.py`
+y `tools/inventory_shaders.py` permiten reproducir e inventariar esa captura.
+No acredita cobertura de todo el juego ni una biblioteca nativa deko3d.

@@ -23,9 +23,29 @@ class FnvXboxApp : public rex::ReXApp {
   }
 
   // Override virtual hooks for customization:
+#if defined(__SWITCH__)
+  std::string_view BuiltInConfig() const override {
+    return R"(
+log_to_file = true
+log_level = "info"
+log_file = "/switch/FNV-nx/logs/fnv-nx.log"
+allow_game_relative_writes = false
+asset_pack = false
+asset_pack_build = false
+)";
+  }
+  void OnPostInitLogging() override {
+    // The inline game folder also contains runtime files; never pack it.
+    rex::cvar::SetFlagByName("asset_pack", "false");
+    rex::cvar::SetFlagByName("asset_pack_build", "false");
+    rex::cvar::SetFlagByName("allow_game_relative_writes", "false");
+  }
+#endif
   void OnConfigurePaths(rex::PathConfig& paths) override {
 #if defined(__SWITCH__)
-    const std::filesystem::path root{"sdmc:/switch/FNV-nx"};
+    // libstdc++ treats "sdmc:" as relative. libnx resolves this absolute
+    // POSIX path on its default SD device, i.e. sdmc:/switch/FNV-nx.
+    const std::filesystem::path root{"/switch/FNV-nx"};
     paths.game_data_root = root;
     paths.user_data_root = root / "user-data";
     paths.update_data_root = root / "updates";

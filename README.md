@@ -11,9 +11,10 @@ el menú original en español a 1280×720. Una prueba de 95 segundos verificó o
 capturas diferentes. El arranque conserva una barrera experimental y la prueba
 usó START/A sintéticos dentro del runtime.
 
-**Todavía no existe un NRO de esta ruta.** No se ha validado gameplay, navegación
-entre opciones ni ejecución Horizon. La integración gráfica de Switch sigue
-pendiente; el backend Xenos/D3D12 actual es la referencia Windows.
+**Existe un primer NRO Xbox experimental**, enlazado con ReXGlue Horizon y NVK.
+Pasó las comprobaciones de estructura y metadatos; aún no se ha ejecutado en
+consola. El menú y gameplay en Switch siguen pendientes. Consulta la
+[primera prueba de arranque](docs/FIRST_BOOT.md).
 
 ## Archivos del juego
 
@@ -59,7 +60,6 @@ y [las dependencias](THIRD_PARTY_NOTICES.md).
 
 ## Trabajo para Switch
 
-La ruta CMake Horizon, el hook de carpetas SD y las herramientas de compilación
-están en preparación. Consulta [la integración Switch](docs/SWITCH_INTEGRATION.md)
-para sus dependencias y la comprobación de CPU con devkitA64. La generación de
-objetos ARM no acredita el enlace ni el arranque del NRO.
+La ruta CMake Horizon y el empaquetado NRO ya completaron su primer build.
+Consulta [la integración Switch](docs/SWITCH_INTEGRATION.md) para sus dependencias
+y las comprobaciones de CPU y binario. La ejecución en hardware sigue pendiente.

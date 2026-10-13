@@ -9,5 +9,6 @@
   "user_supplied_game_files": true,
   "preserve_original_game_structure": true,
   "distribute_game_files": false,
-  "switch_binary_created": false
+  "switch_binary_created": true,
+  "hardware_tested": false
 }

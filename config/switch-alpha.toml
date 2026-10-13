@@ -1,0 +1,9 @@
+# First Xbox/Horizon boot prototype. This gate is based on Windows observations;
+# its effect on Switch still needs a hardware test. Set false to compare.
+fnv_startup_barrier = true
+log_to_file = true
+log_level = "info"
+log_file = "/switch/FNV-nx/logs/fnv-nx.log"
+asset_pack = false
+asset_pack_build = false
+allow_game_relative_writes = false

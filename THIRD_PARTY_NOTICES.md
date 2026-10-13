@@ -5,6 +5,12 @@
   ni su árbol de fuentes. El bootstrap de la aplicación sigue su plantilla oficial.
 - La integración futura debe conservar las licencias y atribuciones de cada
   componente que incorpore, incluido el fork Horizon y el renderer elegido.
+- El build Switch usa el fork Horizon de [SA2-NX](https://github.com/ChanseyIsTheBest/sa2-nx),
+  basado en ReXGlue 0.10.0 y documentado bajo BSD-3-Clause en `sdk/LICENSE`.
+- Mesa/NVK Horizon: [danfromtico/mesa-switch](https://github.com/danfromtico/mesa-switch),
+  licencia MIT y licencias de sus componentes. Se construye como dependencia externa.
+- El runtime incorpora dependencias como FFmpeg, fmt, spdlog, SIMDe y glslang;
+  sus fuentes y licencias deben conservarse al preparar una distribución.
 - El icono Vault Boy fue aportado por el usuario para identificar el NRO.
   No se reclama propiedad de Fallout, sus personajes, marcas o recursos.
 - No se incluye el juego ni su código generado. Cada usuario aporta sus archivos.
