@@ -46,7 +46,8 @@ def main():
     expected_icon = Path(__file__).resolve().parents[1] / 'icon.jpg'
     assert hashlib.sha256(icon).digest() == hashlib.sha256(expected_icon.read_bytes()).digest(), 'Wrong NRO icon'
     symbols = subprocess.run([args.nm, '-n', str(args.elf)], capture_output=True, text=True, check=True).stdout
-    for name in ('sub_82557648', 'sub_82244E48', 'sub_82C57A38', 'sub_82C57A48'):
+    for name in ('sub_82557648', 'sub_82244E48', 'sub_82C57A38', 'sub_82C57A48',
+                 'sub_8278FC10', 'sub_825F67F8'):
         hook = re.search(r'^([0-9a-fA-F]+) T ' + name + r'$', symbols, re.MULTILINE)
         original = re.search(r'^([0-9a-fA-F]+) T __imp__' + name + r'$', symbols, re.MULTILINE)
         assert hook and original and hook[1] != original[1], 'Startup hook/original missing: ' + name

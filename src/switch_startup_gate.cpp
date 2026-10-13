@@ -12,6 +12,8 @@ REXCVAR_DEFINE_BOOL(switch_profile_stacks, false, "FNV",
                    "Diagnostic SDK stack sampling; pauses threads and affects timing");
 REXCVAR_DEFINE_BOOL(fnv_profile_lowfps, false, "FNV",
                    "Sample one 60-second low-FPS gameplay interval, then return to passive profiling");
+REXCVAR_DEFINE_BOOL(fnv_gpu_wait_backoff, false, "FNV",
+                   "Experimental 50us backoff in the verified unchanged-progress GPU poll loop");
 
 namespace {
 std::atomic<bool> ready{false};
@@ -24,6 +26,52 @@ REX_EXTERN(__imp__sub_82557648);
 REX_EXTERN(__imp__sub_82244E48);
 REX_EXTERN(__imp__sub_82C57A38);
 REX_EXTERN(__imp__sub_82C57A48);
+REX_EXTERN(__imp__sub_8278FC10);
+REX_EXTERN(__imp__sub_825F67F8);
+
+REX_EXTERN(sub_825F67F8) {
+    const uint32_t caller = static_cast<uint32_t>(ctx.lr);
+    const uint32_t manager = ctx.r3.u32;
+    const uint32_t before = ReadGuestWord(base, manager + 580);
+    __imp__sub_825F67F8(ctx, base);
+    const uint32_t after = ReadGuestWord(base, manager + 580);
+    REXLOG_INFO("FNV guest save phase: caller={:08X} manager={:08X} flags_before={:08X} flags_after={:08X} result={:08X}",
+                caller, manager, before, after, ctx.r3.u32);
+}
+
+REX_EXTERN(sub_8278FC10) {
+    // Only the wait loop in 8224AC98; other uses keep their original timing.
+    const bool enabled = REXCVAR_GET(fnv_gpu_wait_backoff) &&
+                         static_cast<uint32_t>(ctx.lr) == 0x8224AD30;
+    const uint32_t state = ctx.r3.u32;
+    const uint32_t before = enabled ? ReadGuestWord(base, state + 8) : 0;
+    __imp__sub_8278FC10(ctx, base);
+    if (!enabled) return;
+    struct PollState {
+        uint32_t address = 0;
+        unsigned unchanged = 0;
+        uint64_t sleeps = 0;
+        std::chrono::steady_clock::time_point last_report{};
+    };
+    static thread_local PollState poll;
+    if (poll.address != state || ctx.r3.u32 != 1 ||
+        ReadGuestWord(base, state + 8) != before) {
+        poll.address = state;
+        poll.unchanged = 0;
+        return;
+    }
+    if (++poll.unchanged < 32) return;
+    poll.unchanged = 0;
+    // No fake completion, skipped original call, changed fence or guest writes.
+    std::this_thread::sleep_for(std::chrono::microseconds(50));
+    ++poll.sleeps;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - poll.last_report >= std::chrono::seconds(10)) {
+        REXLOG_INFO("FNV GPU poll backoff: caller=8224AD30 sleeps={} requested_us=50 (actual scheduling may differ)",
+                    poll.sleeps);
+        poll.last_report = now;
+    }
+}
 
 // Observe original XDK wrappers; preserve their calls, results and PPC state.
 REX_EXTERN(sub_82C57A38) {

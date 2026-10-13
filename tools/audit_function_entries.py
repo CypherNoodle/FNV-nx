@@ -26,6 +26,7 @@ LEAF_SIZES = {
     0x82A83238: 40, 0x82A83260: 40,
     0x82A83288: 24, 0x82A832A0: 24, 0x82A832B8: 24,
     0x82A832D0: 24, 0x82A832E8: 24,
+    0x826207B8: 32,
 }
 ADAPTER_FORWARDERS = {0x82A83238, 0x82A83260, 0x82A83288, 0x82A832A0,
                       0x82A832B8, 0x82A832D0, 0x82A832E8}
@@ -103,6 +104,8 @@ def main():
     known = registered | set(LEAF_SIZES)
     assert 0x82A83220 in registered and 0x82A83300 in registered
     assert struct.unpack_from('>I', image, 0x82A83234 - 0x82000000)[0] == 0x4E800420
+    assert 0x82620798 in registered and 0x826207D8 in registered
+    assert struct.unpack_from('>I', image, 0x826207B4 - 0x82000000)[0] == 0x4E800420
     for start, end in FORWARDER_CLUSTERS:
         assert end in registered, 'Forwarder cluster has no registered upper boundary'
         assert struct.unpack_from('>I', image, start - 0x82000000 - 4)[0] in (0x4E800020, 0x4E800420)
@@ -112,6 +115,10 @@ def main():
             assert first == 0x81630000 and load >> 16 in (0x814B, 0x816B)
             assert ctr == (0x7D4903A6 if load >> 16 == 0x814B else 0x7D6903A6)
             assert tail == 0x4E800420, 'Not a bounded original virtual forwarder'
+        elif address == 0x826207B8:
+            words = struct.unpack_from('>8I', image, address - 0x82000000)
+            assert words == (0x2B030000, 0x3863FF5C, 0x409A0008, 0x38600000,
+                             0x81630000, 0x814B043C, 0x7D4903A6, 0x4E800420)
         elif address in ADAPTER_FORWARDERS:
             words = struct.unpack_from('>' + 'I' * (size // 4), image, address - 0x82000000)
             assert words[-1] == 0x4E800420 and words[-2] in (0x7D0903A6, 0x7D2903A6, 0x7D4903A6)
@@ -156,18 +163,23 @@ def main():
             assert address in registered, f'Leaf not registered: {address:08X}'
         leaf_entries.append({'address': hex(address), 'size': size,
                              'registered': address in registered, 'references': len(refs.get(address, [])),
-                             'evidence': 'bounded_dispatch_adapter_cluster' if address in ADAPTER_FORWARDERS else
+                             'evidence': 'bounded_conditional_this_adapter' if address == 0x826207B8 else
+                             'bounded_dispatch_adapter_cluster' if address in ADAPTER_FORWARDERS else
                              'bounded_virtual_forwarder_cluster' if address in FORWARDERS else 'original_data_pointer'})
     if args.require_registered:
         remaining = set(LEAF_SIZES)
         for file in args.generated_dir.glob('fnv_xbox_recomp.*.cpp'):
             text = file.read_text()
-            for address in ADAPTER_FORWARDERS:
+            for address in ADAPTER_FORWARDERS | {0x826207B8}:
                 definition = f'DEFINE_REX_FUNC(sub_{address:08X})'
                 if definition not in text:
                     continue
                 body = text.split(definition, 1)[1].split('\n}', 1)[0]
                 assert 'REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);' in body and '\treturn;' in body
+                if address == 0x826207B8:
+                    assert 'ctx.r3.s64 = ctx.r3.s64 + -164;' in body
+                    assert 'ctx.r3.s64 = 0;' in body
+                    assert 'ctx.r10.u64 = REX_LOAD_U32(ctx.r11.u32 + 1084);' in body
                 if LEAF_SIZES[address] == 24:
                     slot = 0x24 + ((address - 0x82A83288) // 24) * 4
                     assert 'ctx.r3.u64 = REX_LOAD_U32(ctx.r4.u32 + 0);' in body

@@ -227,3 +227,29 @@ no optimiza ni cambia afinidades, prioridades, waits, shaders o fidelidad gráfi
 
 La caché de Mesa enviada contiene índice y datos no vacíos; acredita escritura
 en SD, todavía no tasa de aciertos ni mejora de FPS. No borrar esa carpeta.
+
+## Alpha09: espera activa verificada
+
+Los dos aborts alpha08 apuntaron a `0x826207B8`. El adaptador original tiene
+32 bytes, ajuste condicional de this y tail a vtable+0x43C; está delimitado por
+un bctr anterior y la entrada ya registrada `0x826207D8`, fuera de PDATA.
+Se conserva su código mediante el generador. No es un stub de retorno exitoso.
+
+El muestreo incluyó PC frecuentes en `0x8278FC10` y `0x8224AC98`. Sus instrucciones
+confirman que el callsite con LR `0x8224AD30` consulta repetidamente el read-pointer
+del dispositivo mientras la condición sigue pendiente. `tools/audit_gpu_wait.py`
+verifica ese callsite, salida, vuelta del loop, offset de progreso y timeout.
+
+`fnv_gpu_wait_backoff=true` añade una pausa solicitada de 50 us después de 32
+consultas que devuelven 1 sin cambiar el progreso observado. Llama primero al
+original, no modifica guest memory/result/fence, y limita el cambio al callsite
+verificado. Progreso, otra dirección de estado o fin de espera reinician la cuenta.
+La duración efectiva depende del scheduler. Puede liberar CPU sin acelerar una
+GPU saturada; la mejora de FPS y la ausencia de regresiones requieren hardware.
+Default false; el preset de prueba lo activa. Desactivarlo permite comparar con
+la misma compilación. `fnv_profile_lowfps=false` evita el muestreo en esta comparación.
+
+Las escrituras grandes del guardado alpha08 completaron sus bytes y devolvieron
+éxito; Close y DeviceState también devolvieron éxito con device1. Esto no explica
+el aviso. La observación ahora incluye flags del manager guest antes/después de
+la fase `0x825F67F8`, sin alterarlos, para localizar el fallo de validación posterior.
