@@ -34,6 +34,18 @@ la conversión directa a UAM falla por layouts que requieren adaptación.
 Existe una comparación FSI de configuración para el mismo NRO; deko3d todavía
 no está integrado y no se ha demostrado una mejora de rendimiento.
 
+Comenzó un [prototipo deko3d separado](experimental/deko/README.md): adapta
+constantes y samplers de shaders capturados, compila 69/79 variantes FBO con
+UAM y dispone de un núcleo AArch64 de carga de módulos y registro de draws.
+Falta conectarlo con los recursos y las llamadas del juego y validar imagen
+en GPU; no hay todavía un NRO deko3d jugable.
+
+La comparación FSI ya mostró el interior, con artefactos y rendimiento bajo.
+El cierre al salir de la casa es un fallo de mapeo de memoria aún pendiente.
+Se añadió una captura optativa de geometría real para alimentar el prototipo
+deko3d; el preset es `config/switch-deko-capture.toml`. Ese NRO de captura sigue
+renderizando con NVK y no representa una mejora de rendimiento.
+
 ## Archivos del juego
 
 No se distribuyen ni versionan `default.xex`, `Data/`, código generado, shaders

@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory=$true)][string]$GeneratedDir,
     [string]$CMake = 'cmake',
     [string]$Ninja = 'ninja',
+    [string]$Python = 'python',
     [ValidateRange(1,16)][int]$Jobs = 4,
     [ValidateRange(0,3)][int]$GuestOptimization = 2,
     [switch]$ConfigureOnly
@@ -24,6 +25,10 @@ foreach ($required in @(
     if (-not (Test-Path -LiteralPath $required)) { throw "Missing prerequisite: $required" }
 }
 $ninjaPath = (Get-Command $Ninja -ErrorAction Stop).Source
+foreach ($prepare in @('prepare_horizon_shader_dump.py', 'prepare_horizon_draw_capture.py')) {
+    & $Python (Join-Path $PSScriptRoot $prepare) --sdk $sdk
+    if ($LASTEXITCODE -ne 0) { throw "SDK preparation failed: $prepare" }
+}
 $build = Join-Path $root 'out/switch'
 & $CMake -S $root -B $build -G Ninja '-DCMAKE_BUILD_TYPE=Release' `
     "-DCMAKE_TOOLCHAIN_FILE=$root/cmake/switch-devkitA64.cmake" `

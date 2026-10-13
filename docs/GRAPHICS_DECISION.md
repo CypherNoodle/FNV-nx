@@ -113,3 +113,28 @@ errores de estado o shaders; no promete arreglar el mundo ni mejorar FPS.
 Puede ser mucho más lenta. Se prueba una vez, conservando logs y shaders,
 y se restaura el preset FBO después. La configuración se lee al reiniciar
 y debe copiarse como `sd:/switch/FNV-nx/fnv-nx.toml`.
+
+## FSI visible y comienzo de la implementación nativa
+
+La prueba FSI cargó una partida y mostró el interior; el usuario observó caras
+y el icono de autoguardado distorsionados y notificó logros. La salida de la
+casa produjo otro tipo de cierre: protección/mapeo rechazados (`0xCE01`) y
+fallo de escritura física. No es una nueva función omitida identificada.
+Ese fallo del runtime y los artefactos siguen pendientes, sin causa común probada.
+
+Por solicitud explícita del usuario se inició el
+[núcleo experimental deko3d](../experimental/deko/README.md). La adaptación
+crea otro ABI de constantes con copia por campo y bindings de samplers
+explícitos. Compilan 69/79 variantes FBO y 31/68 FSI. Las variantes de demote
+no se modificaron para forzar una compilación. El núcleo AArch64 implementa
+carga de DKSH y comandos de draw con recursos y estados explícitos, pero aún
+no está conectado al juego ni probado en GPU. Compilarlo no demuestra imagen
+correcta ni mejor rendimiento.
+
+El NRO de diagnóstico alpha05 añade captura optativa de geometría e índices
+reales y estado/constantes, con límites de tamaño y lectura mediante shadow.
+`config/switch-deko-capture.toml` conserva FSI y activa la captura. Sigue usando
+NVK para dibujar el juego: alimenta la prueba deko separada y no corrige el
+cierre de memoria. La herramienta de inspección valida los datos y puede
+adaptar los UBOs de la variante exacta. Las texturas, la coherencia de buffers
+escritos por GPU y la reproducción visual aún no están implementadas.
