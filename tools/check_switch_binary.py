@@ -47,7 +47,7 @@ def main():
     assert hashlib.sha256(icon).digest() == hashlib.sha256(expected_icon.read_bytes()).digest(), 'Wrong NRO icon'
     symbols = subprocess.run([args.nm, '-n', str(args.elf)], capture_output=True, text=True, check=True).stdout
     for name in ('sub_82557648', 'sub_82244E48', 'sub_82C57A38', 'sub_82C57A48',
-                 'sub_8278FC10', 'sub_825F67F8'):
+                 'sub_8278FC10', 'sub_825F67F8', 'sub_8224AC98'):
         hook = re.search(r'^([0-9a-fA-F]+) T ' + name + r'$', symbols, re.MULTILINE)
         original = re.search(r'^([0-9a-fA-F]+) T __imp__' + name + r'$', symbols, re.MULTILINE)
         assert hook and original and hook[1] != original[1], 'Startup hook/original missing: ' + name
@@ -72,12 +72,16 @@ def main():
             assert alias and body and alias[1] == body[1], 'Leaf alias/body missing: ' + name
             leaf_count += 1
     assert b'Mesa 26.2.4' in elf, 'Expected pinned Mesa driver fingerprint'
+    for name in ('RexFnvCallProfileEnabled', 'RexFnvCallProfileAdd', 'RexFnvCallProfileReport'):
+        assert re.search(r'^[0-9a-fA-F]+ T ' + name + r'$', symbols, re.MULTILINE), name
+    assert b'memory-protect-inclusive' in elf and b'guest-gpu-wait-inclusive' in elf
     assert b'/switch/FNV-nx/logs/fnv-nx.log' in elf, 'Missing absolute libnx log path'
     assert b'asset_pack_build = false' in elf, 'Missing inline-folder startup defaults'
     report = {'result': 'PASS', 'architecture': 'AArch64', 'elf_entry': entry,
               'nro_bytes': len(nro), 'nro_image_bytes': image_size,
               'title': title, 'author': author, 'requested_icon_verified': True,
               'startup_hooks_and_originals_verified': True, 'mesa_version': '26.2.4',
+              'call_timing_symbols_verified': True,
               'audited_adjustors_linked': adjustor_count,
               'audited_leaf_entries_linked': leaf_count,
               'nro_sha256': hashlib.sha256(nro).hexdigest(),

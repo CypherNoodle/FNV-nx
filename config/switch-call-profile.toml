@@ -1,0 +1,29 @@
+# Alpha10 diagnostic: the same NVK/FSI renderer and 720p mode as alpha09.
+# CPU call/wait timings are inclusive; no GPU pass timestamps yet.
+fnv_startup_barrier = true
+fnv_call_profile = true
+fnv_profile_lowfps = true
+switch_profile_stacks = false
+fnv_gpu_wait_backoff = true
+occlusion_query_enable = false
+render_target_path_vulkan = "fsi"
+video_mode_width = 1280
+video_mode_height = 720
+resolution_scale = 1
+draw_resolution_scale_x = 1
+draw_resolution_scale_y = 1
+vblank_per_swap = false
+clock_no_scaling = false
+clock_source_raw = false
+diag_vdswap_delay_us = 0
+sa2_io_us_per_kb = 0
+log_to_file = true
+log_level = "info"
+log_file = "/switch/FNV-nx/logs/fnv-nx.log"
+asset_pack = false
+asset_pack_build = false
+allow_game_relative_writes = false
+dump_shaders = ""
+fnv_capture_draws = false
+fnv_capture_textures = false
+input_xbox_layout = false

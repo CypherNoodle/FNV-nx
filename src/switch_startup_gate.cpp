@@ -1,4 +1,5 @@
 #include "fnv_xbox_pch.h"
+#include "switch_call_profile.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -63,7 +64,10 @@ REX_EXTERN(sub_8278FC10) {
     if (++poll.unchanged < 32) return;
     poll.unchanged = 0;
     // No fake completion, skipped original call, changed fence or guest writes.
-    std::this_thread::sleep_for(std::chrono::microseconds(50));
+    {
+        FNV_CALL_SCOPE(17);
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
     ++poll.sleeps;
     const auto now = std::chrono::steady_clock::now();
     if (now - poll.last_report >= std::chrono::seconds(10)) {
@@ -71,6 +75,12 @@ REX_EXTERN(sub_8278FC10) {
                     poll.sleeps);
         poll.last_report = now;
     }
+}
+
+REX_EXTERN(__imp__sub_8224AC98);
+REX_EXTERN(sub_8224AC98) {
+    FNV_CALL_SCOPE(12);
+    __imp__sub_8224AC98(ctx, base);
 }
 
 // Observe original XDK wrappers; preserve their calls, results and PPC state.

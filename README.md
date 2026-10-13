@@ -6,6 +6,15 @@ que aporte cada usuario.
 
 ## Estado actual
 
+Alpha09 permite usar el Pip-Boy y salir de la casa en la prueba del usuario;
+el rendimiento sigue bajo. Alpha10 añade un diagnóstico conjunto de llamadas,
+esperas, reloj guest, ejecución por núcleo, memoria, audio y lecturas de SD.
+Compila y pasa comprobaciones del binario, pero aún requiere ejecución en Switch.
+El aviso de guardado y las miniaturas siguen pendientes. Detalles en
+[PERFORMANCE.md](docs/PERFORMANCE.md). Sigue usando NVK/FSI.
+
+### Historial de correcciones
+
 Alpha07 prueba una recuperación del fallo de remapeo al salir de la casa:
 agrupa transiciones contiguas sin ampliar watches y emula únicamente stores
 autorizados por la memoria guest cuando el remapeo falla. Añade contadores de
@@ -136,3 +145,11 @@ La ruta CMake Horizon y el empaquetado NRO ya completaron su primer build.
 Consulta [la integración Switch](docs/SWITCH_INTEGRATION.md) para sus dependencias
 y las comprobaciones de CPU y binario. El menú ya se probó en hardware;
 el siguiente objetivo es superar el cierre al crear una partida.
+## Performance diagnosis (alpha10)
+
+The 540p video-mode trial still produced mostly 1280-wide surface pitches.
+The current priority is profiling calls and dependencies, with an opt-in diagnostic
+build that separates draw/resolve preparation, memory work, GPU fences, ring idle,
+guest polling and interrupt callbacks. See [PERFORMANCE.md](docs/PERFORMANCE.md).
+These measurements do not implement dynamic resolution or establish an FPS gain.
+
