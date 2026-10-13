@@ -11,9 +11,11 @@
   "distribute_game_files": false,
   "switch_binary_created": true,
   "hardware_tested": true,
-  "hardware_build_tested": "alpha02",
+  "hardware_build_tested": "alpha03",
   "menu_image_audio_controls_confirmed": true,
   "intro_movie_displayed": true,
   "intro_speed_issue_reported": true,
+  "tutorial_audio_character_creator_observed": true,
+  "world_black_reported": true,
   "gameplay_verified": false
 }

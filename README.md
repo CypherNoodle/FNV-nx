@@ -22,7 +22,10 @@ saltarla, la carga abortó por otra función sin registrar (`0x82C17A70`). La
 alpha03 incorpora once entradas originales verificadas tras revisar las
 referencias estáticas de las secciones de datos. Incluye un preset de muestreo
 para localizar el coste CPU; aún requiere prueba en consola y no hay gameplay
-validado. Consulta la
+validado. La alpha03 alcanzó el tutorial y el creador de personaje, con mundo
+negro y bajo rendimiento; el cierre de autoguardado señaló `0x82814F90`.
+La alpha04 añade seis forwarders, una prueba de compatibilidad de oclusión y
+captura de shaders. Consulta [la evaluación gráfica](docs/GRAPHICS_DECISION.md) y la
 [prueba de arranque](docs/FIRST_BOOT.md).
 
 ## Archivos del juego

@@ -11,7 +11,9 @@ La alpha02 añadió ese límite y otros 21 saltos, y llegó a la cinemática ini
 La prueba del usuario observó reproducción lenta y cierre durante la carga
 tras saltarla, por otra entrada sin registrar (`0x82C17A70`). La alpha03 añade
 once funciones originales verificadas mediante revisión estática y de su
-flujo de control. Debe comprobarse si supera ese nuevo fallo en consola.
+flujo de control. En consola llegó al tutorial y al creador de personaje;
+el mundo quedó negro y el autoguardado cerró por `0x82814F90`. La alpha04
+añade ese forwarder y otros cinco de grupos verificados.
 
 1. Copia `switch/FNV-nx/` del paquete a la SD. El destino del ejecutable es
    `sdmc:/switch/FNV-nx/fnv-nx.nro`.
@@ -30,19 +32,21 @@ el log indica si el worker esperó, se liberó o agotó el plazo. Este plazo no
 es una estimación del tiempo total de arranque. Se puede comparar poniendo
 `fnv_startup_barrier = false` en el mismo archivo.
 
-La alpha03 incluye `switch_profile_stacks = true` para localizar el trabajo
-CPU durante la cinemática y la carga. Copia también el nuevo `fnv-nx.toml`.
-El muestreo pausa brevemente los hilos y modifica el tiempo de ejecución:
-esta sesión sirve para diagnóstico, no para comparar FPS. Conserva
-`logs/rex/rex_profile.log` junto al log y cualquier registro del cierre.
-Para volver al perfil pasivo, usa `switch_profile_stacks = false`.
+La alpha04 vuelve al perfil pasivo (`switch_profile_stacks = false`) y desactiva
+consultas nativas de oclusión como prueba del mundo negro. Copia también el
+nuevo `fnv-nx.toml`; aún no se ha validado una mejora de imagen o rendimiento.
+Conserva `logs/rex/rex_profile.log`, el log principal y el registro del cierre.
+El preset captura shaders observados en
+`sd:/switch/FNV-nx/cache/shader-diagnostics-alpha04/`; conserva esa carpeta
+para investigar materiales y preparar una prueba de conversión a deko3d.
 
 Las rutas internas usan `/switch/FNV-nx` sobre el dispositivo SD de libnx,
 porque libstdc++ considera `sdmc:` una ruta relativa. El destino físico sigue
 siendo el solicitado. El empaquetado automático de assets queda desactivado:
 la carpeta también contiene NRO, configuración, logs y datos de usuario.
 
-La siguiente ejecución debe comprobar la transición del menú a la partida.
+La siguiente ejecución debe comprobar autoguardado, movimiento y si aparece
+el mundo. Esta compilación sigue usando NVK; deko3d aún no está integrado.
 El gameplay, la vibración y el rendimiento todavía no están validados. Este
 backend GPU es el del SDK para el arranque; la adaptación del renderer directo
 y la evaluación de deko3d siguen pendientes.

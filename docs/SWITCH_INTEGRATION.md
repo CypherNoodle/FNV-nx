@@ -128,3 +128,23 @@ La referencia Windows produjo una captura privada de 95 s con 7 programas
 Xenos observados, 5 vertex y 2 pixel. `--dump-shaders` en `probe_host.py`
 y `tools/inventory_shaders.py` permiten reproducir e inventariar esa captura.
 No acredita cobertura de todo el juego ni una biblioteca nativa deko3d.
+
+La alpha03 alcanzó el tutorial y el creador de personaje en consola, con mundo
+negro. El cierre de autoguardado señaló una entrada calculada (`0x82814F90`)
+sin referencia literal en datos. La alpha04 añade seis forwarders de cuatro
+grupos delimitados por un retorno anterior y una entrada registrada posterior.
+El auditor comprueba sus cuatro instrucciones y conserva los once leaf y
+22 adjustors previos. No se añadieron los cientos de fragmentos que coinciden
+solo con el patrón, porque pueden ser finales internos de funciones.
+
+Para capturar también SPIR-V del SDK Vulkan antes de compilar:
+
+```powershell
+python tools/prepare_horizon_shader_dump.py --sdk 'RUTA/sa2-nx/sdk'
+```
+
+Es un cambio diagnóstico opt-in usando la API de dump existente. La captura
+queda privada en el destino de `dump_shaders`. El preset alpha04 conserva FBO,
+desactiva consultas nativas de oclusión como comparación de compatibilidad y
+vuelve al perfil pasivo. No acredita mejora ni integración deko3d. Véase
+[la decisión gráfica](GRAPHICS_DECISION.md) para las guías SA2 y el siguiente hito.

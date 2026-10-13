@@ -17,7 +17,15 @@ LEAF_SIZES = {
     0x82CA7FD0: 40, 0x82CA7FF8: 40, 0x82CA8020: 40,
     0x82CA8048: 40, 0x82CA8460: 32, 0x82D1BD88: 44,
     0x82E42900: 80, 0x82E7C880: 44,
+    # Four bounded clusters of virtual forwarders, including the computed
+    # runtime target 82814F90 (no literal data pointer). Each cluster ends at
+    # a registered entry and follows a return or another tail forwarder.
+    0x8224EA50: 16, 0x8224EA60: 16, 0x82341AE8: 16,
+    0x8261F0D0: 16, 0x8261F0E0: 16, 0x82814F90: 16,
 }
+FORWARDER_CLUSTERS = ((0x8224EA50, 0x8224EA70), (0x82341AE8, 0x82341AF8),
+                      (0x8261F0D0, 0x8261F0F0), (0x82814F90, 0x82814FA0))
+FORWARDERS = {address for start, end in FORWARDER_CLUSTERS for address in range(start, end, 16)}
 
 
 def relative_target(pc, word, bits):
@@ -87,8 +95,17 @@ def main():
                 missing_direct_targets.setdefault(hex(target), []).append(hex(pc))
     leaf_entries = []
     known = registered | set(LEAF_SIZES)
+    for start, end in FORWARDER_CLUSTERS:
+        assert end in registered, 'Forwarder cluster has no registered upper boundary'
+        assert struct.unpack_from('>I', image, start - 0x82000000 - 4)[0] in (0x4E800020, 0x4E800420)
     for address, size in LEAF_SIZES.items():
-        assert refs.get(address), f'No original data reference: {address:08X}'
+        if address in FORWARDERS:
+            first, load, ctr, tail = struct.unpack_from('>IIII', image, address - 0x82000000)
+            assert first == 0x81630000 and load >> 16 in (0x814B, 0x816B)
+            assert ctr == (0x7D4903A6 if load >> 16 == 0x814B else 0x7D6903A6)
+            assert tail == 0x4E800420, 'Not a bounded original virtual forwarder'
+        else:
+            assert refs.get(address), f'No original data reference: {address:08X}'
         assert not any(start <= address < end for start, end in ranges), 'Leaf overlaps PDATA'
         assert not any(address < other < address + size for other in known), 'Overlapping entry'
         pending = [address]
@@ -118,7 +135,8 @@ def main():
         if args.require_registered:
             assert address in registered, f'Leaf not registered: {address:08X}'
         leaf_entries.append({'address': hex(address), 'size': size,
-                             'registered': address in registered, 'references': len(refs[address])})
+                             'registered': address in registered, 'references': len(refs.get(address, [])),
+                             'evidence': 'bounded_virtual_forwarder_cluster' if address in FORWARDERS else 'original_data_pointer'})
     if args.require_registered:
         remaining = set(LEAF_SIZES)
         for file in args.generated_dir.glob('fnv_xbox_recomp.*.cpp'):
