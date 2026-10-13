@@ -64,6 +64,20 @@ size = 16
 size = 16
 [entrypoint.functions."0x82814F90"]
 size = 16
+[entrypoint.functions."0x82A83238"]
+size = 40
+[entrypoint.functions."0x82A83260"]
+size = 40
+[entrypoint.functions."0x82A83288"]
+size = 24
+[entrypoint.functions."0x82A832A0"]
+size = 24
+[entrypoint.functions."0x82A832B8"]
+size = 24
+[entrypoint.functions."0x82A832D0"]
+size = 24
+[entrypoint.functions."0x82A832E8"]
+size = 24
 "@
 # Original 8-byte this-pointer adjustors referenced by Xbox vtables. The first
 # missing entry (82D1E938) was observed when starting a new game on Switch.

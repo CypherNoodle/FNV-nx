@@ -63,6 +63,47 @@ def prepare(sdk):
 ''' + anchor)
         file.write_text(text)
 
+    file = sdk / 'src/ui/switch_perf.cpp'
+    text = file.read_text()
+    if 'g_fnv_sample_until' not in text:
+        anchor = 'void Report(u64 elapsed_ticks,'
+        assert text.count(anchor) == 1
+        text = text.replace(anchor, '''// Profiler-thread-only state: one bounded diagnostic interval per launch.
+u64 g_fnv_sample_until = 0;
+bool g_fnv_sample_started = false;
+
+''' + anchor)
+        anchor = '  ApplyExclusiveCore(f, order);'
+        assert text.count(anchor) == 1
+        text = text.replace(anchor, '''  const double fnv_fps = double(counters_now[0] - counters_last[0]) / seconds;
+  const std::string fnv_profile = rex::cvar::GetFlagByName("fnv_profile_lowfps");
+  if (!g_fnv_sample_started && (fnv_profile == "true" || fnv_profile == "1") &&
+      fnv_fps >= 1.0 && fnv_fps < 15.0) {
+    for (size_t i : order) {
+      const Slot& slot = g_slots[i];
+      if (std::strncmp(slot.name, "Main XThread", 12) == 0 && slot.cpu >= 60.0) {
+        g_fnv_sample_started = true;
+        g_fnv_sample_until = armGetSystemTick() + 60 * tick_freq;
+        std::fprintf(f, "FNV bounded stack sampling: begin 60 seconds, FPS %.1f, Main CPU %.1f%%\\n",
+                     fnv_fps, slot.cpu);
+        break;
+      }
+    }
+  }
+  if (g_fnv_sample_started) {
+    std::fprintf(f, "FNV bounded stack sampling: %s\\n",
+                 armGetSystemTick() < g_fnv_sample_until ? "active" : "finished; passive counters only");
+  }
+''' + anchor)
+        old = '''    __real_svcSleepThread(sample_stacks ? kSampleIntervalNs : kPassiveIntervalNs);
+
+    for (size_t tries = 0; sample_stacks && tries < kMaxThreads; ++tries) {'''
+        assert text.count(old) == 1
+        text = text.replace(old, '''    const bool active_stacks = sample_stacks || armGetSystemTick() < g_fnv_sample_until;
+    __real_svcSleepThread(active_stacks ? kSampleIntervalNs : kPassiveIntervalNs);
+
+    for (size_t tries = 0; active_stacks && tries < kMaxThreads; ++tries) {''')
+        file.write_text(text)
     file = sdk / 'src/core/exception_handler_switch.cpp'
     text = file.read_text()
     declaration = '''// FNV-nx: one-fault authorization, scoped to the faulting thread.
@@ -148,6 +189,22 @@ extern "C" void* RexGmShadowFor(uint64_t address);
         pos += len('  if (device_info == nullptr) {')
         text = text[:pos] + '\n' + warning + text[pos:]
     file.write_text(text)
+    file = sdk / 'src/kernel/xboxkrnl/xboxkrnl_io.cpp'
+    text = file.read_text()
+    if 'FNV save write:' not in text:
+        start = text.index('u32 NtWriteFile_entry(')
+        pos = text.index('  return result;\n}', start)
+        text = text[:pos] + '''  // FNV: distinguish completed writes from a failing guest completion check.
+  if (XFAILED(result) || (file && file->path().find("Savegame.dat") != std::string::npos &&
+                         uint32_t(buffer_length) >= 65536)) {
+    REXKRNL_INFO("FNV save write: handle={:08X} bytes={} result={:08X} iosb={:08X} written={} "
+                 "sync={} event={:08X} apc={:08X}", uint32_t(file_handle), uint32_t(buffer_length),
+                 uint32_t(result), io_status_block ? uint32_t(io_status_block->status) : 0,
+                 io_status_block ? uint32_t(io_status_block->information) : 0,
+                 file ? file->is_synchronous() : false, uint32_t(event_handle), uint32_t(apc_routine));
+  }
+''' + text[pos:]
+        file.write_text(text)
     print('Prepared exact-range watches, authorized store recovery, failed device diagnostics')
 
 

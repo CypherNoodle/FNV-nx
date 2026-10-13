@@ -200,3 +200,30 @@ La foto del guardado confirma una miniatura con ruido y el mensaje de dispositiv
 seleccionado no disponible. El binario no importa XamContentGet/SetThumbnail:
 no atribuir su miniatura a la conversión PNG de esas APIs. La captura/readback
 del juego y la comprobación de almacenamiento requieren diagnósticos separados.
+
+## Alpha08: dispatch y diagnóstico conjunto
+
+En la prueba alpha07, el contador acumulado de fallos de protección permaneció
+en cero. El cierre pasó a una entrada no registrada, `0x82A83288`, después de
+escribir el autoguardado. No prueba que todo fallo de recursos esté resuelto.
+Se registran siete adaptadores en el grupo `0x82A83238..0x82A83300`, con tamaños
+40/40/24/24/24/24/24, anterior bctr y límite superior ya registrado. El auditor
+verifica tails virtuales, ausencia de solapamiento PDATA, CFG y cuerpos generados;
+el generador conserva las instrucciones originales. No se registran todos los
+fragmentos que coinciden con un patrón.
+
+Los wrappers originales de Close/GetDeviceState se observan sin cambiar resultados,
+con caller guest y completion/extended error cuando corresponde. NtWriteFile
+registra escrituras grandes de Savegame.dat y errores: permite distinguir datos
+escritos de fallos en la comprobación posterior. El aviso sigue sin causa probada.
+
+`fnv_profile_lowfps=true` arma una sola ventana de 60 segundos cuando el perfil
+observa 1–15 FPS (límite superior exclusivo) y Main XThread consume al menos
+60% de un núcleo. No se activa durante 0 FPS de carga. El muestreo detiene hilos
+brevemente y afecta el rendimiento durante esa ventana; al acabar vuelve al
+perfil pasivo. No habilitar además `switch_profile_stacks=true` para esta prueba:
+ese ajuste conserva el muestreo continuo original del SDK. Este diagnóstico
+no optimiza ni cambia afinidades, prioridades, waits, shaders o fidelidad gráfica.
+
+La caché de Mesa enviada contiene índice y datos no vacíos; acredita escritura
+en SD, todavía no tasa de aciertos ni mejora de FPS. No borrar esa carpeta.

@@ -1,8 +1,9 @@
-# Alpha07: memory recovery, letter controls, no capture IO.
+# Alpha08: bounded dispatch adapters and combined storage/CPU diagnostics.
 # Copy as /switch/FNV-nx/fnv-nx.toml and restart the app.
 # FSI manually emulates packing/blending/depth: potentially much slower.
 fnv_startup_barrier = true
 switch_profile_stacks = false
+fnv_profile_lowfps = true
 occlusion_query_enable = false
 render_target_path_vulkan = "fsi"
 log_to_file = true

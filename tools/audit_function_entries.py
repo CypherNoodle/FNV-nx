@@ -22,7 +22,13 @@ LEAF_SIZES = {
     # a registered entry and follows a return or another tail forwarder.
     0x8224EA50: 16, 0x8224EA60: 16, 0x82341AE8: 16,
     0x8261F0D0: 16, 0x8261F0E0: 16, 0x82814F90: 16,
+    # Computed dispatch adapters: independently terminated, ending at 82A83300.
+    0x82A83238: 40, 0x82A83260: 40,
+    0x82A83288: 24, 0x82A832A0: 24, 0x82A832B8: 24,
+    0x82A832D0: 24, 0x82A832E8: 24,
 }
+ADAPTER_FORWARDERS = {0x82A83238, 0x82A83260, 0x82A83288, 0x82A832A0,
+                      0x82A832B8, 0x82A832D0, 0x82A832E8}
 FORWARDER_CLUSTERS = ((0x8224EA50, 0x8224EA70), (0x82341AE8, 0x82341AF8),
                       (0x8261F0D0, 0x8261F0F0), (0x82814F90, 0x82814FA0))
 FORWARDERS = {address for start, end in FORWARDER_CLUSTERS for address in range(start, end, 16)}
@@ -95,6 +101,8 @@ def main():
                 missing_direct_targets.setdefault(hex(target), []).append(hex(pc))
     leaf_entries = []
     known = registered | set(LEAF_SIZES)
+    assert 0x82A83220 in registered and 0x82A83300 in registered
+    assert struct.unpack_from('>I', image, 0x82A83234 - 0x82000000)[0] == 0x4E800420
     for start, end in FORWARDER_CLUSTERS:
         assert end in registered, 'Forwarder cluster has no registered upper boundary'
         assert struct.unpack_from('>I', image, start - 0x82000000 - 4)[0] in (0x4E800020, 0x4E800420)
@@ -104,6 +112,18 @@ def main():
             assert first == 0x81630000 and load >> 16 in (0x814B, 0x816B)
             assert ctr == (0x7D4903A6 if load >> 16 == 0x814B else 0x7D6903A6)
             assert tail == 0x4E800420, 'Not a bounded original virtual forwarder'
+        elif address in ADAPTER_FORWARDERS:
+            words = struct.unpack_from('>' + 'I' * (size // 4), image, address - 0x82000000)
+            assert words[-1] == 0x4E800420 and words[-2] in (0x7D0903A6, 0x7D2903A6, 0x7D4903A6)
+            assert struct.unpack_from('>I', image, address - 0x82000000 - 4)[0] == 0x4E800420
+            if size == 24:
+                slot = 0x24 + ((address - 0x82A83288) // 24) * 4
+                assert words[0] == 0x80640000 and words[1] in (0x7CA42B78, 0x7CE63B78)
+                assert words[2] == 0x81630000 and words[3] == (0x814B0000 | slot)
+            elif address == 0x82A83238:
+                assert words[-4] == 0x81430000 and words[-3] == 0x812A0020
+            else:
+                assert words[0] == 0x81460000 and words[-3] == 0x810A000C
         else:
             assert refs.get(address), f'No original data reference: {address:08X}'
         assert not any(start <= address < end for start, end in ranges), 'Leaf overlaps PDATA'
@@ -136,11 +156,26 @@ def main():
             assert address in registered, f'Leaf not registered: {address:08X}'
         leaf_entries.append({'address': hex(address), 'size': size,
                              'registered': address in registered, 'references': len(refs.get(address, [])),
-                             'evidence': 'bounded_virtual_forwarder_cluster' if address in FORWARDERS else 'original_data_pointer'})
+                             'evidence': 'bounded_dispatch_adapter_cluster' if address in ADAPTER_FORWARDERS else
+                             'bounded_virtual_forwarder_cluster' if address in FORWARDERS else 'original_data_pointer'})
     if args.require_registered:
         remaining = set(LEAF_SIZES)
         for file in args.generated_dir.glob('fnv_xbox_recomp.*.cpp'):
             text = file.read_text()
+            for address in ADAPTER_FORWARDERS:
+                definition = f'DEFINE_REX_FUNC(sub_{address:08X})'
+                if definition not in text:
+                    continue
+                body = text.split(definition, 1)[1].split('\n}', 1)[0]
+                assert 'REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);' in body and '\treturn;' in body
+                if LEAF_SIZES[address] == 24:
+                    slot = 0x24 + ((address - 0x82A83288) // 24) * 4
+                    assert 'ctx.r3.u64 = REX_LOAD_U32(ctx.r4.u32 + 0);' in body
+                    assert 'ctx.r11.u64 = REX_LOAD_U32(ctx.r3.u32 + 0);' in body
+                    assert f'ctx.r10.u64 = REX_LOAD_U32(ctx.r11.u32 + {slot});' in body
+                    assert 'ctx.ctr.u64 = ctx.r10.u64;' in body
+                    shuffle = 'ctx.r6.u64 = ctx.r7.u64;' if address == 0x82A832A0 else 'ctx.r4.u64 = ctx.r5.u64;'
+                    assert shuffle in body
             remaining -= {address for address in remaining if f'DEFINE_REX_FUNC(sub_{address:08X})' in text}
         assert not remaining, 'Missing generated leaf bodies'
     print(json.dumps({'result': 'PASS', 'registered_functions': len(registered),

@@ -14,6 +14,13 @@ Switch. El preset `config/switch-recovery.toml` desactiva las capturas. La cach�
 de Mesa se dirige a `cache/mesa`; no demuestra mejora de FPS ni resolución del
 cierre hasta comprobarlo en consola. El juego sigue usando NVK/FSI.
 
+La prueba alpha07 no registró fallos de protección; el cierre siguiente fue una
+entrada de dispatch omitida (`0x82A83288`). Alpha08 registra siete adaptadores
+originales delimitados del mismo grupo y añade observación del resultado de
+guardado. El preset permite una única ventana de muestreo CPU de 60 segundos
+al detectar gameplay de FPS bajos; después vuelve a contadores pasivos. El
+aviso de almacenamiento, las miniaturas y la mejora de rendimiento siguen pendientes.
+
 El banco de referencia Windows ejecuta el código Xbox recompilado y muestra
 el menú original en español a 1280×720. Una prueba de 95 segundos verificó ocho
 capturas diferentes. El arranque conserva una barrera experimental y la prueba
