@@ -1,0 +1,13 @@
+{
+  "root": "sdmc:/switch/FNV-nx",
+  "nro": "sdmc:/switch/FNV-nx/fnv-nx.nro",
+  "game_root": "sdmc:/switch/FNV-nx",
+  "entrypoint": "sdmc:/switch/FNV-nx/default.xex",
+  "data_directory": "sdmc:/switch/FNV-nx/Data",
+  "icon_source": "assets-ui/icon-source.png",
+  "icon_jpeg": "icon.jpg",
+  "user_supplied_game_files": true,
+  "preserve_original_game_structure": true,
+  "distribute_game_files": false,
+  "switch_binary_created": false
+}
