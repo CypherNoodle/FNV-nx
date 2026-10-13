@@ -5,6 +5,9 @@
 #pragma once
 
 #include <rex/rex_app.h>
+#if defined(__SWITCH__)
+#include <cstdlib>
+#endif
 #if defined(_WIN32)
 #include <thread>
 void InstallFnvHostCrashObserver();
@@ -32,6 +35,7 @@ log_file = "/switch/FNV-nx/logs/fnv-nx.log"
 allow_game_relative_writes = false
 asset_pack = false
 asset_pack_build = false
+input_xbox_layout = false
 )";
   }
   void OnPostInitLogging() override {
@@ -39,6 +43,17 @@ asset_pack_build = false
     rex::cvar::SetFlagByName("asset_pack", "false");
     rex::cvar::SetFlagByName("asset_pack_build", "false");
     rex::cvar::SetFlagByName("allow_game_relative_writes", "false");
+    // Make the driver cache location explicit before creating the GPU plugin.
+    std::error_code cache_error;
+    const char* cache = "/switch/FNV-nx/cache/mesa";
+    std::filesystem::create_directories(cache, cache_error);
+    if (!cache_error) {
+      setenv("MESA_SHADER_CACHE_DIR", cache, 1);
+      setenv("MESA_SHADER_CACHE_SHOW_STATS", "true", 0);
+      REXLOG_INFO("FNV Mesa disk cache directory: {}", cache);
+    } else {
+      REXLOG_WARN("FNV Mesa cache directory unavailable: {}", cache_error.message());
+    }
   }
 #endif
   void OnConfigurePaths(rex::PathConfig& paths) override {

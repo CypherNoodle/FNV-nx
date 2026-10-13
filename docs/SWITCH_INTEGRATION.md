@@ -148,3 +148,55 @@ queda privada en el destino de `dump_shaders`. El preset alpha04 conserva FBO,
 desactiva consultas nativas de oclusión como comparación de compatibilidad y
 vuelve al perfil pasivo. No acredita mejora ni integración deko3d. Véase
 [la decisión gráfica](GRAPHICS_DECISION.md) para las guías SA2 y el siguiente hito.
+
+## Recuperación de memoria alpha07
+
+`tools/build_switch.ps1` instala también `prepare_horizon_recovery.py` en el SDK
+fijado. Agrupa operaciones de protección solo dentro de la misma vista/chunk,
+con la misma transición y sin redondear el rango solicitado. Registra permisos
+después del éxito del kernel; un fallo conserva el estado anterior del tramo.
+El perfil cuenta páginas vigiladas, chunks/vistas y operaciones/fallos acumulados.
+
+Si los callbacks de invalidación ya se procesaron y la metadata guest permite
+escribir, un remapeo fallido puede autorizar una única emulación mediante el
+shadow existente. El handler requiere un store decodificado, FAR coincidente,
+span dentro de la página autorizada y backing contiguo. Loads, atomics no
+soportados, cruces de página y permisos guest insuficientes no se recuperan por
+esta ruta. No se borran watches globalmente ni se reintenta una página inaccesible.
+
+`config/switch-recovery.toml` usa FSI sin dumps ni capturas. A/B/X/Y se corresponden
+con las letras de Switch (`input_xbox_layout=false`). La caché de disco de Mesa
+ya está compilada; el app fija su carpeta a `/switch/FNV-nx/cache/mesa` antes del
+GPU setup. La caché SDK de descripciones no equivale al binario compilado del
+driver y actualmente `vkCreateGraphicsPipelines` recibe un cache nulo.
+
+Las ocho capturas alpha06 validaron 19 descriptores/4.014.080 bytes. El cierre
+se repitió en `sub_8286CCD0` después de 69 fallos `0xCE01`. Los logs registraron
+la escritura y reapertura de un guardado manual, pero no explican aún el aviso
+del usuario. Los fallos de GetDeviceName/State/Data ahora registran su ID sin
+devolver éxitos ficticios. La recuperación y su coste necesitan validación en
+hardware; no se anuncia una mejora ni un renderer deko3d integrado.
+
+## Hilos y esperas observados
+
+El proceso permite cores 0–2 (`0x7`). Main XThread, GPU Commands y Audio Worker
+ya conservan esa máscara, con prioridades 0x3B, 0x2C y 0x2B respectivamente.
+El SDK no fija los seis procesadores guest a seis núcleos host cuando hay menos
+de seis; mantiene la numeración guest y permite al scheduler repartirlos.
+Los workers de compilación usan la banda 0x3B y esperan una condición cuando
+no hay tareas. No activar los experimentos de core exclusivo de otros juegos
+sin identificar primero los hilos críticos de New Vegas.
+
+NVK espera las fences mediante `nvFenceWait`, con timeouts para revisar errores.
+Hay un bucle con yield para confirmar el reporte mapeado después de la fence;
+su existencia no demuestra que cause el 99% del Main XThread. El command
+processor usa `vkWaitForFences` al necesitar completar submissions para coherencia
+o reutilización. Los tiempos de espera no equivalen a GPU ociosa, y sumar tiempos
+de varios hilos no da tiempo de pared. Las ventanas sin envíos durante compilación
+son distintas del gameplay con presión de cola. El perfil alpha06 no tenía
+muestreo de stacks: la causa del uso del hilo principal sigue sin localizar.
+
+La foto del guardado confirma una miniatura con ruido y el mensaje de dispositivo
+seleccionado no disponible. El binario no importa XamContentGet/SetThumbnail:
+no atribuir su miniatura a la conversión PNG de esas APIs. La captura/readback
+del juego y la comprobación de almacenamiento requieren diagnósticos separados.

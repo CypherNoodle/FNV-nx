@@ -25,7 +25,7 @@ foreach ($required in @(
     if (-not (Test-Path -LiteralPath $required)) { throw "Missing prerequisite: $required" }
 }
 $ninjaPath = (Get-Command $Ninja -ErrorAction Stop).Source
-foreach ($prepare in @('prepare_horizon_shader_dump.py', 'prepare_horizon_draw_capture.py')) {
+foreach ($prepare in @('prepare_horizon_shader_dump.py', 'prepare_horizon_draw_capture.py', 'prepare_horizon_recovery.py')) {
     & $Python (Join-Path $PSScriptRoot $prepare) --sdk $sdk
     if ($LASTEXITCODE -ne 0) { throw "SDK preparation failed: $prepare" }
 }

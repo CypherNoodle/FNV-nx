@@ -14,3 +14,6 @@ log_file = "/switch/FNV-nx/logs/fnv-nx.log"
 asset_pack = false
 asset_pack_build = false
 allow_game_relative_writes = false
+
+# Match the printed Switch button letters.
+input_xbox_layout = false

@@ -6,6 +6,14 @@ que aporte cada usuario.
 
 ## Estado actual
 
+Alpha07 prueba una recuperación del fallo de remapeo al salir de la casa:
+agrupa transiciones contiguas sin ampliar watches y emula únicamente stores
+autorizados por la memoria guest cuando el remapeo falla. Añade contadores de
+protección, diagnóstico de dispositivos de guardado y controles por letra de
+Switch. El preset `config/switch-recovery.toml` desactiva las capturas. La caché
+de Mesa se dirige a `cache/mesa`; no demuestra mejora de FPS ni resolución del
+cierre hasta comprobarlo en consola. El juego sigue usando NVK/FSI.
+
 El banco de referencia Windows ejecuta el código Xbox recompilado y muestra
 el menú original en español a 1280×720. Una prueba de 95 segundos verificó ocho
 capturas diferentes. El arranque conserva una barrera experimental y la prueba

@@ -13,3 +13,6 @@ asset_pack = false
 asset_pack_build = false
 allow_game_relative_writes = false
 dump_shaders = "/switch/FNV-nx/cache/deko-material-capture"
+
+# Match the printed Switch button letters.
+input_xbox_layout = false
