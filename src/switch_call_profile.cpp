@@ -83,10 +83,25 @@ extern "C" void RexFnvThreadCoreReport(FILE* file, Handle thread, uint64_t elaps
     }
     if (!slot) { std::fprintf(file, "   FNV per-core: tracking table full\n"); return; }
     slot->handle = thread;
+    uint64_t current[4]{}, total = 0;
+    Result results[4]{};
+    bool all_zero = true, all_ok = true;
+    for (unsigned core = 0; core < 4; ++core) {
+        results[core] = svcGetInfo(&current[core], InfoType_ThreadTickCount, thread, core);
+        all_ok &= R_SUCCEEDED(results[core]);
+        all_zero &= current[core] == 0;
+    }
+    if (all_ok && all_zero && R_SUCCEEDED(svcGetInfo(&total, InfoType_ThreadTickCount,
+                                                   thread, TickCountInfo_Total)) && total) {
+        std::fprintf(file, "   FNV per-core: unavailable/inconsistent; all core counters zero "
+                           "while total thread ticks are nonzero; use total CPU and affinity\n");
+        for (auto& valid : slot->valid) valid = false;
+        return;
+    }
     std::fprintf(file, "   FNV per-core CPU (thread execution; 100%% = one core):");
     for (unsigned core = 0; core < 4; ++core) {
-        uint64_t ticks = 0;
-        const Result rc = svcGetInfo(&ticks, InfoType_ThreadTickCount, thread, core);
+        const uint64_t ticks = current[core];
+        const Result rc = results[core];
         if (R_FAILED(rc)) {
             slot->valid[core] = false;
             std::fprintf(file, " core%u=unavailable(0x%X)", core, rc);

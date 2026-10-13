@@ -6,10 +6,12 @@ que aporte cada usuario.
 
 ## Estado actual
 
-Alpha09 permite usar el Pip-Boy y salir de la casa en la prueba del usuario;
-el rendimiento sigue bajo. Alpha10 añade un diagnóstico conjunto de llamadas,
-esperas, reloj guest, ejecución por núcleo, memoria, audio y lecturas de SD.
-Compila y pasa comprobaciones del binario, pero aún requiere ejecución en Switch.
+Alpha09 permite usar el Pip-Boy y salir de la casa en la prueba del usuario.
+La alpha10 localiza un coste alto en envíos y esperas GPU; el reloj guest avanza
+correctamente en los intervalos registrados. Alpha11 prueba crear el renderer
+a 960×540 mediante un hook acotado y auditado, con alternativa 720p. La mejora
+de FPS y la fidelidad a ese tamaño aún necesitan consola. Añade diagnóstico
+de la espera al guardar en el exterior; ese bloqueo no está corregido todavía.
 El aviso de guardado y las miniaturas siguen pendientes. Detalles en
 [PERFORMANCE.md](docs/PERFORMANCE.md). Sigue usando NVK/FSI.
 

@@ -15,6 +15,8 @@ REXCVAR_DEFINE_BOOL(fnv_profile_lowfps, false, "FNV",
                    "Sample one 60-second low-FPS gameplay interval, then return to passive profiling");
 REXCVAR_DEFINE_BOOL(fnv_gpu_wait_backoff, false, "FNV",
                    "Experimental 50us backoff in the verified unchanged-progress GPU poll loop");
+REXCVAR_DEFINE_BOOL(fnv_save_trace, false, "FNV",
+                   "Diagnostic entry/exit trace of original save open and stream wait paths");
 
 namespace {
 std::atomic<bool> ready{false};
@@ -29,6 +31,24 @@ REX_EXTERN(__imp__sub_82C57A38);
 REX_EXTERN(__imp__sub_82C57A48);
 REX_EXTERN(__imp__sub_8278FC10);
 REX_EXTERN(__imp__sub_825F67F8);
+REX_EXTERN(__imp__sub_825FF6A8);
+REX_EXTERN(__imp__sub_825F5528);
+
+REX_EXTERN(sub_825FF6A8) {
+    const bool trace = REXCVAR_GET(fnv_save_trace);
+    if (trace) REXLOG_INFO("FNV save container enter: caller={:08X} r3={:08X} r4={:08X}",
+                           static_cast<uint32_t>(ctx.lr), ctx.r3.u32, ctx.r4.u32);
+    __imp__sub_825FF6A8(ctx, base);
+    if (trace) REXLOG_INFO("FNV save container return: result={:08X}", ctx.r3.u32);
+}
+
+REX_EXTERN(sub_825F5528) {
+    const bool trace = REXCVAR_GET(fnv_save_trace);
+    if (trace) REXLOG_INFO("FNV save stream wait enter: caller={:08X} object={:08X}",
+                           static_cast<uint32_t>(ctx.lr), ctx.r3.u32);
+    __imp__sub_825F5528(ctx, base);
+    if (trace) REXLOG_INFO("FNV save stream wait return: result={:08X}", ctx.r3.u32);
+}
 
 REX_EXTERN(sub_825F67F8) {
     const uint32_t caller = static_cast<uint32_t>(ctx.lr);

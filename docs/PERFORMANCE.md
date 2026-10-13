@@ -3,9 +3,57 @@
 The video-mode-only 960x540 trial did not establish a smaller internal workload.
 The captured profile still has most draws in the 1280–1599 surface-pitch bucket.
 In the original renderer bootstrap, `sub_8230F290` calls XGetVideoMode and then
-forces 1280x720 when widescreen is set. The fixed creation-size experiment is
-deferred while CPU/GPU dependency costs are measured. No dynamic resolution is
-implemented.
+forces 1280x720 when widescreen is set. Alpha11 changes the audited creation
+arguments before resources are allocated. No dynamic resolution is implemented.
+
+## Alpha10 findings and alpha11 optimization
+
+The hardware run contains 67 non-startup reporting intervals. The guest/host
+elapsed-time ratio stays between 0.999965 and 1.000144: it does not support a
+clock-scaling explanation for the sustained low FPS. Vblank callbacks continue.
+Recorded protection failures remain zero. The 791 repeated reservation errors
+occur in a four-millisecond startup burst, not during the later save wait.
+Their original diagnostic lacks ranges/callers; alpha11 adds those fields while
+keeping the failure result.
+
+In a slow gameplay interval, host pipeline configuration costs about 1 ms/s,
+textures 6 ms/s, shared ranges 21 ms/s and memory protection 1 ms/s. Submission
+cost is about 760 ms/s, with frequent native queue pressure, and the guest GPU
+wait about 815 ms/s. These inclusive rows overlap; they identify the submission
+and GPU dependency path as the first target, not additive CPU work to remove.
+Timer overhead and scene differences prevent treating this run as a benchmark.
+
+`config/switch-render-540p.toml` enables `fnv_fixed_render_mode`. Only the creation
+call with LR `0x8230F3F0`, original 1280x720 arguments and matching globals can
+change to aligned 960x540. The hook updates globals `0x82FFF304/308`, passes the
+new arguments to original `sub_827B5D98`, and restores those globals if creation
+returns zero. `tools/audit_render_mode.py` checks the original image identity,
+the forwarding to `sub_827AF0F8` and stores to presentation parameters width/height.
+The guard rejects unrelated calls, invalid aspect ratios or alignment, mismatched
+globals and out-of-range requests. This is a fixed boot experiment, not a per-frame
+change or a fake video-mode response. The 720p preset disables the hook and keeps
+the same renderer, clocks, caches and diagnostic settings.
+
+960x540 has 43.75% fewer pixels than 1280x720. That is a requested reduction for
+the resized surfaces, not a verified 43.75% reduction in all GPU work or a promised
+FPS gain. Check actual surface-pitch buckets, image/HUD/menus and comparable frame
+times on hardware. Other targets or fixed-size post-processing may remain large.
+
+The save stall has two final zero-frame intervals, main CPU near zero and the
+GPU command thread idle. Audio and vblank continue. The last recorded operation
+opens an existing save; no subsequent write or close is recorded. That is evidence
+of a distinct stopped path, not proof of SD failure or a particular deadlock.
+Alpha11 traces original container/stream-wait entry and return and Savegame.dat
+read entry/return. After two zero-frame intervals with idle main and command
+threads, it captures stacks for 30 seconds once per launch. It never signals the
+guest wait or manufactures a successful result. Existing call timers only report
+after a call returns; the new trace can locate a call that remains blocked.
+
+The alpha10 per-core API readings were zero even for threads with nonzero total
+CPU time. They are inconsistent and must not be used to infer idle cores. Alpha11
+marks that case unavailable and retains total thread CPU/affinity evidence.
+GPU timestamps per pass, native FBO fidelity and renderer-native deko3d integration
+remain further work after this measured submission/pixel-cost experiment.
 
 ## Alpha10 call and dependency profile
 
