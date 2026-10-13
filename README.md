@@ -52,6 +52,14 @@ y color plano, separado del juego. La primera prueba en consola mostró algunas
 figuras amarillas sobre fondo oscuro; no incluye texturas, la escena completa
 ni gameplay. La v0.2 corrige la creación del registro y muestra fallos de inicio.
 
+El registro v0.2 confirmó ocho draws cargados, 794 frames completados y salida
+normal. La nueva [herramienta offline](experimental/shader-tools/README.md)
+compila las 68 variantes alpha05 usando la ruta deferred-kill del SDK, incluidos
+los 38 pixel shaders antes bloqueados. Alpha06 añade captura conjunta de
+texturas CPU, geometría y descriptores. La dirección del renderer es una
+[capa propia en las llamadas D3D de Xbox 360 con deko3d](docs/NATIVE_RENDERER.md).
+La imagen completa, la integración con el juego y la mejora de FPS siguen pendientes.
+
 ## Archivos del juego
 
 No se distribuyen ni versionan `default.xex`, `Data/`, código generado, shaders

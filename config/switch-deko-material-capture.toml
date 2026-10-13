@@ -1,0 +1,15 @@
+# Reference renderer capture for the native RHI: geometry + texture data/layouts.
+# CPU snapshots do not guarantee coherent GPU-written render-target textures.
+fnv_startup_barrier = true
+switch_profile_stacks = false
+occlusion_query_enable = false
+render_target_path_vulkan = "fsi"
+fnv_capture_draws = true
+fnv_capture_textures = true
+log_to_file = true
+log_level = "info"
+log_file = "/switch/FNV-nx/logs/fnv-nx.log"
+asset_pack = false
+asset_pack_build = false
+allow_game_relative_writes = false
+dump_shaders = "/switch/FNV-nx/cache/deko-material-capture"

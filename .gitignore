@@ -31,6 +31,10 @@
 *.elf
 *.nro
 *.nacp
+*.dksh
+*.spv
+*.ucode.*
+*.spirv.bin.*
 __pycache__/
 *.pyc
 CMakeUserPresets.json

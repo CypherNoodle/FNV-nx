@@ -1,5 +1,17 @@
 # Renderer después de la carga del tutorial
 
+## Dirección vigente
+
+El objetivo es una [capa gráfica propia sobre las llamadas D3D del XDK](NATIVE_RENDERER.md)
+con backend deko3d. NVK/Xenos queda como referencia y capturador durante la
+transición. El replay nativo completó 794 frames y salió normalmente. La nueva
+herramienta offline retraduce el microcódigo con la ruta deferred-kill del SDK:
+las 68 variantes alpha05, incluidos 38 pixel shaders, compilan a DKSH. La
+captura alpha06 incorpora texturas CPU y sus layouts para enlazar esos recursos;
+todavía no sustituye el renderer del juego ni demuestra mejora de FPS.
+
+## Diagnóstico inicial
+
 La alpha03 alcanzó audio del tutorial y el creador de personaje, según la
 prueba del usuario. El mundo permaneció negro. El cierre tiene una causa
 concreta distinta del renderer: llamada sin registrar a `0x82814F90` en la
@@ -14,7 +26,7 @@ registran 3,3–3,8 frames/s con CPU 1785 MHz, GPU 921,6 MHz y memoria 1600 MHz.
 El muestreo altera los tiempos; no es un benchmark pasivo. No se demostró una
 causa única del mundo negro ni que sustituir NVK resuelva el coste CPU.
 
-## Prueba inmediata
+## Referencia alpha04
 
 La alpha04 conserva Xenos Vulkan/FBO y desactiva las consultas nativas de
 oclusión, usando el resultado visible de fallback del SDK. Es una comparación
@@ -38,8 +50,8 @@ privados; solo cubren variantes observadas, no todo New Vegas.
 [deko3d](https://github.com/devkitPro/deko3d) expone dispositivos, colas,
 comandos y recursos sobre Tegra X1. Su flujo habitual usa shaders nativos
 compilados en PC con UAM; no reemplaza automáticamente un driver Vulkan.
-UAM está disponible localmente, pero todavía no se convirtieron ni validaron
-shaders de New Vegas para deko3d.
+La conversión y el replay descritos arriba ya están implementados; falta
+conectar los recursos completos y los contratos D3D de New Vegas.
 
 1. Inventariar shaders y variantes de una escena real, ampliando los siete
    programas observados anteriormente en el menú Windows.
@@ -47,8 +59,8 @@ shaders de New Vegas para deko3d.
    y operaciones que requieran emulación Xenos.
 3. Implementar recursos, formatos, depth/stencil, blending, resolves y
    presentación. Reutilizar CPU, archivos, audio y mandos ya integrados.
-4. Elegir entre interceptar D3D XDK 2.0.11626.0 (offsets por verificar) y adaptar
-   el command processor Xenos; comparar una escena y medir CPU/GPU por separado.
+4. Verificar e interceptar D3D XDK 2.0.11626.0 mediante la capa propia, comparar
+   una escena y medir CPU/GPU por separado.
 
 [ProjectCane](https://github.com/NaGaa95/ProjectCane) sirve de referencia de
 recursos, sincronización y shaders deko3d. Su renderer no traduce automáticamente

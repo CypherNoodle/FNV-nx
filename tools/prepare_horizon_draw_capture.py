@@ -36,12 +36,18 @@ assert text.count(namespace_anchor) == 1, 'Unexpected SDK namespace layout'
 assert text.count(draw_anchor) == 1, 'Unexpected SDK draw layout'
 if includes not in text:
     text = text.replace(namespace_anchor, includes + '\n' + namespace_anchor)
+textures_define = '''REXCVAR_DEFINE_BOOL(fnv_capture_textures, false, "GPU/Diagnostics",
+                    "Capture bounded private CPU texture data and descriptors for native RHI research");
+'''
+if textures_define not in text:
+    text = text.replace(namespace_anchor, textures_define + '\n' + namespace_anchor)
 if namespace_addition not in text:
     text = text.replace(namespace_anchor, namespace_anchor + namespace_addition)
 if draw_addition not in text:
     text = text.replace(draw_anchor, draw_addition + draw_anchor)
 payload = Path(__file__).with_name('horizon_draw_capture.inc').read_bytes()
 file.with_name('fnv_draw_capture.inc').write_bytes(payload)
+file.with_name('fnv_texture_capture.inc').write_bytes(Path(__file__).with_name('horizon_texture_capture.inc').read_bytes())
 file.write_bytes(text.encode())
 print('Draw capture prepared; before SHA256:', hashlib.sha256(original).hexdigest())
 print('After SHA256:', hashlib.sha256(file.read_bytes()).hexdigest())

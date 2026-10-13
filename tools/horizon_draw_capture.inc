@@ -1,6 +1,7 @@
 // Included inside the pinned Vulkan command processor's anonymous namespace.
 // Private CPU-side geometry snapshots; textures/EDRAM and GPU writes are NOT captured.
 #if REX_PLATFORM_SWITCH
+#include "fnv_texture_capture.inc"
 bool FnvCaptureDraw(const RegisterFile& regs, const VulkanShader& vs,
                     const VulkanShader* ps, uint64_t vs_mod, uint64_t ps_mod,
                     const PrimitiveProcessor::ProcessingResult& draw,
@@ -117,6 +118,8 @@ bool FnvCaptureDraw(const RegisterFile& regs, const VulkanShader& vs,
   ++completed; total_bytes += bytes + index_size;
   REXGPU_INFO("FNV geometry capture {}: {} indices, {} bytes; no textures", stem,
               draw.host_draw_vertex_count, bytes + index_size);
+  FnvCaptureTextures(regs, vs.GetUsedTextureMaskAfterTranslation() |
+      ps->GetUsedTextureMaskAfterTranslation(), memory, folder, stem);
   return true;
 }
 #endif

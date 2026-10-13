@@ -19,6 +19,12 @@ que conserve el comportamiento; no se sustituyó por discard sin comprobarlo.
 Captura FSI: 31 de 68 variantes compilan; los fragment shaders pendientes
 requieren esa operación y la ruta de interlock. No hay cobertura de todo el juego.
 
+La [herramienta offline](../shader-tools/README.md) resuelve el bloqueo para el
+backend de targets host: retraduce el microcódigo con la ruta deferred-kill del
+SDK y compila las 68 variantes alpha05 (30 VS/38 PS). No modifica demote en un
+SPIR-V terminado. Las variantes FSI originales siguen siendo una referencia;
+el backend nativo usa targets propios, con fidelidad gráfica por verificar.
+
 El núcleo compiló como biblioteca ELF AArch64 con devkitA64 y headers deko3d.
 La copia de constantes pasó pruebas host de representación (NaN y cero con
 signo), strides, límites, overflow, rechazo de alias y fallo sin escritura
@@ -92,7 +98,7 @@ solo el vertex stage original; el pixel stage es diagnóstico.
    shader no proporciona esos datos automáticamente.
 2. Crear pools de descriptores, targets, barriers, colas, fences y presentación,
    respetando la vida útil de los módulos y recursos.
-3. Verificar llamadas y layout D3D de New Vegas y conectar un draw real al núcleo.
+3. Verificar llamadas y layout D3D de New Vegas y conectar los hooks al núcleo.
    No están interceptadas las llamadas del juego ni el transporte PM4.
 4. Comparar imagen y estado con FSI y resolver las variantes pendientes antes
    de ofrecer un renderer completo o medir una mejora.
@@ -101,3 +107,20 @@ FSI ya mostró el interior y permitió cargar una partida, con caras y el icono
 de autoguardado distorsionados. El cierre al salir de la casa señaló fallos
 `0xCE01` de protección/mapeo y una escritura física no recuperada; ese problema
 del runtime sigue pendiente y no se considera resuelto por este prototipo.
+
+## Captura de materiales alpha06
+
+`config/switch-deko-material-capture.toml` activa `fnv_capture_draws` y
+`fnv_capture_textures` en la referencia NVK/FSI. Por cada draw seleccionado
+escribe un directorio `STEM-textures` junto al FNVD con `capture.json`, fetch
+constants, formatos, tiling/endian, dimensiones, pitch, base y layouts de mips.
+Los bloques `.base.bin` y `.mips.bin` se leen mediante shadow sin cambiar la
+memoria guest. Máximo 8 MiB por región, 16 MiB de textura por draw y 64 MiB de
+texturas por ejecución, además del presupuesto de geometría existente.
+
+Estados: 1 capturado, 0 ausente, -1 copia incompleta, -2 límite de tamaño y
+-3 apertura fallida. Los datos fallidos no se usan; `capture.json` se escribe
+al final. `tools/inspect_deko_texture_capture.py` valida descriptores, rangos y
+longitudes y genera hashes privados. Un snapshot CPU no confirma el contenido
+de una textura escrita por GPU: esos recursos pueden requerir readback y se
+validarán por separado. Esta ejecución escribe datos en SD, no mide rendimiento.
