@@ -33,7 +33,9 @@ def read_capture(data, manifest):
         else:
             records[key] = data[offset:offset + size]
         offset += size
-    expected = {(1, 0): 0x5003 * 4, (2, 0): 504, (3, 0): 24,
+    # SDK SystemConstants also contains the two final tessellation range floats.
+    # Captured non-tessellated SPIR-V reflects only the preceding 504 bytes.
+    expected = {(1, 0): 0x5003 * 4, (2, 0): 512, (3, 0): 24,
                 (4, 0): 16, (5, 0): 32, (5, 1): 32}
     for key, size in expected.items():
         if len(records.get(key, b'')) != size:

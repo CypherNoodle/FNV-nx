@@ -46,6 +46,11 @@ Se añadió una captura optativa de geometría real para alimentar el prototipo
 deko3d; el preset es `config/switch-deko-capture.toml`. Ese NRO de captura sigue
 renderizando con NVK y no representa una mejora de rendimiento.
 
+La captura ya aportó ocho draws de geometría real. El proyecto experimental
+compila además un NRO de replay exclusivamente deko3d, con esos vertex shaders
+y color plano, separado del juego. La validación visual en consola sigue
+pendiente; no incluye texturas, la escena completa ni gameplay.
+
 ## Archivos del juego
 
 No se distribuyen ni versionan `default.xex`, `Data/`, código generado, shaders

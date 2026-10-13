@@ -137,4 +137,12 @@ reales y estado/constantes, con límites de tamaño y lectura mediante shadow.
 NVK para dibujar el juego: alimenta la prueba deko separada y no corrige el
 cierre de memoria. La herramienta de inspección valida los datos y puede
 adaptar los UBOs de la variante exacta. Las texturas, la coherencia de buffers
-escritos por GPU y la reproducción visual aún no están implementadas.
+escritos por GPU aún están pendientes.
+
+La captura alpha05 obtuvo ocho draws reales. Sus buffers y constantes pasaron
+validación y se prepararon para un NRO de replay exclusivamente deko3d, separado
+del runtime Xbox/NVK. Reubica direcciones de fetch en memoria compacta, conserva
+los bytes/endian y transforms originales, usa color plano sin depth/culling y
+permite comparar scissor y orientación. Compilación AArch64, formato NRO y
+paquete verificados; imagen GPU pendiente. No reproduce el mundo completo y
+sus tiempos no representan una mejora de rendimiento del juego.

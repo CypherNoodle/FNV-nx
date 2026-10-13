@@ -20,7 +20,7 @@ bool ShaderModule::Load(DkDevice device, const char* path) {
       header[4] < sizeof(header) || header[4] >= header[2] || header[5] != 1) {
     std::fclose(file); return false;
   }
-  const uint32_t bytes = (header[3] + DK_MEMBLOCK_ALIGNMENT - 1) & ~(DK_MEMBLOCK_ALIGNMENT - 1);
+  const uint32_t bytes = (header[3] + DK_SHADER_CODE_UNUSABLE_SIZE + DK_MEMBLOCK_ALIGNMENT - 1) & ~(DK_MEMBLOCK_ALIGNMENT - 1);
   DkMemBlockMaker maker;
   dkMemBlockMakerDefaults(&maker, device, bytes);
   maker.flags |= DkMemBlockFlags_Code;

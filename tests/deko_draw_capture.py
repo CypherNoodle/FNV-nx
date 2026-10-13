@@ -14,7 +14,7 @@ def fixture():
     regs[0x4000 * 4:0x4000 * 4 + 16] = b'A' * 16
     regs[(0x4000 + 255 * 4) * 4:(0x4000 + 256 * 4) * 4] = b'Z' * 16
     regs[0x4400 * 4:0x4400 * 4 + 16] = b'P' * 16
-    records = {(1, 0): regs, (2, 0): bytes(504), (3, 0): bytes(24),
+    records = {(1, 0): regs, (2, 0): bytes(512), (3, 0): bytes(24),
                (4, 0): bytes(16), (5, 0): struct.pack('<4Q', 1, 0, 0, 1 << 63),
                (5, 1): struct.pack('<4Q', 1, 0, 0, 0), (6, 0x2000): bytes(128),
                (7, 0x1000): bytes(192)}

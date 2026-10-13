@@ -39,6 +39,26 @@ y no se versionan. `src/deko/` contiene el código propio del núcleo.
 
 ## Pendiente para una prueba gráfica real
 
+La captura alpha05 produjo ocho draws reales, cuyos buffers y constantes se
+validaron y exportaron. `build_deko_geometry_bundle.py` crea bundles privados:
+reubica los fetches de vértices y la dirección de índices en un SSBO compacto,
+conserva los bytes originales y sus controles endian, y requiere shaders de
+vértices sin texturas ni restart. Los fragment shaders FSI siguen pendientes.
+
+El build experimental ahora produce `fnv-deko-replay.nro` y `flat.dksh`.
+Se ejecuta separado del NRO del juego y lee `sdmc:/switch/FNV-nx/deko-replay/`:
+`00/geometry.bin`, `00/vertex.dksh` hasta `07/`, y `flat.dksh`. A inicia;
+izquierda/derecha cambia el draw, Y alterna scissor original/completo, X invierte
+el eje vertical y + sale. Registra `logs/fnv-deko-replay.log` y espera fences
+con tiempo limitado antes de reutilizar/destruir recursos. Conserva constantes
+y viewport del draw, usa color plano, desactiva depth/culling y no reproduce
+la escena completa. Su imagen, orientación y comportamiento GPU requieren
+prueba en consola; sus tiempos no son un benchmark del juego ni de FSI.
+
+El cargador reserva también `DK_SHADER_CODE_UNUSABLE_SIZE`, como exige deko3d,
+para que un módulo cuyo código termine en el límite de página no ocupe la
+zona final reservada del bloque.
+
 Se añadió una captura optativa de geometría al renderer vigente. Preparar el
 SDK con `tools/prepare_horizon_draw_capture.py --sdk RUTA/SDK` y compilar el NRO;
 `tools/build_switch.ps1` aplica esta preparación y el dump de shaders automáticamente.
@@ -55,8 +75,11 @@ por GPU y no contiene texturas/EDRAM. Solo los pares `.json` y `.bin` completos
 son válidos. Son datos privados del juego: no publicar en el repositorio.
 
 `tools/inspect_deko_draw_capture.py --capture RUTA/draw.json --output local/draw`
-valida el formato. Con `--vertex-abi` y `--pixel-abi` acepta los manifiestos de
-la variante exacta y exporta sus UBOs con el ABI nativo. Aún no reproduce el draw.
+valida el formato (512 bytes para SystemConstants del SDK; 504 bytes reflejados
+por estos shaders, más dos constantes de rango de tessellation). Con
+`--vertex-abi` y `--pixel-abi` acepta los manifiestos de
+la variante exacta y exporta sus UBOs con el ABI nativo. El replay separado usa
+solo el vertex stage original; el pixel stage es diagnóstico.
 
 1. Capturar y enlazar texturas, samplers, buffers y constantes de draws reales.
    Los shaders usan vertex pulling y memoria compartida Xenos; compilar un
