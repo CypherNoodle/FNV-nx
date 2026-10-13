@@ -48,8 +48,9 @@ renderizando con NVK y no representa una mejora de rendimiento.
 
 La captura ya aportó ocho draws de geometría real. El proyecto experimental
 compila además un NRO de replay exclusivamente deko3d, con esos vertex shaders
-y color plano, separado del juego. La validación visual en consola sigue
-pendiente; no incluye texturas, la escena completa ni gameplay.
+y color plano, separado del juego. La primera prueba en consola mostró algunas
+figuras amarillas sobre fondo oscuro; no incluye texturas, la escena completa
+ni gameplay. La v0.2 corrige la creación del registro y muestra fallos de inicio.
 
 ## Archivos del juego
 

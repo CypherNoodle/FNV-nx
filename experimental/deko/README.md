@@ -53,7 +53,13 @@ el eje vertical y + sale. Registra `logs/fnv-deko-replay.log` y espera fences
 con tiempo limitado antes de reutilizar/destruir recursos. Conserva constantes
 y viewport del draw, usa color plano, desactiva depth/culling y no reproduce
 la escena completa. Su imagen, orientación y comportamiento GPU requieren
-prueba en consola; sus tiempos no son un benchmark del juego ni de FSI.
+validación completa; sus tiempos no son un benchmark del juego ni de FSI.
+En la primera prueba el usuario vio algunas figuras amarillas sobre fondo oscuro,
+lo que confirma salida geométrica parcial, sin texturas ni sombreado originales.
+No se obtuvo log: la v0.2 crea y comprueba la carpeta/ruta del registro, muestra
+la ruta en pantalla y usa `sdmc:/fnv-deko-replay.log` como alternativa si falla
+la ruta habitual. Si ambas fallan, detiene el inicio con un error visible.
+Comprueba los 17 recursos antes de iniciar la GPU y muestra cualquier faltante.
 
 El cargador reserva también `DK_SHADER_CODE_UNUSABLE_SIZE`, como exige deko3d,
 para que un módulo cuyo código termine en el límite de página no ocupe la

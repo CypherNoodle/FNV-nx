@@ -144,5 +144,6 @@ validación y se prepararon para un NRO de replay exclusivamente deko3d, separad
 del runtime Xbox/NVK. Reubica direcciones de fetch en memoria compacta, conserva
 los bytes/endian y transforms originales, usa color plano sin depth/culling y
 permite comparar scissor y orientación. Compilación AArch64, formato NRO y
-paquete verificados; imagen GPU pendiente. No reproduce el mundo completo y
+paquete verificados; el usuario vio algunas figuras amarillas sobre fondo oscuro
+en consola, confirmando salida parcial de geometría. No reproduce el mundo completo y
 sus tiempos no representan una mejora de rendimiento del juego.

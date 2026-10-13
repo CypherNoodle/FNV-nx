@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
+#include <sys/stat.h>
 #include <vector>
 
 using namespace fnv::deko;
@@ -11,13 +13,53 @@ namespace {
 FILE* log_file;
 PadState pad;
 bool console_active;
+bool presentation_active;
 void Log(const char* text) { if (log_file) { std::fprintf(log_file, "%s\n", text); std::fflush(log_file); } }
 [[noreturn]] void Fail(const char* text) {
   Log(text);
+  if (!console_active && !presentation_active) { consoleInit(nullptr); console_active = true; }
   if (console_active) { std::printf("ERROR: %s\n+ para salir\n", text); while (appletMainLoop()) {
     padUpdate(&pad); if (padGetButtonsDown(&pad) & HidNpadButton_Plus) break; consoleUpdate(nullptr);
   } consoleExit(nullptr); }
   std::exit(1);
+}
+bool Directory(const char* path) {
+  if (mkdir(path, 0777) == 0) return true;
+  struct stat info{};
+  return errno == EEXIST && stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+void OpenLog() {
+  const bool folders = Directory("sdmc:/switch") && Directory("sdmc:/switch/FNV-nx") &&
+                       Directory("sdmc:/switch/FNV-nx/logs");
+  const char* path = "sdmc:/switch/FNV-nx/logs/fnv-deko-replay.log";
+  int nested_error = 0;
+  if (folders) log_file = std::fopen(path, "w");
+  if (!log_file) {
+    nested_error = errno;
+    path = "sdmc:/fnv-deko-replay.log";
+    log_file = std::fopen(path, "w");
+  }
+  if (!log_file) {
+    std::printf("No se pudo crear el log en la SD. errno=%d (%s)\n", errno, std::strerror(errno));
+    Fail("SD log unavailable; graphics test not started");
+  }
+  std::printf("Registro: %s\n", path);
+  std::fprintf(log_file, "FNV deko replay v0.2; log=%s; nested_errno=%d\n", path, nested_error);
+  if (std::fflush(log_file) != 0 || std::ferror(log_file)) Fail("Cannot flush SD log");
+}
+void Preflight() {
+  for (unsigned i = 0; i < 8; ++i) {
+    for (const char* name : {"geometry.bin", "vertex.dksh"}) {
+      char path[160]; std::snprintf(path, sizeof(path), "sdmc:/switch/FNV-nx/deko-replay/%02u/%s", i, name);
+      FILE* file = std::fopen(path, "rb");
+      if (!file) { std::printf("Falta: %s\n", path); Log(path); Fail("Missing replay resource; copy the complete ZIP"); }
+      std::fclose(file);
+    }
+  }
+  const char* path = "sdmc:/switch/FNV-nx/deko-replay/flat.dksh";
+  FILE* file = std::fopen(path, "rb");
+  if (!file) { std::printf("Falta: %s\n", path); Log(path); Fail("Missing flat.dksh"); }
+  std::fclose(file); Log("All 17 resource files found before GPU startup");
 }
 void Debug(void*, const char* context, DkResult result, const char* message) {
   if (log_file) { std::fprintf(log_file, "deko [%s] %d: %s\n", context ? context : "", result,
@@ -85,10 +127,11 @@ void Load(DkDevice device, Mesh& mesh, unsigned id) {
 
 int main() {
   padConfigureInput(1, HidNpadStyleSet_NpadStandard); padInitializeDefault(&pad);
-  log_file = std::fopen("sdmc:/switch/FNV-nx/logs/fnv-deko-replay.log", "w");
-  Log("Native deko3d replay: captured geometry/vertex shaders; flat diagnostic fragment stage");
   consoleInit(nullptr); console_active = true;
-  std::printf("FNV: geometria real con deko3d\n\nA: iniciar\nIzquierda/derecha: 8 dibujos capturados\nY: recorte original/completo\nX: invertir eje vertical\n+: salir\n\nColor plano, sin texturas ni gameplay.\n");
+  OpenLog();
+  Log("Native deko3d replay: captured geometry/vertex shaders; flat diagnostic fragment stage");
+  std::printf("FNV: geometria real con deko3d v0.2\n\nA: iniciar\nIzquierda/derecha: 8 dibujos capturados\nY: recorte original/completo\nX: invertir eje vertical\n+: salir\n\nColor plano, sin texturas ni gameplay.\n");
+  Preflight();
   bool selected = false;
   while (appletMainLoop()) { padUpdate(&pad); auto buttons = padGetButtonsDown(&pad);
     if (buttons & HidNpadButton_Plus) break;
@@ -114,6 +157,7 @@ int main() {
     image_ptrs[i] = &images[i]; dkImageViewDefaults(&views[i], &images[i]); }
   DkSwapchainMaker swap_maker; dkSwapchainMakerDefaults(&swap_maker, device, nwindowGetDefault(), image_ptrs, 2);
   auto swapchain = dkSwapchainCreate(&swap_maker); if (!swapchain) Fail("Cannot create swapchain");
+  presentation_active = true;
   DkQueueMaker queue_maker; dkQueueMakerDefaults(&queue_maker, device); queue_maker.flags = DkQueueFlags_Graphics;
   auto queue = dkQueueCreate(&queue_maker); if (!queue) Fail("Cannot create queue");
   auto command_memory = Allocate(device, 65536, DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached);

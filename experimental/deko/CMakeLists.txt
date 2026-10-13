@@ -21,7 +21,7 @@ if(FNV_BUILD_DEKO_REPLAY)
     target_link_libraries(fnv-deko-replay PRIVATE fnv_deko_prototype m)
     add_custom_command(TARGET fnv-deko-replay POST_BUILD
         COMMAND "${_uam}" -s frag -o "${CMAKE_CURRENT_BINARY_DIR}/flat.dksh" "${CMAKE_CURRENT_SOURCE_DIR}/flat.frag"
-        COMMAND "${_nacp}" --create "FNV deko replay" "CypherNoodle" "0.1.0" "${CMAKE_CURRENT_BINARY_DIR}/replay.nacp"
+        COMMAND "${_nacp}" --create "FNV deko replay" "CypherNoodle" "0.2.0" "${CMAKE_CURRENT_BINARY_DIR}/replay.nacp"
         COMMAND "${_elf2nro}" "$<TARGET_FILE:fnv-deko-replay>" "${CMAKE_CURRENT_BINARY_DIR}/fnv-deko-replay.nro"
             "--nacp=${CMAKE_CURRENT_BINARY_DIR}/replay.nacp" "--icon=${_root}/icon.jpg"
         VERBATIM)
