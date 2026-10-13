@@ -31,6 +31,19 @@ size = 136
 [entrypoint.functions."0x82D39950"]
 size = 24
 "@
+# Original 8-byte this-pointer adjustors referenced by Xbox vtables. The first
+# missing entry (82D1E938) was observed when starting a new game on Switch.
+# Each entry is addi r3,r3,delta followed by a tail branch to an existing body.
+$adjustors = @(
+    '8286CCC8', '82D18460', '82D190B0', '82D1E918', '82D1E920',
+    '82D1E928', '82D1E930', '82D1E938', '82D1E948', '82D1E950',
+    '82D250B8', '82D250C0', '82D250D0', '82D250D8', '82D250E0',
+    '82D25388', '82D25398', '82D253A0', '82D253A8', '82D253B0',
+    '82D3A5D0', '82D4D540'
+)
+foreach ($address in $adjustors) {
+    $manifest += "`n[entrypoint.functions.`"0x$address`"]`nsize = 8`n"
+}
 $manifestPath = Join-Path $local 'fnv_xbox_manifest.toml'
 [IO.File]::WriteAllText($manifestPath, $manifest)
 & $Rexglue --log-level info codegen $manifestPath *> (Join-Path $local 'codegen.log')

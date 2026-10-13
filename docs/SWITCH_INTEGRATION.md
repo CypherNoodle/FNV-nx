@@ -86,7 +86,18 @@ ambos backends con New Vegas en hardware que justifique declarar uno más rápid
 El primer NRO Xbox ya está enlazado y pasó `tools/check_switch_binary.py`:
 AArch64, entrada ELF en cero, segmentos NRO válidos, título FNV-nx, icono
 solicitado, fingerprint Mesa 26.2.4 y los dos hooks con sus originales.
-La prueba de arranque en hardware sigue pendiente. Véase FIRST_BOOT.md.
+La primera prueba en hardware llegó al menú con imagen, audio y controles.
+Crear una partida produjo un abort del runtime por una llamada indirecta a
+`0x82D1E938` sin registrar, confirmado en el log y la traza simbolizada. Véase
+FIRST_BOOT.md para probar la compilación con los límites corregidos.
+
+`tools/audit_adjustors.py` verifica 22 entradas de ocho bytes contra la imagen
+original de la revisión compatible: `addi r3,r3,delta` y un salto relativo sin
+link a una función registrada. Cada entrada tiene referencias alineadas en
+los datos originales. `tools/codegen.ps1` declara sus límites; con
+`--require-registered`, el auditor también comprueba sus cuerpos y registro
+generados. Esta comprobación acota el fallo observado y ese patrón de saltos;
+no acredita cobertura completa de llamadas indirectas ni gameplay.
 
 La barrera portable de arranque está en `src/switch_startup_gate.cpp` y usa
 dos wrappers propios sin editar los cuerpos generados. Su flag tiene valor

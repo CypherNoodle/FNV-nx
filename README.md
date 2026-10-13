@@ -12,9 +12,14 @@ capturas diferentes. El arranque conserva una barrera experimental y la prueba
 usó START/A sintéticos dentro del runtime.
 
 **Existe un primer NRO Xbox experimental**, enlazado con ReXGlue Horizon y NVK.
-Pasó las comprobaciones de estructura y metadatos; aún no se ha ejecutado en
-consola. El menú y gameplay en Switch siguen pendientes. Consulta la
-[primera prueba de arranque](docs/FIRST_BOOT.md).
+Pasó las comprobaciones de estructura y metadatos. En la primera prueba real
+de Switch, el usuario confirmó menú, imagen, sonido y controles. Crear una
+partida cerró el programa: el log y la traza identifican una llamada a
+`0x82D1E938` sin registrar. Se añadieron límites explícitos para ese pequeño
+salto y otros 21 del mismo patrón, verificados contra el ejecutable original.
+La nueva compilación requiere repetir la carga de partida en consola; todavía
+no hay gameplay ni rendimiento medidos. Consulta la
+[prueba de arranque](docs/FIRST_BOOT.md).
 
 ## Archivos del juego
 
@@ -35,7 +40,7 @@ sdmc:/switch/FNV-nx/
 ```
 
 El repositorio y la carpeta de Switch usan **FNV-nx**.
-`icon.jpg` es el icono solicitado para el NRO futuro.
+`icon.jpg` es el icono solicitado, integrado en el NRO.
 
 ## Referencia Windows
 
@@ -62,4 +67,5 @@ y [las dependencias](THIRD_PARTY_NOTICES.md).
 
 La ruta CMake Horizon y el empaquetado NRO ya completaron su primer build.
 Consulta [la integración Switch](docs/SWITCH_INTEGRATION.md) para sus dependencias
-y las comprobaciones de CPU y binario. La ejecución en hardware sigue pendiente.
+y las comprobaciones de CPU y binario. El menú ya se probó en hardware;
+el siguiente objetivo es superar el cierre al crear una partida.

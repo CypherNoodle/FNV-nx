@@ -1,14 +1,14 @@
 # Próximos hitos
 
-1. Probar el primer NRO Horizon: runtime y NVK ya enlazados; comprobar memoria,
-   hilos, archivos, mandos, audio y el orden de arranque en consola.
-2. Registrar el último punto del código real Xbox alcanzado en consola y resolver
-   bloqueos de arranque con sus logs; mantener los archivos propios junto al NRO.
-3. Identificar la revisión XDK y el layout Direct3D del juego. Adaptar el
+1. Superar el cierre al crear una partida en Switch. La primera prueba llegó
+   al menú con imagen, sonido y controles; se identificó una función indirecta
+   sin registrar y se añadieron límites para 22 saltos del mismo patrón.
+2. Validar cinemática, carga, escena jugable, controles, audio y guardado en
+   una misma sesión útil. Revisar los logs ante cualquier nuevo bloqueo.
+3. Identificar el layout Direct3D de la revisión XDK documentada. Adaptar el
    renderer nativo y sus shaders usando la referencia Windows para comparar.
-4. Mostrar y navegar el menú en Switch. Agrupar verificaciones de gráficos,
-   entrada y servicios en una ejecución útil de hardware.
-5. Cargar una partida, validar gameplay y perfilar en el Cortex-A57 y GPU de
+4. Perfilar el runtime y las lecturas de SD sobre la escena jugable.
+5. Medir gameplay en el Cortex-A57 y GPU de
    Switch antes de adoptar optimizaciones.
 
 Los backends de consola requieren evaluación. No se ha establecido que

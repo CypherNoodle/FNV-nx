@@ -10,5 +10,8 @@
   "preserve_original_game_structure": true,
   "distribute_game_files": false,
   "switch_binary_created": true,
-  "hardware_tested": false
+  "hardware_tested": true,
+  "hardware_build_tested": "alpha01",
+  "menu_image_audio_controls_confirmed": true,
+  "gameplay_verified": false
 }

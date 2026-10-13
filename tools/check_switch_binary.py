@@ -13,6 +13,8 @@ def main():
     parser.add_argument('--elf', type=Path, required=True)
     parser.add_argument('--nro', type=Path, required=True)
     parser.add_argument('--nm', required=True)
+    parser.add_argument('--adjustor-audit', type=Path,
+                        help='Require audited guest adjustors to exist as linked weak aliases')
     args = parser.parse_args()
     elf = args.elf.read_bytes()
     nro = args.nro.read_bytes()
@@ -46,6 +48,16 @@ def main():
         hook = re.search(r'^([0-9a-fA-F]+) T ' + name + r'$', symbols, re.MULTILINE)
         original = re.search(r'^([0-9a-fA-F]+) T __imp__' + name + r'$', symbols, re.MULTILINE)
         assert hook and original and hook[1] != original[1], 'Startup hook/original missing: ' + name
+    adjustor_count = 0
+    if args.adjustor_audit:
+        audit = json.loads(args.adjustor_audit.read_text(encoding='utf-8-sig'))
+        assert audit['result'] == 'PASS' and audit['generated_bodies_checked']
+        for row in audit['adjustors']:
+            name = 'sub_' + row['address'][2:].upper()
+            alias = re.search(r'^([0-9a-fA-F]+) W ' + name + r'$', symbols, re.MULTILINE)
+            body = re.search(r'^([0-9a-fA-F]+) T __imp__' + name + r'$', symbols, re.MULTILINE)
+            assert alias and body and alias[1] == body[1], 'Adjustor alias/body missing: ' + name
+            adjustor_count += 1
     assert b'Mesa 26.2.4' in elf, 'Expected pinned Mesa driver fingerprint'
     assert b'/switch/FNV-nx/logs/fnv-nx.log' in elf, 'Missing absolute libnx log path'
     assert b'asset_pack_build = false' in elf, 'Missing inline-folder startup defaults'
@@ -53,6 +65,7 @@ def main():
               'nro_bytes': len(nro), 'nro_image_bytes': image_size,
               'title': title, 'author': author, 'requested_icon_verified': True,
               'startup_hooks_and_originals_verified': True, 'mesa_version': '26.2.4',
+              'audited_adjustors_linked': adjustor_count,
               'nro_sha256': hashlib.sha256(nro).hexdigest(),
               'hardware_tested': False, 'menu_on_switch_verified': False}
     print(json.dumps(report, indent=2))
