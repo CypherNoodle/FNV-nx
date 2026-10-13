@@ -28,6 +28,12 @@ La alpha04 añade seis forwarders, una prueba de compatibilidad de oclusión y
 captura de shaders. Consulta [la evaluación gráfica](docs/GRAPHICS_DECISION.md) y la
 [prueba de arranque](docs/FIRST_BOOT.md).
 
+La prueba alpha04 mostró HUD pero mantuvo el mundo negro y bajo rendimiento.
+La captura real de 65 shaders Xenos y 79 variantes SPIR-V ya fue analizada:
+la conversión directa a UAM falla por layouts que requieren adaptación.
+Existe una comparación FSI de configuración para el mismo NRO; deko3d todavía
+no está integrado y no se ha demostrado una mejora de rendimiento.
+
 ## Archivos del juego
 
 No se distribuyen ni versionan `default.xex`, `Data/`, código generado, shaders

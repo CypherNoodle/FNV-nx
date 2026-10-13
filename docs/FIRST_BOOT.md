@@ -47,6 +47,12 @@ la carpeta también contiene NRO, configuración, logs y datos de usuario.
 
 La siguiente ejecución debe comprobar autoguardado, movimiento y si aparece
 el mundo. Esta compilación sigue usando NVK; deko3d aún no está integrado.
+
+La alpha04 mostró HUD pero conservó el mundo negro. Para una sola comparación
+de corrección visual, `config/switch-world-fsi.toml` se copia con el nombre
+`fnv-nx.toml` y se reinicia el mismo NRO. Esta ruta puede ser más lenta: el
+objetivo es comprobar si aparece la escena, no medir una mejora. Conserva
+los logs y `cache/shader-diagnostics-fsi/`, y restaura luego el preset FBO.
 El gameplay, la vibración y el rendimiento todavía no están validados. Este
 backend GPU es el del SDK para el arranque; la adaptación del renderer directo
 y la evaluación de deko3d siguen pendientes.

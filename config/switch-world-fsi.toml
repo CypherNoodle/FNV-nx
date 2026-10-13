@@ -1,0 +1,14 @@
+# One visual-correctness comparison using the existing alpha04 NRO.
+# Copy as /switch/FNV-nx/fnv-nx.toml and restart the app.
+# FSI manually emulates packing/blending/depth: potentially much slower.
+fnv_startup_barrier = true
+switch_profile_stacks = false
+occlusion_query_enable = false
+render_target_path_vulkan = "fsi"
+log_to_file = true
+log_level = "info"
+log_file = "/switch/FNV-nx/logs/fnv-nx.log"
+asset_pack = false
+asset_pack_build = false
+allow_game_relative_writes = false
+dump_shaders = "/switch/FNV-nx/cache/shader-diagnostics-fsi"
