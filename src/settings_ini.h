@@ -68,6 +68,10 @@ inline IniSettings ParseSettingsIni(std::string_view text) {
         } else if (full == "graficos.renderer") {
             if (value == "fsi" || value == "fbo") flag("render_target_path_vulkan", value);
             else error();
+        } else if (full == "graficos.pasadas") {
+            if (value == "dinamicas" || value == "clasicas")
+                flag("vulkan_dynamic_rendering", value == "dinamicas" ? "true" : "false");
+            else error();
         } else if (section == "cpu" && (key == "principal" || key == "comandos_gpu" || key == "audio")) {
             int core = -1;
             if (value != "auto" && (!IniInteger(value, core) || core < 0 || core > 2)) { error(); continue; }

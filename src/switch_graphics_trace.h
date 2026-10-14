@@ -13,3 +13,4 @@ extern "C" void RexFnvGraphicsReport(FILE* file, double frames);
 extern "C" void RexFnvGraphicsImage(const void* info, bool depth, uint32_t format, uint32_t base);
 extern "C" void RexFnvGraphicsResolve(bool fsi, uint32_t dest, uint32_t length,
                                      uint32_t base, uint32_t used, uint32_t rows, uint32_t pitch);
+extern "C" void RexFnvGraphicsDepthExport(bool fsi, bool float24, bool conversion, uint64_t shader);

@@ -12,5 +12,12 @@ int main() {
     const auto fsi = fnv::ParseSettingsIni("version=1\n[optimizacion]\nfsi_interlock_tardio=true\n");
     assert(fsi.errors.empty() && fsi.flags.size() == 1);
     assert(fsi.flags[0].first == "fnv_fsi_late_opaque" && fsi.flags[0].second == "true");
+    const auto passes = fnv::ParseSettingsIni("version=1\n[graficos]\npasadas=clasicas\n");
+    assert(passes.errors.empty() && passes.flags.size()==1);
+    assert(passes.flags[0].first=="vulkan_dynamic_rendering" && passes.flags[0].second=="false");
+    const auto dynamic = fnv::ParseSettingsIni("[graficos]\npasadas=dinamicas\n");
+    assert(dynamic.errors.empty() && dynamic.flags[0].second=="true");
+    const auto invalid_pass = fnv::ParseSettingsIni("[graficos]\npasadas=automaticas\n");
+    assert(invalid_pass.flags.empty() && invalid_pass.errors.size()==1);
     std::cout << "PASS INI: UTF8/CRLF, comments, mapping, invalid values, duplicates, version, core range, vblank unchanged\n";
 }

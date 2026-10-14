@@ -27,4 +27,6 @@ with tempfile.TemporaryDirectory(prefix='fnv-graphics-trace-') as folder:
     assert 'RexFnvGraphicsBarrier(src_stage_mask, dst_stage_mask' in (sdk/names[2]).read_text()
     assert 'RexFnvGraphicsImage(&image_create_info' in (sdk/names[3]).read_text()
     assert 'RexFnvGraphicsResolve(GetPath()' in (sdk/names[3]).read_text()
+    assert 'pixel_shader && pixel_shader->writes_depth()' in (sdk/names[0]).read_text()
+    assert 'RexFnvGraphicsDepthExport(' in (sdk/names[0]).read_text()
 print('PASS bounded trace installation/idempotence; original registers/commands/barriers preserved; 12 boundaries')

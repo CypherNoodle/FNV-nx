@@ -12,6 +12,8 @@ namespace {
 std::atomic<uint64_t> legacy{0}, dynamic{0}, barriers{0}, memory_items{0}, buffer_items{0}, image_items{0}, broad{0};
 std::atomic<uint64_t> states{0}, transitions{0}, fsi_states{0}, fbo_states{0};
 std::atomic<uint64_t> frame_id{0};
+std::atomic<uint64_t> depth_export_fbo_float{0}, depth_export_fbo_fixed{0}, depth_export_fsi{0};
+std::atomic<uint64_t> depth_export_remap{0};
 template<class T> uint64_t Bits(T value) {
     uint64_t bits = 0;
     static_assert(sizeof(value) <= sizeof(bits));
@@ -30,6 +32,19 @@ template<size_t N, size_t Capacity> bool First(std::array<std::array<uint64_t,N>
 extern "C" bool RexFnvGraphicsTraceEnabled() { return REXCVAR_GET(fnv_graphics_trace); }
 extern "C" void RexFnvGraphicsFrame() { frame_id.fetch_add(1,std::memory_order_relaxed); }
 extern "C" uint64_t RexFnvGraphicsFrameId() { return frame_id.load(std::memory_order_relaxed); }
+extern "C" void RexFnvGraphicsDepthExport(bool fsi, bool float24, bool conversion, uint64_t shader) {
+    if (!RexFnvGraphicsTraceEnabled()) return;
+    (fsi ? depth_export_fsi : (float24 ? depth_export_fbo_float : depth_export_fbo_fixed))
+        .fetch_add(1, std::memory_order_relaxed);
+    if (!fsi && float24 && !conversion) depth_export_remap.fetch_add(1,std::memory_order_relaxed);
+    static std::array<std::array<uint64_t,4>,32> seen{};
+    static unsigned count=0;
+    const std::array<uint64_t,4> key={shader,uint64_t(fsi),uint64_t(float24),uint64_t(conversion)};
+    if (First(seen,count,key))
+        REXLOG_INFO("FNV explicit depth: shader={:016X} fsi={} float24={} conversion={} "
+                    "half_scale_fix={} frame={} (draw attempted; visual effect unverified)",
+                    shader,fsi,float24,conversion,!fsi&&float24&&!conversion,RexFnvGraphicsFrameId());
+}
 extern "C" void RexFnvGraphicsBegin(bool is_dynamic, const void* input) {
     if (!RexFnvGraphicsTraceEnabled() || !input) return;
     (is_dynamic ? dynamic : legacy).fetch_add(1,std::memory_order_relaxed);
@@ -114,6 +129,11 @@ extern "C" void RexFnvGraphicsReport(FILE* file, double frames) {
                  (unsigned long long)image_items.exchange(0),(unsigned long long)states.exchange(0),
                  (unsigned long long)t,(unsigned long long)fsi_states.exchange(0),(unsigned long long)fbo_states.exchange(0),
                  frames>0?(l+d)/frames:0,frames>0?b/frames:0,frames>0?t/frames:0);
+    std::fprintf(file,"     FNV depth exports: fbo_float24=%llu fbo_fixed24=%llu fsi=%llu half_scale_fix=%llu\n",
+                 (unsigned long long)depth_export_fbo_float.exchange(0),
+                 (unsigned long long)depth_export_fbo_fixed.exchange(0),
+                 (unsigned long long)depth_export_fsi.exchange(0),
+                 (unsigned long long)depth_export_remap.exchange(0));
 }
 extern "C" void RexFnvGraphicsImage(const void* input, bool depth, uint32_t format, uint32_t base) {
     if (!RexFnvGraphicsTraceEnabled()) return;

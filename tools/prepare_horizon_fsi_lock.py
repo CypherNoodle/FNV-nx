@@ -23,7 +23,7 @@ def prepare(sdk):
     # New enum meaning is part of shader storage identity. Preserve the original
     # statement in the excluded branch so the preparation can round-trip.
     add(header, '    static constexpr uint32_t kVersion = 12;\n',
-        '    #if 1\n    static constexpr uint32_t kVersion = 13;\n    #else',
+        '    #if 1\n    static constexpr uint32_t kVersion = 14;\n    #else',
         before_anchor=True, indent='    ')
     add(header, '    static constexpr uint32_t kVersion = 12;\n', '    #endif', indent='    ')
     add(header, '      kFloat24Rounding,\n',
@@ -85,4 +85,4 @@ if __name__ == '__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--sdk',type=Path,required=True)
     prepare(p.parse_args().sdk)
-    print('PASS FSI late-opaque preparation: cache version13, guarded variant4, original statements preserved')
+    print('PASS shader identity14 (explicit FBO depth fix), guarded FSI variant4, original statements preserved')

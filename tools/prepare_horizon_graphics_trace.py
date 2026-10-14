@@ -43,6 +43,14 @@ def prepare(sdk):
     add(rt,'  VkImage image;\n  VkDeviceMemory memory;\n',
         '  RexFnvGraphicsImage(&image_create_info, key.is_depth, uint32_t(key.resource_format), key.base_tiles);',
         before=True,indent='  ')
+    add(cp,'  // Draw.\n#if REX_PLATFORM_SWITCH\n',
+        '''  if (RexFnvGraphicsTraceEnabled() && pixel_shader && pixel_shader->writes_depth()) {
+    RexFnvGraphicsDepthExport(
+        render_target_cache_->GetPath()==RenderTargetCache::Path::kPixelShaderInterlock,
+        regs.Get<reg::RB_DEPTH_INFO>().depth_format==xenos::DepthRenderTargetFormat::kD24FS8,
+        render_target_cache_->depth_float24_convert_in_pixel_shader() && normalized_depth_control.z_enable,
+        pixel_shader->ucode_data_hash());
+  }''',before=True,indent='  ')
     add(rt,'  RexSwitchPerfCount(9);\n',
         '''  if (RexFnvGraphicsTraceEnabled() && resolve_info.copy_dest_extent_length) {
     uint32_t fnv_base,fnv_used,fnv_rows,fnv_pitch;

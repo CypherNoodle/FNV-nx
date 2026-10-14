@@ -83,7 +83,8 @@ def main():
                  'RexFnvFpsDraw', 'RexFnvBatchSubmissionsEnabled', 'RexFnvGpuTimestampsEnabled',
                  'RexFnvDepthState', 'RexFnvLateFsiEnabled', 'RexFnvLateFsiNote',
                  'RexFnvGraphicsBegin', 'RexFnvGraphicsBarrier', 'RexFnvGraphicsState',
-                 'RexFnvGraphicsReport', 'RexFnvGraphicsFrameId', 'RexFnvGraphicsImage', 'RexFnvGraphicsResolve'):
+                 'RexFnvGraphicsReport', 'RexFnvGraphicsFrameId', 'RexFnvGraphicsImage', 'RexFnvGraphicsResolve',
+                 'RexFnvGraphicsDepthExport'):
         assert re.search(r'^[0-9a-fA-F]+ T ' + name + r'$', symbols, re.MULTILINE), name
     assert b'asset_pack_build = false' in elf, 'Missing inline-folder startup defaults'
     report = {'result': 'PASS', 'architecture': 'AArch64', 'elf_entry': entry,

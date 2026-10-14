@@ -15,7 +15,8 @@ Sin INI se mantienen los valores compilados. No hay lectura de ajustes por frame
 | --- | --- | --- |
 | graficos / resolucion | 960x540, 1280x720 | Tamaño fijo de la creación auditada. No DRS ni reducción de todos los targets. |
 | graficos / vsync | auto, off, on, relaxed | Preferencia de presentación Vulkan host. El modo efectivo depende del soporte y queda en el log. |
-| graficos / renderer | fsi, fbo | FSI es la ruta que mostró el mundo. FBO tuvo mundo negro; es experimental. |
+| graficos / renderer | fsi, fbo | FBO mostró mundo/HUD en tercera persona; primera persona negra y Pip-Boy rojo pendientes. Experimental. |
+| graficos / pasadas | dinamicas, clasicas | Selecciona las pasadas Vulkan existentes del SDK. Por defecto dinámicas. Clásicas permite aislar fallos FBO; requiere reiniciar. |
 | optimizacion / espera_gpu_notificada | true/false | Espera hasta 250 µs por avance publicado del ring. El poll y su timeout originales siguen decidiendo. |
 | optimizacion / backoff_gpu | true/false | Pausa de 50 µs si la notificación no reconoce la dirección. Se puede restaurar la espera alpha11 desactivando la notificación. |
 | optimizacion / agrupar_envios_gpu | true/false | Prueba optativa: no enviar al final de cada primary buffer. Enviar antes de una espera de comandos, al presentar y en los puntos originales de sincronización/readback. |
@@ -76,3 +77,12 @@ se reserva un marcador final y se indica truncamiento. Los contadores de swaps
 al inicio/final identifican el intervalo del envío, no constituyen una medida
 completa de GPU ocupada por frame. La traza puede reducir FPS: desactivada
 normalmente. El paquete de diagnóstico FBO la activa junto a tiempos_gpu.
+
+El paquete alpha15 usa FBO con pasadas=clasicas y tiempos_gpu=false. Conserva
+traza_grafica=true para registrar el camino efectivo y los contadores
+FNV depth exports. half_scale_fix cuenta intentos de draw con exportación
+explícita de profundidad flotante sin conversión completa. Un valor cero
+significa que esa corrección no se ejercitó en ese intervalo. Los shaders
+capturados anteriormente no cubren ese caso: no es una prueba de reparación
+de primera persona ni del Pip-Boy. La primera carga puede recompilar shaders
+por el cambio de identidad; conservar la caché de Mesa existente.

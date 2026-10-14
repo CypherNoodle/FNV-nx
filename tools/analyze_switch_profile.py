@@ -38,6 +38,9 @@ def analyze(profile, log=''):
         if scheduling:
             row['fsi_late_draw_attempts'] = int(scheduling[1])
             row['fsi_original_draw_attempts'] = int(scheduling[2])
+        exports = re.search(r'FNV depth exports: ([^\n]+)', block)
+        if exports:
+            row['depth_exports'] = {k:int(v) for k,v in re.findall(r'(\w+)=(\d+)',exports[1])}
         topology = re.search(r'FNV render topology: (.*?) \| passes/frame=([\d.]+) barriers/frame=([\d.]+) changes/frame=([\d.]+)', block)
         if topology:
             row['render_topology'] = {k:int(v) for k,v in re.findall(r'(\w+)=(\d+)',topology[1])}

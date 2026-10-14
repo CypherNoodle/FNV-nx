@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='fnv-fsi-lock-test-') as folder:
     prepare(sdk)
     assert first=={n:(sdk/n).read_bytes() for n in names}
     header=(sdk/names[0]).read_text()
-    assert 'kVersion = 13;' in header and 'kFsiLateOpaque' in header
+    assert 'kVersion = 14;' in header and 'kFsiLateOpaque' in header
     assert 'current_shader().implicit_early_z_write_allowed()) return false;' in header
     cpp=(sdk/names[1]).read_text()
     for guard in ['pixel_shader->kills_pixels()', 'pixel_shader->writes_depth()',
@@ -43,4 +43,4 @@ match=re.search(r'uint32_t PhysicalHeap::GetPhysicalAddress\(uint32_t address\) 
 assert match and 'address -= heap_base_;' in match[1]
 assert 'if (heap_base_ >= 0xE0000000)' in match[1] and 'address += 0x1000;' in match[1]
 assert '0x1FD00000, 4096, &heaps_.physical' in memory
-print('PASS FSI guarded variant/source preservation/idempotence; shader identity13; E alias +0x1000 source verified')
+print('PASS FSI guarded variant/source preservation/idempotence; shader identity14; E alias +0x1000 source verified')

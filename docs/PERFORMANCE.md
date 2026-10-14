@@ -1,5 +1,53 @@
 # Performance investigation
 
+## Alpha14 FBO observations and alpha15 depth correction
+
+The latest uploaded application log contains two FBO sessions; the profile
+belongs to the second, starting October 14 at 10:38:34. Its 16 non-startup
+intervals confirm effective FBO (zero FSI state updates), fixed clocks of
+1785/960/1862.4 MHz and no recorded fatal or protection failure. Four intervals
+above 800 guest draws/frame have median 7.65 FPS, with 835-1191 draws/frame.
+This is not a scene-matched comparison against alpha13's heavier workloads.
+The user reports visible third-person world/HUD, black first person, red
+Pip-Boy and continuing face/through-wall errors. Do not call FBO wholly black.
+
+Heavy intervals show 310-405 dynamic passes and 907-1188 barrier commands per
+frame, compared to roughly 45-63 normalized target-state changes. No broad
+ALL_COMMANDS barriers were counted. Buffer barriers dominate; the number of
+passes cannot be attributed exclusively to render target switches. The SDK
+ends rendering for pending barriers and CPU-to-GPU shared-memory uploads.
+SD reads take about 0.77-1.38 ms/frame, while the inclusive guest GPU-wait hook
+takes about 94-128 ms/frame. These host waits do not measure GPU execution.
+Several sampled submissions exhaust 64 markers: their final unclassified tail
+must not be relabeled as draw, resolve or a single pass. No fixed 30 ms floor
+or full-frame utilization follows from these samples.
+
+Source audit found a separate reproducible FBO translator defect: the host
+viewport and depth clears map D24FS8 depth to half the guest range, but the
+ordinary explicit oDepth completion omitted the corresponding scale. The
+Direct3D translator already handles this. The correction applies x0.5 to
+explicit exports only when the existing float24 system flag is set. Fixed24
+uses x1, FSI is untouched, and optional float24 conversion retains its original
+single remap. No guest geometry, draw, resolve or synchronization is removed.
+Shader storage identity is 14 to reject obsolete generated translations.
+
+An original six-word test shader reproduces the old output and validates the
+new emitted flag/select/multiply/store chain. All four modes pass spirv-val;
+FSI, truncation and rounding binaries remain byte-identical. All 39 unique
+captured pixel programs remain byte-identical and valid; none writes oDepth.
+Thus the defect is proven, but its relevance to this game's observed failure
+is not. Trace-enabled counters now count actual explicit-depth draw attempts
+and log at most 32 shader/format combinations. Zero affected draws rules out
+this particular fix for the tested scene.
+
+Alpha15 also exposes graficos.pasadas=clasicas/dinamicas (restart required),
+using the SDK's existing Vulkan render-pass paths. Normal configuration stays
+FSI/dynamic. The focused test package chooses FBO/classic with CPU/metadata
+trace enabled and GPU queries disabled. Compare first person, third person and
+Pip-Boy in one existing save. This is an image-path diagnostic, not an isolated
+FPS A/B: query settings and shader storage identity also differ from alpha14.
+Neither black first person, red Pip-Boy nor performance is claimed fixed.
+
 ## Conservative alpha13 hardware and alpha14 FBO diagnosis
 
 The next run (October 14, 09:10:55 onwards) confirms all three experiments off:
