@@ -50,18 +50,21 @@ def exports(path):
     return found,ordinals
 
 def audit(game, wine):
-    game_dlls = {p.name.lower():p for p in game.glob("*.dll")}
+    game_dlls = {p.name.lower():p for p in game.iterdir() if p.is_file() and p.suffix.lower()==".dll"}
     wine_dlls = {p.name.lower():p for p in (wine / "drive_c/windows/syswow64").glob("*.dll")}
     dxvk = {p.name.lower():p for p in (wine / "drive_c/dxvk").glob("*.dll")}
     providers = {**wine_dlls, **dxvk, **game_dlls}
     result = []; missing = []
     # Include the game-owned media/Steam DLLs as import consumers as well.
-    consumers = [game / "FalloutNV.exe"] + [game / n for n in ("steam_api.dll","binkw32.dll","libvorbisfile.dll","libvorbis.dll")]
+    consumers = [game / "FalloutNV.exe"]; seen={consumers[0].resolve()}
     for consumer in consumers:
         for dependency in pe_info(consumer)["imports"]:
             name=dependency["dll"].lower(); provider=providers.get(name)
             if not provider:
                 missing.append({"consumer":consumer.name,"dll":name,"reason":"missing DLL"}); continue
+            if name in game_dlls and provider.resolve() not in seen:
+                seen.add(provider.resolve()); consumers.append(provider)
+                if len(consumers)>128: raise ValueError("Game DLL dependency graph exceeds bound")
             names,ordinals=exports(provider)
             absent=[s for s in dependency["symbols"] if (s["name"] not in names if "name" in s else s["ordinal"] not in ordinals)]
             result.append({"consumer":consumer.name,"dll":name,"symbols":len(dependency["symbols"]),"missing_symbols":absent})

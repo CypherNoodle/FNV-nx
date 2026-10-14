@@ -1,4 +1,4 @@
-# FNV-nx: ruta PC / Steam
+# FNV-nx: ruta PC
 
 Esta rama `pc-port` pausa el trabajo Xbox y prepara una prueba del ejecutable
 PC original en Nintendo Switch. La primera ruta usa Autorun/Wine con FEX o
@@ -10,6 +10,12 @@ upstream al fallar su comprobacion de DLL. La entrada pc02 elimina esa
 interfaz: carga exclusivamente New Vegas o muestra el motivo del fallo y sale
 con +. Las DLL Wine/FEX/DXVK siguen siendo dependencias internas necesarias,
 incluidas en el paquete; no requieren usar la biblioteca de juegos de Autorun.
+
+La entrada pc03 lee directamente las cabeceras e imports del PE32: exige las
+DLL Steam/Galaxy/Bink/Vorbis cuando se importan, sin imponer Steam a todas las
+ediciones. Los indicadores `.bind`, Steam API y Galaxy no certifican ausencia
+de DRM ni arranque del motor. Las auditorias host recorren tambien las
+dependencias transitivas de las DLL locales del juego.
 
 ## Que esta preparado
 
@@ -43,7 +49,7 @@ ni cubre DLL cargadas dinamicamente.
 sd:/switch/FNV-nx/fnv-nx.nro
 sd:/switch/FNV-nx/fnv-pc.ini
 sd:/switch/FNV-nx/pc/FalloutNV.exe
-sd:/switch/FNV-nx/pc/steam_api.dll
+sd:/switch/FNV-nx/pc/<DLL originales de esa edicion>
 sd:/switch/FNV-nx/pc/binkw32.dll
 sd:/switch/FNV-nx/pc/libvorbis.dll
 sd:/switch/FNV-nx/pc/libvorbisfile.dll
@@ -62,8 +68,8 @@ runtime. Ese archivo es interno; editar `fnv-pc.ini`. `four_cores=1` solo puede
 funcionar cuando el proceso dispone de ese permiso; no lo concede el INI.
 La primera prueba mantiene tres nucleos y desactiva generacion de frames.
 
-Los registros son `FNV-nx/logs/fnv-pc-bootstrap.log` y
-`wine/logs/autorun_runtime.log`. Un `preflight=PASS` solo significa archivos y
+Desde pc03 los registros principales son `FNV-nx/logs/fnv-pc-bootstrap.log` y
+`FNV-nx/logs/fnv-pc-runtime.log`. Un `preflight=PASS` solo significa archivos y
 perfil preparados; no demuestra ejecucion del motor. El registro de Wine
 debe identificar por separado LOWVA, WoW64/FEX, attach del ejecutable y D3D9.
 
@@ -88,6 +94,7 @@ se dispone de un volumen Linux: la exploracion de cabeceras Wine tarda mucho.
 
 ```sh
 python pc/tests/test_bootstrap.py --cc cc
+python pc/tests/test_pe.py --cc cc --game /ruta/de/tu/instalacion
 python pc/tools/audit_runtime.py --game /ruta/Steam/Fallout\ New\ Vegas --wine /ruta/staging/switch/wine --output /ruta/privada/imports.json
 ```
 

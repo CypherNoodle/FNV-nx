@@ -6,13 +6,17 @@ from pathlib import Path
 
 PIN = "cbb0e4e6e7fa7f47f328d92441f51bfb507f266f"
 
+def save_changed(path, text):
+    if path.read_text(encoding="utf-8")!=text:
+        path.write_text(text,encoding="utf-8",newline="\n")
+
 def replace_once(path, anchor, replacement):
     text = path.read_text(encoding="utf-8")
     if replacement in text:
         return
     if text.count(anchor) != 1:
         raise ValueError(f"Pinned source anchor changed: {path.name}")
-    path.write_text(text.replace(anchor, replacement), encoding="utf-8", newline="\n")
+    save_changed(path,text.replace(anchor, replacement))
 
 def dedicated_launch(path):
     text=path.read_text(encoding="utf-8")
@@ -60,20 +64,21 @@ def dedicated_launch(path):
     restart='    if (!still_lent && (runtime_reopen_launcher || !access( WINE_NX_RUNTIME_ROOT "/run-next.txt", F_OK )) &&'
     if text.count(restart)!=1: raise ValueError("Pinned restart block changed")
     text=text.replace(restart,'    if (!still_lent && runtime_components_run && (runtime_reopen_launcher || !access( WINE_NX_RUNTIME_ROOT "/run-next.txt", F_OK )) &&')
-    path.write_text(text,encoding="utf-8",newline="\n")
+    save_changed(path,text)
 
 def integrate(root):
     pc = Path(__file__).resolve().parents[1]
     hw = root / "horizon-wine"
     if not (hw / "source/runtime.c").is_file():
         raise ValueError("Not an Autorun source directory")
-    for name in ("fnv_pc_bootstrap.c", "fnv_pc_bootstrap.h"):
-        shutil.copyfile(pc / "source" / name, hw / "source" / name)
+    for name in ("fnv_pc_bootstrap.c", "fnv_pc_bootstrap.h", "fnv_pc_pe.c", "fnv_pc_pe.h"):
+        source=pc / "source" / name; target=hw / "source" / name
+        if not target.exists() or source.read_bytes()!=target.read_bytes(): shutil.copyfile(source,target)
     replace_once(hw / "source/runtime.c", '#include "fex_options.h"',
                  '#include "fnv_pc_bootstrap.h"\n#include "fex_options.h"')
     anchor = '    log_line( "[LOWVA] forwarder title %016llx", runtime_title_id() );'
     hook = anchor + '''
-    log_line( "[FNV-PC] pc-probe02 Autorun ''' + PIN + '''" );
+    log_line( "[FNV-PC] pc-probe03 Autorun ''' + PIN + '''" );
     if (!fnv_pc_bootstrap(&argc, &argv))
     {
         PadState fnv_pad;
@@ -92,27 +97,41 @@ def integrate(root):
     }'''
     # Upgrade the adapter from the first probe without touching engine code.
     old=(hw / "source/runtime.c").read_text(encoding="utf-8")
-    if '[FNV-PC] pc-probe01 Autorun' in old:
-        (hw / "source/runtime.c").write_text(old.replace('[FNV-PC] pc-probe01 Autorun','[FNV-PC] pc-probe02 Autorun'),encoding="utf-8",newline="\n")
+    for version in ("01","02"):
+        old=old.replace('[FNV-PC] pc-probe'+version+' Autorun','[FNV-PC] pc-probe03 Autorun')
+    save_changed(hw / "source/runtime.c",old)
     replace_once(hw / "source/runtime.c", anchor, hook)
     dedicated_launch(hw / "source/runtime.c")
     replace_once(hw / "source/runtime.c", 'else snprintf( own_nro, sizeof(own_nro), "%s", WINE_NX_RUNTIME_NRO );',
                  'else snprintf( own_nro, sizeof(own_nro), "%s", "sdmc:/switch/FNV-nx/fnv-nx.nro" );')
-    replace_once(hw / "CMakeLists.txt", 'set_target_properties(wine-nx-runtime PROPERTIES SUFFIX ".elf")',
-                 'target_sources(wine-nx-runtime PRIVATE source/fnv_pc_bootstrap.c)\nset_target_properties(wine-nx-runtime PROPERTIES SUFFIX ".elf")')
+    replace_once(hw / "source/runtime.c", '#define RUNTIME_LOGS RUNTIME_DIR "/logs"',
+                 '#define RUNTIME_LOGS "sdmc:/switch/FNV-nx/logs"')
+    runtime=hw / "source/runtime.c"
+    text=runtime.read_text(encoding="utf-8")
+    save_changed(runtime,text.replace('RUNTIME_LOGS "/autorun_runtime.log"','RUNTIME_LOGS "/fnv-pc-runtime.log"'))
+    cmake=hw / "CMakeLists.txt"
+    sources='target_sources(wine-nx-runtime PRIVATE source/fnv_pc_bootstrap.c source/fnv_pc_pe.c)'
+    old_sources='target_sources(wine-nx-runtime PRIVATE source/fnv_pc_bootstrap.c)'
+    if old_sources in cmake.read_text(encoding="utf-8"):
+        replace_once(cmake,old_sources,sources)
+    elif sources not in cmake.read_text(encoding="utf-8"):
+        replace_once(cmake,'set_target_properties(wine-nx-runtime PROPERTIES SUFFIX ".elf")',
+                     sources+'\nset_target_properties(wine-nx-runtime PROPERTIES SUFFIX ".elf")')
     replace_once(hw / "source/xinput_unix.c", '#include "input_profile.h"',
                  '#include "input_profile.h"\n#include "fnv_pc_bootstrap.h"')
     anchor = '        nx_xinput_map( mapped.buttons, mapped.axis[0], mapped.axis[1], mapped.axis[2], mapped.axis[3], &gamepad );'
     replace_once(hw / "source/xinput_unix.c", anchor, anchor + '\n        gamepad.wButtons = fnv_pc_map_buttons(gamepad.wButtons);')
     cmake=hw / "CMakeLists.txt"
     old=cmake.read_text(encoding="utf-8")
-    if '"pc01" "${RUNTIME_NACP_FILE}"' in old:
-        cmake.write_text(old.replace('"pc01" "${RUNTIME_NACP_FILE}"','"pc02" "${RUNTIME_NACP_FILE}"'),encoding="utf-8",newline="\n")
+    for version in ("01","02"):
+        old=old.replace('"pc'+version+'" "${RUNTIME_NACP_FILE}"','"pc03" "${RUNTIME_NACP_FILE}"')
+    save_changed(cmake,old)
     replace_once(cmake, '--create "Autorun" "ticoverse.com" "0.0.1" "${RUNTIME_NACP_FILE}"',
-                 '--create "FNV-nx PC (experimental)" "CypherNoodle / Autorun" "pc02" "${RUNTIME_NACP_FILE}"')
+                 '--create "FNV-nx PC (experimental)" "CypherNoodle / Autorun" "pc03" "${RUNTIME_NACP_FILE}"')
     icon = pc.parent / "icon.jpg"
     if icon.is_file():
-        shutil.copyfile(icon,hw / "assets/fnv-pc.jpg")
+        target=hw / "assets/fnv-pc.jpg"
+        if not target.exists() or icon.read_bytes()!=target.read_bytes(): shutil.copyfile(icon,target)
         replace_once(hw / "CMakeLists.txt", '"--icon=${CMAKE_CURRENT_SOURCE_DIR}/assets/autorun.jpg" ${RUNTIME_ROMFS_ARG}',
                      '"--icon=${CMAKE_CURRENT_SOURCE_DIR}/assets/fnv-pc.jpg" ${RUNTIME_ROMFS_ARG}')
         replace_once(hw / "CMakeLists.txt", 'DEPENDS wine-nx-runtime "${RUNTIME_NACP_FILE}" "${CMAKE_CURRENT_SOURCE_DIR}/assets/autorun.jpg"',

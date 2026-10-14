@@ -59,6 +59,7 @@ def pe_info(path):
             else: raise ValueError('Unterminated import descriptors')
     return dict(sha256=hashlib.sha256(raw).hexdigest(),bytes=len(raw),machine='i386',
         image_base=base,image_bytes=image_size,entry_va=base+entry,
+        large_address_aware=bool(u16(nt+22)&0x20),
         entry_section=next((s['name'] for s in sections if s['rva']<=entry<s['rva']+s['virtual_bytes']),None),
         sections=sections,imports=imports)
 
@@ -76,24 +77,34 @@ def audit(game):
     exe=game/'FalloutNV.exe';data=game/'Data'
     required=['FalloutNV.esm','Fallout - Meshes.bsa','Fallout - Misc.bsa','Fallout - Sound.bsa',
               'Fallout - Textures.bsa','Fallout - Textures2.bsa','Fallout - Voices1.bsa']
-    missing=[name for name in required if not (data/name).is_file()]
-    root_required=('binkw32.dll','steam_api.dll','libvorbis.dll','libvorbisfile.dll','Fallout_default.ini')
-    missing += [name for name in root_required if not (game/name).is_file() or not (game/name).stat().st_size]
+    missing=[name for name in required if not (data/name).is_file() or not (data/name).stat().st_size]
     pe=pe_info(exe)
-    dlls={p.name.lower():p for p in game.glob('*.dll')}
+    dlls={p.name.lower():p for p in game.iterdir() if p.is_file() and p.suffix.lower()=='.dll'}
+    helpers={'binkw32.dll','steam_api.dll','libvorbis.dll','libvorbisfile.dll','galaxywrp.dll','galaxy.dll'}
+    imported={i['dll'].lower() for i in pe['imports']}
+    # Edition-specific libraries are required by actual imports, not store name.
+    root_required=tuple(sorted(helpers & imported))+('Fallout_default.ini',)
+    for name in root_required:
+        provider=dlls.get(name) if name.endswith('.dll') else game/name
+        if not provider or not provider.is_file() or not provider.stat().st_size: missing.append(name)
     bsas=[bsa_info(p) for p in sorted(data.glob('*.bsa'))]
     local=[]
     for dll in sorted(dlls.values()):
         try: local.append({'name':dll.name,**pe_info(dll)})
         except ValueError as error: local.append({'name':dll.name,'error':str(error)})
     missing += [row['name']+' (invalid PE)' for row in local if row['name'].lower() in root_required and 'error' in row]
+    indicators=dict(entry_in_bind=pe['entry_section']=='.bind',steam_api_import='steam_api.dll' in imported,
+        galaxy_wrapper_import=bool(imported & {'galaxywrp.dll','galaxy.dll'}),
+        known_steamstub21=pe['sha256']==STEAM_SHA,drm_free=None)
     return dict(result='PASS' if not missing else 'INCOMPLETE',executable=pe,
         known_steam_executable=pe['sha256']==STEAM_SHA,missing=missing,archives=bsas,
+        edition_indicators=indicators,required_game_dlls=list(root_required[:-1]),
         local_dlls=local,asset_bytes=sum(p.stat().st_size for p in data.rglob('*') if p.is_file()),
         foreign_graphics_dlls=[name for name in ('d3d9.dll','dxgi.dll','d3d11.dll') if name in dlls],
         engine_started=False,switch_execution_verified=False,graphics_integrated=False,
         limits=['read-only file/header audit, not gameplay','BSA payload checksums are not verified',
-                'Steam bootstrap and Windows DLL execution need the actual runtime'])
+                'static imports do not prove provider behavior or absence of DRM',
+                'Executable bootstrap and Windows DLL execution need the actual runtime'])
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--game',type=Path,required=True)

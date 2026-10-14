@@ -24,3 +24,9 @@ dependencia del cliente Steam. Detalles en [pc/docs/steam-dependency.md](pc/docs
 La primera prueba hardware encontro los archivos del juego, pero el runtime
 abrio la biblioteca de Autorun al rechazar sus DLL. La entrada dedicada pc02
 elimina ese fallback y notifica el fallo; no elimina DRM ni demuestra arranque.
+
+La entrada pc03 lee PE32 e imports del archivo aportado y requiere las DLL
+propias segun esas dependencias, en lugar de imponer Steam a todas las
+ediciones. Los registros principales quedan juntos en `FNV-nx/logs`.
+Esto prepara otras distribuciones PC; su compatibilidad y arranque se verifican
+con el ejecutable real antes de otra prueba de consola.

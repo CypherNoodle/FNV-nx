@@ -38,7 +38,9 @@ GOG ofrece oficialmente Fallout: New Vegas Ultimate Edition sin DRM y sin
 necesitar Galaxy. Es una distribucion apropiada para evitar la dependencia
 del cliente Steam. Su ejecutable todavia no ha sido aportado ni auditado en
 este proyecto: adaptar y comprobar sus imports y arranque antes de afirmar
-compatibilidad. El cargador actual sigue esperando el layout Steam.
+compatibilidad. Desde pc03 el prearranque identifica imports y solicita las
+DLL propias de cada archivo; ya no exige steam_api.dll universalmente. La ruta
+del ejecutable sigue siendo `FNV-nx/pc/FalloutNV.exe` y los assets `pc/Data`.
 
 Fuentes primarias:
 

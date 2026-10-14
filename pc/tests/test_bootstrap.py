@@ -1,6 +1,7 @@
 """Exercise the actual C entry adapter with isolated, synthetic file fixtures."""
 import argparse, os, subprocess, tempfile
 from pathlib import Path
+from pe_fixture import write_pe
 
 def test(cc, pc):
     with tempfile.TemporaryDirectory(prefix="fnv-pc-test-") as tmp:
@@ -8,17 +9,20 @@ def test(cc, pc):
         wine=root / "wine"; documents=wine / "drive_c/users/steamuser/Documents"; documents.mkdir(parents=True)
         exe = root / "bootstrap"
         subprocess.run([cc,"-std=c11","-Wall","-Wextra","-Werror","-Drename=fnv_test_rename",'-DFNV_PC_ROOT="'+root.as_posix()+'"','-DFNV_PC_WINE_ROOT="'+wine.as_posix()+'"',
-            "-I"+str(pc / "source"),str(pc / "source/fnv_pc_bootstrap.c"),str(pc / "tests/bootstrap_host.c"),str(pc / "tests/horizon_rename_shim.c"),"-o",str(exe)],check=True)
+            "-I"+str(pc / "source"),str(pc / "source/fnv_pc_bootstrap.c"),str(pc / "source/fnv_pc_pe.c"),str(pc / "tests/bootstrap_host.c"),str(pc / "tests/horizon_rename_shim.c"),"-o",str(exe)],check=True)
         names = ["FalloutNV.exe","steam_api.dll","binkw32.dll","libvorbis.dll","libvorbisfile.dll","Fallout_default.ini","Data/FalloutNV.esm",
             "Data/Fallout - Meshes.bsa","Data/Fallout - Misc.bsa","Data/Fallout - Sound.bsa","Data/Fallout - Textures.bsa","Data/Fallout - Textures2.bsa","Data/Fallout - Voices1.bsa"]
         assert subprocess.run([str(exe)],capture_output=True).returncode == 2
         for name in names:
             path = game / name; path.parent.mkdir(exist_ok=True); path.write_text("fixture: no executable game")
         (game / "Fallout_default.ini").write_text("[Display]\nbFull Screen=1\niMultiSample=4\n[General]\ncustomSetting=123\n[Controls]\nbDisable360Controller=1\n")
+        write_pe(game / "FalloutNV.exe",("KERNEL32.dll","steam_api.dll","binkw32.dll"),section=".bind")
         ini = root / "fnv-pc.ini"; ini.write_bytes((pc / "fnv-pc.ini").read_bytes())
         good = subprocess.run([str(exe)],capture_output=True,text=True)
         assert good.returncode == 0 and str(game / "FalloutNV.exe") in good.stdout
         assert "buttons=2000,1000,8000,4000,000f" in good.stdout
+        log=root / "logs/fnv-pc-bootstrap.log"
+        assert "entry_in_bind=1 steam_api_import=1" in log.read_text()
         supplied=subprocess.run([str(exe),"some-other-program.exe","--launcher"],capture_output=True,text=True)
         assert supplied.returncode == 0 and str(game / "FalloutNV.exe") in supplied.stdout and "some-other-program.exe" not in supplied.stdout
         prefs=documents / "My Games/FalloutNV/FalloutPrefs.ini"
@@ -42,6 +46,22 @@ def test(cc, pc):
             assert subprocess.run([str(exe)],capture_output=True).returncode == 2
             assert "ini=invalid" in (root / "logs/fnv-pc-bootstrap.log").read_text()
             assert (game / "FalloutNV.wine-nx.txt").read_text() == profile
+        ini.write_bytes((pc / "fnv-pc.ini").read_bytes())
+        # No Steam DLL is required when the actual PE does not import it.
+        (game / "steam_api.dll").unlink()
+        write_pe(game / "FalloutNV.exe",("KERNEL32.dll","binkw32.dll"))
+        assert subprocess.run([str(exe)],capture_output=True).returncode == 0
+        assert "entry_in_bind=0 steam_api_import=0" in log.read_text() and "drm_free=unverified" in log.read_text()
+        write_pe(game / "FalloutNV.exe",("GalaxyWrp.dll","binkw32.dll"))
+        assert subprocess.run([str(exe)],capture_output=True).returncode == 2
+        assert "missing_imported_game_dll=" in log.read_text() and "galaxywrp.dll" in log.read_text()
+        (game / "galaxywrp.dll").write_text("synthetic provider presence only")
+        assert subprocess.run([str(exe)],capture_output=True).returncode == 0
+        assert "galaxy_wrapper_import=1" in log.read_text()
+        for corrupt in (b"not a PE", (game / "FalloutNV.exe").read_bytes()[:250]):
+            (game / "FalloutNV.exe").write_bytes(corrupt)
+            assert subprocess.run([str(exe)],capture_output=True).returncode == 2
+            assert "pe_invalid=" in log.read_text()
         print("PASS: required files, FEX/DXVK and Box64/Wine profiles, launch target, malformed/duplicate/unsupported INI values. Engine not executed.")
 
 if __name__ == "__main__":

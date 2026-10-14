@@ -1,5 +1,6 @@
 /* FNV-specific entry adapter. Wine, CPU, graphics and input remain Autorun's. */
 #include "fnv_pc_bootstrap.h"
+#include "fnv_pc_pe.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -164,16 +165,33 @@ static int game_ini(const char *name, struct settings *s) {
 
 int fnv_pc_bootstrap(int *argc, char ***argv) {
     struct settings s = {1,1,1,0,0,1,0,30,0,1,960,540};
+    struct fnv_pc_pe pe;
     FILE *log, *profile; char path[512];
-    const char *required[] = {"FalloutNV.exe", "steam_api.dll", "binkw32.dll", "libvorbis.dll", "libvorbisfile.dll", "Fallout_default.ini", "Data/FalloutNV.esm", "Data/Fallout - Meshes.bsa", "Data/Fallout - Misc.bsa", "Data/Fallout - Sound.bsa", "Data/Fallout - Textures.bsa", "Data/Fallout - Textures2.bsa", "Data/Fallout - Voices1.bsa"};
+    const char *required[] = {"FalloutNV.exe", "Fallout_default.ini", "Data/FalloutNV.esm", "Data/Fallout - Meshes.bsa", "Data/Fallout - Misc.bsa", "Data/Fallout - Sound.bsa", "Data/Fallout - Textures.bsa", "Data/Fallout - Textures2.bsa", "Data/Fallout - Voices1.bsa"};
     mkdir(FNV_PC_ROOT "/logs",0777);
     log = fopen(FNV_PC_ROOT "/logs/fnv-pc-bootstrap.log","w");
     if (!log) { printf("FNV PC: no se pudo abrir el registro.\n"); return 0; }
-    fprintf(log,"FNV-nx PC bootstrap 02\nengine_started=unverified\n");
+    fprintf(log,"FNV-nx PC bootstrap 03\nengine_started=unverified\n");
     if (!read_settings(&s,log)) goto fail;
     for (size_t i=0; i<sizeof(required)/sizeof(required[0]); ++i) {
         snprintf(path,sizeof(path),FNV_PC_ROOT "/pc/%s",required[i]);
         if (!nonempty(path)) { fprintf(log,"missing=%s\n",path); goto fail; }
+    }
+    if (!fnv_pc_read_pe(GAME,&pe,log)) goto fail;
+    fprintf(log,"pe=i386 base=%08x entry_rva=%08x image_bytes=%u imports=%u\n",pe.image_base,pe.entry_rva,pe.image_bytes,pe.import_count);
+    fprintf(log,"large_address_aware=%d\n",!!(pe.file_characteristics & 0x20));
+    fprintf(log,"entry_in_bind=%d steam_api_import=%d galaxy_wrapper_import=%d\n",pe.entry_in_bind,pe.steam_api,pe.galaxy_wrapper);
+    fprintf(log,"drm_free=unverified; import/section indicators are not proof of absence of DRM\n");
+    if (pe.entry_in_bind) fprintf(log,"bind_entry_indicator=present; executable protection requires analysis\n");
+    if (pe.steam_api) fprintf(log,"steam_api_provider_behavior=unverified; this runtime does not supply a Steam client\n");
+    for (unsigned i=0;i<pe.import_count;++i) {
+        const char *dll=pe.imports[i];
+        const char *helpers[]={"steam_api.dll","galaxywrp.dll","galaxy.dll","binkw32.dll","libvorbisfile.dll","libvorbis.dll"};
+        fprintf(log,"import=%s\n",dll);
+        for (size_t j=0;j<sizeof(helpers)/sizeof(helpers[0]);++j) if (!strcmp(dll,helpers[j])) {
+            snprintf(path,sizeof(path),FNV_PC_ROOT "/pc/%s",dll);
+            if (!nonempty(path)) { fprintf(log,"missing_imported_game_dll=%s\n",path); goto fail; }
+        }
     }
     mkdir(USER_DOCUMENTS "/My Games",0777); mkdir(GAME_SETTINGS,0777);
     if (!game_ini("Fallout.ini",&s) || !game_ini("FalloutPrefs.ini",&s)) { fprintf(log,"game_ini=failed\n"); goto fail; }
@@ -189,7 +207,7 @@ int fnv_pc_bootstrap(int *argc, char ***argv) {
     if (!recover_file(FNV_PC_ROOT "/pc/FalloutNV.wine-nx.txt") || !commit_file(path,FNV_PC_ROOT "/pc/FalloutNV.wine-nx.txt")) { fprintf(log,"profile=commit failed\n"); goto fail; }
     map_labels = s.labels;
     fprintf(log,"button_layout=%s; xinput_rumble=not implemented by upstream\n",s.labels ? "labels":"positions");
-    fprintf(log,"target=%s\ncpu=%s renderer=%s fps=%d vsync=%d cap=%d four_cores=%d\nsteam_bootstrap=original; authentication not bypassed\npreflight=PASS; handing execution to Wine\n",GAME,s.cpu ? "fex":"box64",s.renderer ? "dxvk":"wine",s.fps,s.vsync,s.cap,s.cores);
+    fprintf(log,"target=%s\ncpu=%s renderer=%s fps=%d vsync=%d cap=%d four_cores=%d\nexecutable_bootstrap=original; authentication not bypassed\npreflight=PASS; handing execution to Wine\n",GAME,s.cpu ? "fex":"box64",s.renderer ? "dxvk":"wine",s.fps,s.vsync,s.cap,s.cores);
     fclose(log);
     /* A dedicated FNV application must ignore host launcher arguments. */
     *argc = 2; *argv = direct_argv;
