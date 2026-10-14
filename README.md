@@ -7,11 +7,16 @@ que aporte cada usuario.
 ## Estado actual
 
 Alpha09 permite usar el Pip-Boy y salir de la casa en la prueba del usuario.
-La alpha10 localiza un coste alto en envíos y esperas GPU; el reloj guest avanza
-correctamente en los intervalos registrados. Alpha11 prueba crear el renderer
-a 960×540 mediante un hook acotado y auditado, con alternativa 720p. La mejora
-de FPS y la fidelidad a ese tamaño aún necesitan consola. Añade diagnóstico
-de la espera al guardar en el exterior; ese bloqueo no está corregido todavía.
+La prueba alpha11 confirma la creación a 960×540: mejora algo el interior,
+pero el exterior sigue lento, con unos 1.800 draws por frame y esperas de envío
+largas. Los 30 FPS del menú se observaron con OC y no acreditan 30 FPS en juego.
+Alpha12 incorpora espera por avance real del ring, una prueba optativa de
+agrupación de envíos, medición GPU por grupos y contador FPS propio.
+Todos los ajustes de Switch se hacen en [fnv-settings.ini](config/fnv-settings.ini);
+el port ya no lee fnv-nx.toml. La mejora de FPS de alpha12 necesita consola.
+El usuario confirmó que pudo guardar en el exterior en la última prueba.
+Su bloqueo anterior no tiene causa demostrada; caras y objetos visibles a
+través de paredes siguen siendo fallos gráficos pendientes.
 El aviso de guardado y las miniaturas siguen pendientes. Detalles en
 [PERFORMANCE.md](docs/PERFORMANCE.md). Sigue usando NVK/FSI.
 
@@ -111,6 +116,7 @@ La disposición prevista para Switch es:
 ```
 sdmc:/switch/FNV-nx/
   fnv-nx.nro
+  fnv-settings.ini
   default.xex
   Fallout.ini
   Data/
@@ -146,7 +152,10 @@ y [las dependencias](THIRD_PARTY_NOTICES.md).
 La ruta CMake Horizon y el empaquetado NRO ya completaron su primer build.
 Consulta [la integración Switch](docs/SWITCH_INTEGRATION.md) para sus dependencias
 y las comprobaciones de CPU y binario. El menú ya se probó en hardware;
-el siguiente objetivo es superar el cierre al crear una partida.
+el objetivo actual es mejorar el rendimiento de gameplay y el guardado.
+Consulta [los ajustes del INI](docs/SETTINGS.md). No borres partidas ni cachés
+para cambiar de compilación; los TOML de pruebas anteriores quedan como
+referencia histórica y no se cargan en alpha12.
 ## Performance diagnosis (alpha10)
 
 The 540p video-mode trial still produced mostly 1280-wide surface pitches.

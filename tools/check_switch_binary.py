@@ -77,12 +77,19 @@ def main():
         assert re.search(r'^[0-9a-fA-F]+ T ' + name + r'$', symbols, re.MULTILINE), name
     assert b'memory-protect-inclusive' in elf and b'guest-gpu-wait-inclusive' in elf
     assert b'/switch/FNV-nx/logs/fnv-nx.log' in elf, 'Missing absolute libnx log path'
+    assert b'/switch/FNV-nx/fnv-settings.ini' in elf, 'Missing INI startup path'
+    for name in ('RexFnvRingProgressPublish', 'RexFnvRingProgressInvalidate',
+                 'RexFnvRingProgressWait', 'RexFnvApplyThreadAffinity', 'RexFnvFpsFrame',
+                 'RexFnvFpsDraw', 'RexFnvBatchSubmissionsEnabled', 'RexFnvGpuTimestampsEnabled',
+                 'RexFnvDepthState'):
+        assert re.search(r'^[0-9a-fA-F]+ T ' + name + r'$', symbols, re.MULTILINE), name
     assert b'asset_pack_build = false' in elf, 'Missing inline-folder startup defaults'
     report = {'result': 'PASS', 'architecture': 'AArch64', 'elf_entry': entry,
               'nro_bytes': len(nro), 'nro_image_bytes': image_size,
               'title': title, 'author': author, 'requested_icon_verified': True,
               'startup_hooks_and_originals_verified': True, 'mesa_version': '26.2.4',
               'call_timing_symbols_verified': True,
+              'ini_optimization_extensions_linked': True,
               'audited_adjustors_linked': adjustor_count,
               'audited_leaf_entries_linked': leaf_count,
               'nro_sha256': hashlib.sha256(nro).hexdigest(),

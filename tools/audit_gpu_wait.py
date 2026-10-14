@@ -23,6 +23,9 @@ assert word(0x8224AD30) == 0x2C030000  # compare original return to zero
 assert branch(0x8224AD34, 16) == 0x8224AD54  # zero exits
 assert branch(0x8224AD50, 16) == 0x8224AD28  # pending progress loops
 assert word(0x8278FC18) == 0x9421FF90  # ordinary guest stack frame
+assert word(0x8278FC1C) == 0x83A30000  # device = wait state word 0
+assert word(0x8278FC64) == 0x817D2A90  # read-pointer address = device + 10896
+assert word(0x8278FC70) == 0x810B0000  # poll reads that exact writeback word
 assert word(0x8278FC6C) == 0x813F0008  # last observed read-pointer from wait state
 assert word(0x8278FC84) == 0x93DF000C  # original timestamp update
 assert word(0x8278FC88) == 0x917F0008  # remember newly observed progress
@@ -32,4 +35,5 @@ print(json.dumps({'result': 'PASS', 'caller_return': '0x8224AD30',
                   'original_poll': '0x8278FC10', 'observed_progress_offset': 8,
                   'pending_result': 1, 'sleep_after_unchanged_polls': 32,
                   'requested_sleep_us': 50, 'guest_completion_modified': False,
+                  'device_pointer_offset': 10896, 'ring_notify_limit_us': 250,
                   'performance_improvement_verified': False}, indent=2))

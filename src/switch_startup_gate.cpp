@@ -1,5 +1,7 @@
 #include "fnv_xbox_pch.h"
 #include "switch_call_profile.h"
+#include "switch_ring_progress.h"
+#include "ring_progress_gate.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -62,7 +64,8 @@ REX_EXTERN(sub_825F67F8) {
 
 REX_EXTERN(sub_8278FC10) {
     // Only the wait loop in 8224AC98; other uses keep their original timing.
-    const bool enabled = REXCVAR_GET(fnv_gpu_wait_backoff) &&
+    const bool backoff = REXCVAR_GET(fnv_gpu_wait_backoff);
+    const bool enabled = (backoff || RexFnvRingProgressEnabled()) &&
                          static_cast<uint32_t>(ctx.lr) == 0x8224AD30;
     const uint32_t state = ctx.r3.u32;
     const uint32_t before = enabled ? ReadGuestWord(base, state + 8) : 0;
@@ -71,7 +74,7 @@ REX_EXTERN(sub_8278FC10) {
     struct PollState {
         uint32_t address = 0;
         unsigned unchanged = 0;
-        uint64_t sleeps = 0;
+        uint64_t fallback = 0, changed = 0, timed_out = 0;
         std::chrono::steady_clock::time_point last_report{};
     };
     static thread_local PollState poll;
@@ -83,16 +86,33 @@ REX_EXTERN(sub_8278FC10) {
     }
     if (++poll.unchanged < 32) return;
     poll.unchanged = 0;
-    // No fake completion, skipped original call, changed fence or guest writes.
+    unsigned notified = 0;
+    // The original has just read this exact pointer. A known physical alias
+    // must match the SDK's writeback address; arbitrary virtual pointers fall back.
+    const uint32_t device = ReadGuestWord(base, state);
+    const uint32_t guest_pointer = ReadGuestWord(base, device + 10896);
+    uint32_t physical_pointer = 0;
     {
         FNV_CALL_SCOPE(17);
-        std::this_thread::sleep_for(std::chrono::microseconds(50));
+        if (fnv::RingPhysicalAddress(guest_pointer, physical_pointer)) {
+            notified = RexFnvRingProgressWait(physical_pointer, before);
+        }
+        if (!notified && backoff) {
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
+            ++poll.fallback;
+        }
     }
-    ++poll.sleeps;
+    if (notified == 1) ++poll.changed;
+    if (notified == 2) ++poll.timed_out;
+    // Wakeups only permit another original poll. Keep its return and timeout.
     const auto now = std::chrono::steady_clock::now();
+    if (poll.last_report == std::chrono::steady_clock::time_point{}) poll.last_report = now;
     if (now - poll.last_report >= std::chrono::seconds(10)) {
-        REXLOG_INFO("FNV GPU poll backoff: caller=8224AD30 sleeps={} requested_us=50 (actual scheduling may differ)",
-                    poll.sleeps);
+        const double seconds = std::chrono::duration<double>(now - poll.last_report).count();
+        REXLOG_INFO("FNV GPU ring wait: caller=8224AD30 pointer={:08X} interval_s={:.3f} "
+                    "progress={} timeout250us={} fallback50us={} (interval counts; not GPU completion)",
+                    guest_pointer, seconds, poll.changed, poll.timed_out, poll.fallback);
+        poll.changed = poll.timed_out = poll.fallback = 0;
         poll.last_report = now;
     }
 }

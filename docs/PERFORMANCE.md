@@ -1,5 +1,81 @@
 # Performance investigation
 
+## Alpha11 hardware and alpha12 changes
+
+The user reports a modest interior improvement at 540p, but no useful outdoor
+gain. The user subsequently confirms an outdoor save succeeds, and reports
+face/texture artifacts and objects visible through walls. The former save
+stall has no proven fix/cause; manual save success is a real hardware advance.
+The graphics issues require checking FSI depth/stencil, render-target state
+and the relevant texture/shader data, not attributing them to a particular
+optimization without an image comparison. The 30 FPS menu used OC.
+Alpha12 also counts requested/active/written depth states and the SDK's existing
+depth-color alias suppression. It logs at most eight such state snapshots;
+these observations do not change depth testing or prove the cause of the artifacts.
+The creation guard accepted 960x540 and the
+profile's dominant surface-pitch bucket moved below 1280, so this time the
+creation size did change. It still does not reduce every target or every pass.
+
+One outdoor interval reports 2.3 FPS, around 1,831 draws and 15.3 resolves per
+frame. Inclusive submission time is about 385 ms/frame (885 ms/s), versus
+textures 12 ms/s, shared ranges 45 ms/s, pipeline configuration 8 ms/s and
+physical read requests below 1 ms/s. These are overlapping host measurements.
+Native queue pressure reports nearly 2,000 outstanding entries even with one
+submission in flight. This supports investigating queued GPU work/FSI and
+backpressure; it does not identify a pure shader, driver or resolve cost.
+The isolated 68 KiB sound read taking 10.4 ms can cause a hitch but does not
+explain this interval's sustained 2–4 FPS.
+
+Alpha12 replaces the scoped unchanged-progress backoff with an opt-in bounded
+condition-variable wait. The SDK notifies after its two existing read-pointer
+stores, both mid-buffer and at batch end. The hook only uses verified physical
+alias addresses matching TranslatePhysical. Progress published before parking
+is caught by the predicate under the same mutex; wrap uses inequality. Reset,
+reconfiguration and shutdown invalidate the notification. A 250 µs timeout
+or a notification only permits another original PPC poll: no guest state,
+5000-unit recovery timeout or host GPU completion is manufactured. Unsupported
+addresses retain the 50 µs fallback. Log counts are interval counts, not millions
+of cumulative sleeps; requested and actual scheduling times may differ.
+
+Optional primary-buffer batching keeps original submits at presentation,
+readbacks and explicit synchronization, and flushes pending commands before
+idle/WAIT_REG_MEM. All existing GPU barriers, fences and resource retirement
+remain. It is off in the supplied INI until an equivalent-scene hardware test
+checks its effect; bigger batches can also increase pressure rather than help.
+
+GPU diagnostics sample one of every 16 submissions, using four fixed query
+slots and at most 64 timestamp markers per sampled submission. Markers delimit
+ordered draw groups, resolves and output. Only slots whose original SDK fence
+has retired are queried, with no WAIT or partial-result flag; busy slots cause
+sampling to be skipped. timestampValidBits, timestampPeriod and entry points
+are checked. Disabled/unsupported measurement does not block rendering.
+Spans include uploads, dependencies and barriers in each group, not just
+fragment/vertex shader instructions. They sample a subset, so do not sum them
+as if every submission/frame were measured. Markers themselves may affect timing.
+This follows the [Vulkan timestamp contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdWriteTimestamp.html)
+and [query result contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetQueryPoolResults.html).
+
+The added primitive/index processing timer tests whether topology conversion,
+index endian handling or cache work is a meaningful CPU cost before rewriting
+it. Matrix/float/VMX/native memcpy work requires a hot function and original
+result/memory-effect comparisons; global fast-math or arbitrary call-result
+caching would change guest semantics. Generated PPC remains unchanged in alpha12.
+
+Switch user settings now come only from [fnv-settings.ini](../config/fnv-settings.ini);
+[SETTINGS.md](SETTINGS.md) documents FPS, renderer, resolution, host VSync,
+notification/batching, affinity and diagnostics. Affinity defaults auto and does
+not force priorities or core 3. The native FPS text uses the presenter's existing
+color pass without registering a persistent ImGui drawer.
+
+The latest [SA2 long-session change](https://github.com/ChanseyIsTheBest/sa2-nx/commit/3aff36cb663c1eaff10a2835e75a0f142da849b5)
+retires unused resolved textures in its native renderer. That renderer is not
+FNV's current Xenos FSI path, so the change was reviewed as a future resource
+lifetime reference and not applied wholesale. The earlier CPU rounds are already
+in the pinned source, but their SA2 codegen/profile data are not FNV codegen/PGO.
+
+Alpha12 compiles and its host contract checks pass; its FPS improvement, native
+counter appearance and grouped-submit fidelity still need Nintendo Switch.
+
 The video-mode-only 960x540 trial did not establish a smaller internal workload.
 The captured profile still has most draws in the 1280–1599 surface-pitch bucket.
 In the original renderer bootstrap, `sub_8230F290` calls XGetVideoMode and then

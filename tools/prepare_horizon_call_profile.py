@@ -43,6 +43,7 @@ def prepare(sdk):
         },
         'src/graphics/vulkan/texture_cache.cpp': {'VulkanTextureCache::RequestTextures': 6},
         'src/graphics/shared_memory.cpp': {'SharedMemory::RequestRanges': 7},
+        'src/graphics/primitive_processor.cpp': {'PrimitiveProcessor::Process': 26},
         'src/graphics/vulkan/pipeline_cache.cpp': {'VulkanPipelineCache::ConfigurePipeline': 8},
         'src/graphics/vulkan/render_target_cache.cpp': {'VulkanRenderTargetCache::Update': 11},
         'src/graphics/command_processor.cpp': {

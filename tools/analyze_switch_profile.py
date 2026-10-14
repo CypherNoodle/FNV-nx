@@ -29,7 +29,16 @@ def analyze(profile, log=''):
             row['call_timings'].append(dict(name=m[1], calls=int(m[2]), calls_per_frame=float(m[3]),
                 ms_per_frame=float(m[4]), ms_per_second=float(m[5]), mean_ms=float(m[6]), maximum_ms=float(m[7])))
         rows.append(row)
-    return dict(intervals=rows, fatal_lines=[l for l in log.splitlines() if '[FATAL]' in l],
+    gpu_samples = [dict(submission=int(m[1]), groups=int(m[2]), draw_ms=float(m[3]),
+                        resolve_ms=float(m[4]), other_ms=float(m[5]), total_ms=float(m[6]))
+                   for m in re.finditer(r'FNV GPU sample: submission=(\d+) groups=(\d+) draw_ms=([\d.]+) '
+                                        r'resolve_ms=([\d.]+) other_ms=([\d.]+) total_ms=([\d.]+)', log)]
+    ring_waits = [dict(pointer=m[1], interval_seconds=float(m[2]), progress=int(m[3]),
+                       timeouts=int(m[4]), fallback_sleeps=int(m[5]))
+                  for m in re.finditer(r'FNV GPU ring wait: caller=8224AD30 pointer=([0-9A-F]+) '
+                                       r'interval_s=([\d.]+) progress=(\d+) timeout250us=(\d+) fallback50us=(\d+)', log)]
+    return dict(intervals=rows, gpu_samples=gpu_samples, ring_waits=ring_waits,
+                fatal_lines=[l for l in log.splitlines() if '[FATAL]' in l],
                 protect_failure_lines=[l for l in log.splitlines() if 'Protect: failure' in l],
                 stack_sampling_present='image+' in profile,
                 limits=['inclusive host timings overlap: do not sum nested rows',

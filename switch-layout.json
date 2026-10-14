@@ -1,6 +1,7 @@
 {
   "root": "sdmc:/switch/FNV-nx",
   "nro": "sdmc:/switch/FNV-nx/fnv-nx.nro",
+  "settings": "sdmc:/switch/FNV-nx/fnv-settings.ini",
   "game_root": "sdmc:/switch/FNV-nx",
   "entrypoint": "sdmc:/switch/FNV-nx/default.xex",
   "data_directory": "sdmc:/switch/FNV-nx/Data",

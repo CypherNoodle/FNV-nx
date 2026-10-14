@@ -1,6 +1,7 @@
 #include "switch_call_profile.h"
 #include <atomic>
 #include <rex/cvar.h>
+#include <rex/logging.h>
 #include <rex/chrono/clock.h>
 
 REXCVAR_DEFINE_BOOL(fnv_call_profile, false, "FNV",
@@ -15,11 +16,29 @@ constexpr const char* names[] = {
     "pipeline-config-inclusive", "pm4-wait-reg-mem", "pm4-interrupt",
     "render-target-update-inclusive", "guest-gpu-wait-inclusive", "sampler-reuse-inclusive",
     "memexport-readback-full", "memexport-readback-fast", "resolve-readback-inclusive",
-    "guest-poll-backoff-sleep", "gpu-command-idle", "pm4-buffer-inclusive",
+    "guest-poll-suspension", "gpu-command-idle", "pm4-buffer-inclusive",
     "interrupt-callback-inclusive", "memory-protect-inclusive", "swap-inclusive",
-    "vblank-callback-inclusive", "guest-file-read-inclusive", "guest-file-write-inclusive"
+    "vblank-callback-inclusive", "guest-file-read-inclusive", "guest-file-write-inclusive",
+    "primitive-index-process-inclusive"
 };
 Counters counters[sizeof(names) / sizeof(names[0])];
+std::atomic<uint64_t> depth_requested{0}, depth_active{0}, depth_alias_disabled{0}, depth_writes{0};
+}
+extern "C" void RexFnvDepthState(bool requested, bool active, bool writes,
+                                uint32_t depth_base, uint32_t color_base, uint32_t pitch,
+                                uint32_t compare, uint32_t format, uint32_t color_mask) {
+    if (!REXCVAR_GET(fnv_call_profile)) return;
+    if (requested) depth_requested.fetch_add(1, std::memory_order_relaxed);
+    if (active) depth_active.fetch_add(1, std::memory_order_relaxed);
+    if (active && writes) depth_writes.fetch_add(1, std::memory_order_relaxed);
+    if (requested && !active) {
+        depth_alias_disabled.fetch_add(1, std::memory_order_relaxed);
+        static std::atomic<unsigned> warnings{0};
+        if (warnings.fetch_add(1, std::memory_order_relaxed) < 8)
+            REXLOG_INFO("FNV FSI depth alias suppressed by original SDK: depth_base={} color0_base={} "
+                        "pitch={} compare={} format={} color_mask={:X} (observed state, not necessarily a bug)",
+                        depth_base, color_base, pitch, compare, format, color_mask);
+    }
 }
 extern "C" bool RexFnvCallProfileEnabled() { return REXCVAR_GET(fnv_call_profile); }
 extern "C" void RexFnvCallProfileAdd(unsigned id, uint64_t ticks) {
@@ -56,6 +75,12 @@ extern "C" void RexFnvCallProfileReport(FILE* file, double seconds, double frame
     last_guest = guest_now;
     std::fprintf(file, "     FNV call timings: inclusive host wall time; nested rows overlap; "
                        "wait time is NOT GPU execution time; report-boundary counters approximate\n");
+    std::fprintf(file, "     FNV FSI depth: requested=%llu active=%llu writes=%llu "
+                       "alias_disabled=%llu (draw-state observations, not a visibility proof)\n",
+                 (unsigned long long)depth_requested.exchange(0),
+                 (unsigned long long)depth_active.exchange(0),
+                 (unsigned long long)depth_writes.exchange(0),
+                 (unsigned long long)depth_alias_disabled.exchange(0));
     for (unsigned id = 0; id < sizeof(names) / sizeof(names[0]); ++id) {
         auto& c = counters[id];
         const auto calls = c.calls.exchange(0, std::memory_order_relaxed);

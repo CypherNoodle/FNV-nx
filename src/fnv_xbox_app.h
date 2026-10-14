@@ -7,6 +7,7 @@
 #include <rex/rex_app.h>
 #if defined(__SWITCH__)
 #include <cstdlib>
+#include "switch_settings.h"
 #endif
 #if defined(_WIN32)
 #include <thread>
@@ -36,9 +37,20 @@ allow_game_relative_writes = false
 asset_pack = false
 asset_pack_build = false
 input_xbox_layout = false
+fnv_startup_barrier = true
+fnv_fixed_render_mode = true
+fnv_render_width = 960
+fnv_render_height = 540
+fnv_gpu_wait_notify = true
+fnv_gpu_wait_backoff = true
+fnv_call_profile = true
+fnv_save_trace = true
+occlusion_query_enable = false
+render_target_path_vulkan = "fsi"
 )";
   }
   void OnPostInitLogging() override {
+    LoadFnvSwitchSettings();
     // The inline game folder also contains runtime files; never pack it.
     rex::cvar::SetFlagByName("asset_pack", "false");
     rex::cvar::SetFlagByName("asset_pack_build", "false");
@@ -66,7 +78,8 @@ input_xbox_layout = false
     paths.update_data_root = root / "updates";
     paths.cache_root = root / "cache";
     paths.metadata_root = root / "metadata";
-    paths.config_path = root / "fnv-nx.toml";
+    // All user settings are loaded from fnv-settings.ini. Ignore legacy TOML.
+    paths.config_path.clear();
 #endif
   }
   void OnPreSetup(rex::RuntimeConfig& config) override {
