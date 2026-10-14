@@ -7,11 +7,21 @@ import re
 
 
 def analyze(profile, log=''):
+    # Application logs append across runs; the runtime profile may be truncated.
+    # Do not let old failures, samples or notifications contaminate the last run.
+    starts = list(re.finditer(r'^.*FNV INI applied: fnv_fixed_render_mode=', log, re.MULTILINE))
+    session_count = len(starts)
+    if starts: log = log[starts[-1].start():]
+    profile_starts = list(re.finditer(r'^image 0x', profile, re.MULTILINE))
+    if profile_starts: profile = profile[profile_starts[-1].start():]
     rows = []
     for block in re.split(r'(?=^==== )', profile, flags=re.MULTILINE):
         match = re.search(r'^==== ([\d.]+) s .*?game ([\d.]+) fps .*?CPU total ([\d.]+)%', block, re.MULTILINE)
         if not match or float(match[1]) < 0.5: continue  # Startup has a near-zero divisor.
         row = dict(interval_seconds=float(match[1]), fps=float(match[2]), cpu_total_percent=float(match[3]))
+        clocks = re.search(r'clocks: CPU ([\d.]+) MHz, GPU ([\d.]+) MHz, memory ([\d.]+) MHz', block)
+        if clocks:
+            row['clocks_mhz'] = dict(zip(('cpu','gpu','memory'), map(float, clocks.groups())))
         patterns = {
             'fence_wait_ms_per_second': r'waited \d+ \(([\d.]+) ms\)',
             'draws_per_frame': r'per frame: ([\d.]+) draws',
@@ -42,10 +52,15 @@ def analyze(profile, log=''):
                   for m in re.finditer(r'FNV GPU ring wait: caller=8224AD30 pointer=([0-9A-F]+) '
                                        r'interval_s=([\d.]+) progress=(\d+) timeout250us=(\d+) fallback50us=(\d+)', log)]
     return dict(intervals=rows, gpu_samples=gpu_samples, ring_waits=ring_waits,
+                application_sessions_detected=session_count,
+                profile_sessions_detected=len(profile_starts),
+                selected_application_header=log.splitlines()[0] if starts else None,
                 fatal_lines=[l for l in log.splitlines() if '[FATAL]' in l],
                 protect_failure_lines=[l for l in log.splitlines() if 'Protect: failure' in l],
                 stack_sampling_present='image+' in profile,
                 limits=['inclusive host timings overlap: do not sum nested rows',
+                        'latest marked log/profile sessions selected independently; confirm they belong to the same run',
+                        'different clocks and scenes cannot establish an optimization speedup or regression',
                         'fence waits are not GPU pass timestamps',
                         'startup near-zero intervals excluded',
                         'scissor area and surface pitch do not measure shaded pixels',

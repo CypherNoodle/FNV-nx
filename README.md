@@ -18,6 +18,10 @@ intervalos pesados; no demuestra una mejora útil en el exterior.
 Alpha13 corrige la notificación del ring y prueba reducir el tramo del shader
 que mantiene bloqueada la eDRAM, con fsi_interlock_tardio en el INI.
 Compilación y shaders se verifican en host; la mejora y fidelidad requieren consola.
+La prueba alpha13 sigue lenta y cambió de relojes durante la sesión, por lo que
+no establece una mejora ni una regresión comparable. La notificación del ring
+sigue sin coincidir. El INI actual desactiva esa opción, el interlock tardío y
+las consultas GPU; funciona con el mismo NRO alpha13. FBO permanece experimental.
 El usuario confirmó que pudo guardar en el exterior en la última prueba.
 Su bloqueo anterior no tiene causa demostrada; caras y objetos visibles a
 través de paredes siguen siendo fallos gráficos pendientes.

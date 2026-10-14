@@ -51,11 +51,17 @@ tramo; no cambiar a la vez resolución, VSync, afinidad o relojes.
 Los timestamps introducen dependencias de medición: para una comparación de
 FPS sin ese coste, poner tiempos_gpu=false en ambos casos.
 
-Alpha13 corrige la dirección física del ring E/F que impedía usar las
-notificaciones en alpha12. fsi_interlock_tardio=true viene en el INI de prueba;
-sin INI el valor compilado es false. Excluye discard, exportación de profundidad
+Alpha13 cambió la dirección calculada del ring E/F. La prueba de hardware
+sigue registrando cero notificaciones y solo fallback: el contrato con el
+publicador usado no corresponde a la palabra esperada. La auditoría posterior
+identificó la diferencia: el ring publica el índice en la palabra +60; la espera
+lee la secuencia de EVENT_WRITE_SHD en la palabra +0. Se mantiene desactivada
+esa opción hasta conectar el productor correcto. El INI conservador deja
+espera_gpu_notificada=false, fsi_interlock_tardio=false y tiempos_gpu=false.
+El NRO alpha13 existente lee esos cambios al reiniciar; no requiere recompilar.
+El interlock tardío excluye discard, exportación de profundidad
 o memoria, stencil y cobertura dependiente de alfa. No supone que las caras,
 las miniaturas o los objetos visibles a través de paredes estén corregidos.
 Para comparar, mantener la misma partida/cámara/relojes y cambiar solo esa
-clave a false, reiniciar y conservar los logs de ambas ejecuciones. Un cambio
+clave a true, reiniciar y conservar los logs de ambas ejecuciones. Un cambio
 de versión de shaders puede compilar variantes al principio: medir después.

@@ -1,5 +1,53 @@
 # Performance investigation
 
+## Alpha13 hardware: conservative settings restored
+
+The user reports the game feels slower. The app log appends alpha12 and alpha13
+sessions, while the supplied profile is the alpha13 run. Only the last app
+session (08:46:31 to 08:51:00 on October 14) is included in these observations.
+25 non-startup intervals; no recorded fatal or Protect failures. Late FSI was
+enabled and selected for some draws. Notifications still have progress=0 and
+timeouts=0 with 3,463,680 fallback sleeps despite the changed physical address.
+The software gate's unit tests do not prove that this hardware publisher matches
+the guest wait. Leave the notification off until that contract is established;
+do not broaden matches or manufacture progress.
+
+The exact-image audit explains the mismatch: at 8279C468..8279C484 the game
+configures CP_RB_RPTR writeback at device[10896]+60 bytes, while the audited
+wait reads device[10896]+0. Function 8223FC48 emits EVENT_WRITE_SHD (opcode58)
+with the completion sequence at the base word. Thus the notifier was attached
+to the ring read index, not the waited completion word. Correcting the E/F
+physical offset could not fix that semantic mismatch. A future notification
+must follow the matching original completion store and retain the original
+poll; waking is not a host GPU fence or permission to skip waits.
+
+The run begins at CPU/GPU/RAM 1020/307.2/1331.2 MHz, then changes to
+1785/960/1862.4 MHz. Light 13-draw intervals at the lower clocks sustain about
+12 FPS. Later intervals at higher clocks range from 2.8 to 10.4 FPS in varied
+gameplay, with one >800-draw interval at 7.6 FPS. This is not a matched-scene
+comparison to alpha12's 23 heavy intervals at median 2.9 FPS: neither a steady
+FPS gain nor a regression caused by late FSI is established.
+
+There are 138 pipeline creation records and windows with zero or near-zero
+frames. The cache identity and shader variants changed, so compilation can
+contribute to loading stalls. Sparse GPU groups cannot explain an entire stall
+by themselves. The worst sampled draw group is 66.4 ms, resolves 2.6 ms;
+different workloads/clocks prevent comparing that maximum directly to alpha12.
+
+Restore conservative INI defaults: late FSI=false, notification=false, sparse
+GPU queries=false. This uses the existing alpha13 NRO, avoids extra diagnostic
+query dependencies and keeps original polling/backoff, fences and barriers.
+It is a reversible configuration change, not a verified FPS fix. Keep caches
+and saves. FBO still needs color/depth/resolve diagnosis before adoption; do
+not substitute FBO as the default or restart the paused PC route on this evidence.
+
+Do not derive a fixed 30 ms frame floor from two different scenes. Their draw
+counts, pass topology, clocks, shader compilation and waits differ. A linear
+fit is a hypothesis for a matched workload, not proof that 30 FPS is impossible.
+Summing one-in-16 submission samples is not a full-frame GPU busy percentage
+without associating measured spans with frames. Fine pass timings, target
+transitions and barrier counts are the next diagnostic evidence.
+
 ## Alpha12 hardware and alpha13 experiment
 
 Alpha12 does not demonstrate a meaningful outdoor FPS improvement. Its latest
