@@ -1,0 +1,10 @@
+{
+  "autorun_commit": "cbb0e4e6e7fa7f47f328d92441f51bfb507f266f",
+  "autorun_source_zip_sha256": "817f3486d6abfca04483e91d386937d93d5c5833f1e88cedb0be28aad55157b0",
+  "horizon_dlls_commit": "5d6eccb82c266f037dd4305037c986b6303cd59a",
+  "switch_dev_image": "ghcr.io/autorunhq/switch-dev@sha256:6e1013c067e41901b1f2e48cfb4e96a420b591002673b8bce47f7789557ba9b1",
+  "llvm_mingw_version": "20260505",
+  "llvm_mingw_archive_sha256": "986d7beef2f6d7e2f3939a1d04ac8746d614e7014557961e7e0d381d7bc5fdcd",
+  "box64_commit": "2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a",
+  "ffmpeg_commit": "3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587"
+}
