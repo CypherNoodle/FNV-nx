@@ -1,32 +1,24 @@
-# FNV-nx — rama PC
+# FNV-nx — rama PC nativa
 
-La ruta activa de esta rama `pc-port` es **Fallout: New Vegas PC / Steam para
-Nintendo Switch**. El trabajo Xbox queda pausado y conservado en `main`.
+El objetivo activo de `pc-port` es recompilar Fallout: New Vegas PC a ARM64
+para Nintendo Switch, siguiendo el modelo de
+[SH2-nx](https://github.com/cutarev/sh2-nx) y
+[SH3-nx](https://github.com/cutarev/sh3-nx). Xbox queda pausado en `main`.
 
-La primera prueba integral usa Autorun/Wine, FEX o Box64, y D3D9 mediante
-DXVK/Mesa NVK. Es un punto de partida con traduccion dinamica, no un motor
-recompilado estaticamente ni una version PC ya jugable en consola.
+El codigo del juego se traducira antes de compilar el NRO. En la consola,
+el port leera `FalloutNV.exe` y `Data` desde su propia carpeta y resolvera
+las llamadas Windows mediante implementaciones nativas incluidas en el NRO.
+No requiere una biblioteca de juegos de Autorun ni un prefijo Wine en la SD.
 
-El runtime y el adaptador de arranque compilan para Switch. La instalacion
-Steam examinada pasa la auditoria PE/BSA y la cobertura de imports estaticos
-del ejecutable y sus cuatro DLL propias. Las DLL de Wine/DXVK/FEX preparadas
-coinciden con el runtime. Falta verificar en hardware el arranque original de
-Steam, la entrada al motor y la inicializacion real de graficos/audio/input.
+**Todavia no existe un NRO PC nativo que arranque el motor.** La biblioteca
+actual carga los datos PE32 y permite enlazar imports con tokens nativos;
+no ejecuta x86 ni implementa las API que necesita el juego. El laboratorio
+anterior llega a parte de la inicializacion CRT con codigo capturado, antes
+del motor, y no acredita un arranque desde el EXE original.
 
-Instrucciones, configuracion y compilacion: [pc/README.md](pc/README.md).
-Los ajustes PC se hacen en [pc/fnv-pc.ini](pc/fnv-pc.ini), sin utilizar el INI
-Xbox. El NRO se coloca en `sd:/switch/FNV-nx/fnv-nx.nro`; cada usuario aporta
-su instalacion PC en `sd:/switch/FNV-nx/pc/`. No se incluyen archivos del juego.
+Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
+Los builds PC01–PC03 con Wine se conservan como
+[experimento anterior](pc/docs/wine-experiment.md), fuera de la ruta activa.
+No deben confundirse con el futuro port nativo.
 
-La version original examinada coincide con SteamStub 2.1 y usa Steamworks;
-el ejecutable permanece intacto. Copiarlo con steam_api.dll no elimina la
-dependencia del cliente Steam. Detalles en [pc/docs/steam-dependency.md](pc/docs/steam-dependency.md).
-La primera prueba hardware encontro los archivos del juego, pero el runtime
-abrio la biblioteca de Autorun al rechazar sus DLL. La entrada dedicada pc02
-elimina ese fallback y notifica el fallo; no elimina DRM ni demuestra arranque.
-
-La entrada pc03 lee PE32 e imports del archivo aportado y requiere las DLL
-propias segun esas dependencias, en lugar de imponer Steam a todas las
-ediciones. Los registros principales quedan juntos en `FNV-nx/logs`.
-Esto prepara otras distribuciones PC; su compatibilidad y arranque se verifican
-con el ejecutable real antes de otra prueba de consola.
+No se incluyen ejecutables, assets, codigo generado del juego ni capturas.

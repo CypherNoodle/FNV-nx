@@ -1,109 +1,100 @@
-# FNV-nx: ruta PC
+# FNV-nx: recompilacion estatica PC
 
-Esta rama `pc-port` pausa el trabajo Xbox y prepara una prueba del ejecutable
-PC original en Nintendo Switch. La primera ruta usa Autorun/Wine con FEX o
-Box64 y D3D9 mediante DXVK/Mesa NVK. Es traduccion dinamica de CPU; todavia no
-es la recompilacion estatica del motor ni demuestra rendimiento del juego.
+Esta rama trabaja en un port nativo de la version PC. Xbox permanece pausado.
+El usuario aporta su EXE y datos; el NRO contendra el codigo ARM64 generado
+previamente y los servicios nativos de Windows que usa el juego. Es el modelo
+de [SH2-nx](https://github.com/cutarev/sh2-nx) y
+[SH3-nx](https://github.com/cutarev/sh3-nx), cuyos generadores procesan una
+version concreta del EXE antes de construir el NRO.
 
-La primera prueba hardware encontro los archivos, pero abrio la biblioteca
-upstream al fallar su comprobacion de DLL. La entrada pc02 elimina esa
-interfaz: carga exclusivamente New Vegas o muestra el motivo del fallo y sale
-con +. Las DLL Wine/FEX/DXVK siguen siendo dependencias internas necesarias,
-incluidas en el paquete; no requieren usar la biblioteca de juegos de Autorun.
+Leer el EXE en la consola aporta secciones, datos y direcciones del programa.
+No traduce todo el motor en ese momento. Cada version soportada necesitara
+un perfil de identidad que coincida con el codigo ARM64 compilado. Los bridges
+D3D8 de Silent Hill no sustituyen directamente el D3D9 de New Vegas.
 
-La entrada pc03 lee directamente las cabeceras e imports del PE32: exige las
-DLL Steam/Galaxy/Bink/Vorbis cuando se importan, sin imponer Steam a todas las
-ediciones. Los indicadores `.bind`, Steam API y Galaxy no certifican ausencia
-de DRM ni arranque del motor. Las auditorias host recorren tambien las
-dependencias transitivas de las DLL locales del juego.
+## Estado
 
-## Que esta preparado
+Existe una biblioteca C independiente en `native/pe_image.c` que:
 
-* Auditoria de PE32, imports, DLL originales, cabeceras BSA y archivos requeridos.
-* Adaptador que carga `fnv-pc.ini`, comprueba archivos y entrega el ejecutable
-  real a Wine; no reproduce capturas del menu.
-* Perfiles FEX/Box64 y DXVK/Wine, contador FPS, muestreo del runtime, vsync,
-  limite de frames y presentacion framebuffer/compositor.
-* Resolucion 640x360, 960x540 o 1280x720 desde el INI; inicio a 960x540, ventana
-  y MSAA desactivado. Los INI del juego se inicializan desde su propio
-  `Fallout_default.ini` y se fusionan conservando las demas opciones.
-* Mapeo XInput por letras o posicion: `labels` hace coincidir A/B/X/Y de Switch
-  con las indicaciones Xbox del juego. La vibracion XInput del pin upstream
-  aun no esta implementada.
-* Dependencias fijadas en `upstream-lock.json`; no se mezclan las bibliotecas
-  NVK de Xbox con utilidades Mesa de otra version.
+* Carga encabezados y secciones PE32 en memoria ordinaria suministrada por el
+  caller, con inicializacion a cero de las zonas BSS.
+* Representa las direcciones x86 como offsets, sin exigir que el proceso
+  Switch pueda mapear memoria host en la direccion Windows `0x00400000`.
+* Recoge imports por nombre y ordinal y sus slots IAT.
+* Enlaza todos los slots mediante un resolver nativo; si falta un servicio,
+  deja la IAT completa intacta y devuelve un error.
+* Comprueba rangos, huecos, capacidad de memoria, tablas truncadas, secciones
+  solapadas, nombres invalidos y slots duplicados.
 
-La auditoria de la instalacion Steam examinada pasa. Su entrada original esta
-en `.bind` y coincide con SteamStub 2.1; usa ademas Steamworks. Copiar el EXE
-y steam_api.dll no elimina la dependencia de Steam. No se modifica ese
-ejecutable ni se suplanta su autenticacion. Revisar
-[el estudio de esta dependencia](docs/steam-dependency.md) antes de pedir otra
-prueba de arranque del motor con la distribucion Steam original.
-Tambien pasa la cobertura de imports estaticos del ejecutable y sus DLL
-originales Steam, Bink y Vorbis; que exista un export no prueba su comportamiento
-ni cubre DLL cargadas dinamicamente.
+La prueba host compara el mapeo completo y los imports con un parser
+independiente. Paso con fixtures y con el EXE Steam examinado: 280 slots,
+17 DLL. La biblioteca tambien compilo como objeto ARM64 con devkitA64.
+Los tokens del test son sinteticos; no implementan funciones Windows.
+No se ejecuto codigo del juego ni se verifico este cargador en consola.
 
-## Archivos en SD
+El laboratorio nativo previo conserva 412 constructores CRT observados y
+una frontera en `0x44F770`, antes del motor. Usa codigo capturado de una
+sesion PC y no es una recompilacion completa ni un arranque desde el EXE
+original. No hay un perfil AOT del motor listo, un launcher nativo del juego
+ni un NRO nuevo para probarlo todavia.
+
+La version Steam examinada coincide con SteamStub 2.1 y depende tambien de
+Steamworks. Su entrada original esta en `.bind`. El archivo permanece
+intacto y no se sustituye su autenticacion. Consultar
+[el estudio de la dependencia](docs/steam-dependency.md). No se presupone
+compatibilidad con otra distribucion hasta auditar su archivo real.
+
+## Carpeta de instalacion objetivo
+
+Este es el contrato del futuro port, no un paquete ya disponible:
 
 ```text
 sd:/switch/FNV-nx/fnv-nx.nro
-sd:/switch/FNV-nx/fnv-pc.ini
-sd:/switch/FNV-nx/pc/FalloutNV.exe
-sd:/switch/FNV-nx/pc/<DLL originales de esa edicion>
-sd:/switch/FNV-nx/pc/binkw32.dll
-sd:/switch/FNV-nx/pc/libvorbis.dll
-sd:/switch/FNV-nx/pc/libvorbisfile.dll
-sd:/switch/FNV-nx/pc/Fallout_default.ini
-sd:/switch/FNV-nx/pc/Data/...
-sd:/switch/wine/...                  # runtime compartido: DLL, NLS y fuentes
+sd:/switch/FNV-nx/FalloutNV.exe
+sd:/switch/FNV-nx/Data/...
+sd:/switch/FNV-nx/fnv-pc.ini     # configuracion nativa futura, opcional
 ```
 
-Copiar una instalacion PC propia completa dentro de `pc/`, incluyendo `Data` y
-DLL originales. Los archivos Xbox no sirven aqui. El INI Xbox no se lee.
-Wine necesita su conjunto compatible de DLL ARM64X/i386, las fuentes y NLS;
-copiar solo el NRO no basta. El paquete no incluye archivos de Fallout.
+EXE y datos junto al NRO, sin `pc/` ni `switch/wine/`. El cargador actual
+no crea ni copia carpetas. El INI `pc/fnv-pc.ini` conservado en este repo
+pertenece al experimento Wine y no configura la biblioteca nativa.
+Las rutas de guardados y cache nativos se definiran al integrar esos servicios.
 
-El INI se aplica cada arranque y genera `pc/FalloutNV.wine-nx.txt` para el
-runtime. Ese archivo es interno; editar `fnv-pc.ini`. `four_cores=1` solo puede
-funcionar cuando el proceso dispone de ese permiso; no lo concede el INI.
-La primera prueba mantiene tres nucleos y desactiva generacion de frames.
+## Proxima integracion
 
-Desde pc03 los registros principales son `FNV-nx/logs/fnv-pc-bootstrap.log` y
-`FNV-nx/logs/fnv-pc-runtime.log`. Un `preflight=PASS` solo significa archivos y
-perfil preparados; no demuestra ejecucion del motor. El registro de Wine
-debe identificar por separado LOWVA, WoW64/FEX, attach del ejecutable y D3D9.
+Primero se necesita un perfil verificable del ejecutable y una generacion
+AOT que cubra el arranque original, callbacks y entradas indirectas. Cada
+import requiere su ABI x86, retorno, efectos sobre memoria y comportamiento
+de error correctos, no una funcion vacia que diga que tuvo exito. La carga
+dinamica de bibliotecas, TLS, excepciones y las tablas virtuales necesitan
+auditorias adicionales.
 
-Los PE32 pueden requerir direcciones bajas y un forwarder de espacio 32 bits
-sin alias, ademas del soporte del kernel que documenta Autorun. El build aqui
-no empaqueta ni instala cambios de Atmosphere/Hekate. Revisar los requisitos
-de lanzamiento antes de decidir una modificacion de arranque de la consola.
+Los servicios abarcan Windows/CRT, D3D9/D3DX, input, sonido y video. Se
+pueden reutilizar los conocimientos y componentes host ya probados para
+Switch; los shaders, las llamadas D3D9 y el motor PC aun requieren adaptacion.
+El renderer de Xbox no es un reemplazo directo del renderer PC.
 
-## Comprobacion y compilacion
+La siguiente prueba de consola del motor requiere una entrada ARM64 real
+que alcance inicializacion del juego con esos servicios. Una lectura PE
+correcta, un menu capturado o un triangulo no cumplen ese criterio.
+
+## Pruebas y herramientas
 
 ```sh
-python pc/tools/audit_install.py --game /ruta/Steam/Fallout\ New\ Vegas --output /ruta/privada/audit.json
+python pc/tools/audit_native_imports.py --exe /ruta/FalloutNV.exe --output /ruta/privada/native-imports.json
+python pc/tests/test_native_pe.py --cc cc --game /ruta/Fallout-New-Vegas
+cmake -S pc/native -B /ruta/privada/native-build
+cmake --build /ruta/privada/native-build
 ```
 
-`pc/tools/build_runtime.sh` se ejecuta dentro de la imagen fijada en
-`upstream-lock.json`, montando el repositorio en `/work` y un volumen Linux
-de build en `/build`. El script descarga y verifica las fuentes oficiales,
-compila el NRO y prepara las fuentes/NLS/licencias del runtime en
-`local/runtime-stage`. Las DLL se obtienen del repositorio oficial separado;
-su manifiesto fija hashes e interfaces requeridas. No compilar sobre NTFS si
-se dispone de un volumen Linux: la exploracion de cabeceras Wine tarda mucho.
+`--game` es opcional para ejecutar solo fixtures. `--cc` admite un comando
+con argumentos, por ejemplo `--cc /ruta/zig cc`. CMake construye una
+biblioteca de carga de datos; no genera un NRO ni recompila el motor.
+`audit_native_imports.py` produce una lista de requisitos, sin afirmar que
+los bridges esten implementados ni que el ejecutable carezca de DRM.
 
-```sh
-python pc/tests/test_bootstrap.py --cc cc
-python pc/tests/test_pe.py --cc cc --game /ruta/de/tu/instalacion
-python pc/tools/audit_runtime.py --game /ruta/Steam/Fallout\ New\ Vegas --wine /ruta/staging/switch/wine --output /ruta/privada/imports.json
-```
-
-Las pruebas del adaptador usan archivos sinteticos en un directorio temporal:
-detectan ausencias y errores INI, verifican el perfil y el mapeo de botones,
-la fusion de INI y la recuperacion de un reemplazo fallido bajo la restriccion
-`rename` de Horizon.
-No arrancan Fallout. Datos, ejecutables, shaders, logs y capturas del juego
-permanecen privados y fuera de los commits.
-
-Referencias: [Autorun](https://github.com/autorunhq/autorun/tree/cbb0e4e6e7fa7f47f328d92441f51bfb507f266f),
-[DLL Horizon](https://github.com/autorunhq/autorun-horizon-dlls/tree/5d6eccb82c266f037dd4305037c986b6303cd59a).
+Se conservan las herramientas de auditoria PE/BSA y el
+[experimento Wine PC01–PC03](docs/wine-experiment.md) por trazabilidad.
+`tools/build_runtime.sh` requiere ahora `FNV_BUILD_HISTORICAL_WINE=1` para
+reproducir explicitamente ese experimento pausado. No construye el port
+nativo. Los informes de ejecutables propios permanecen fuera de los commits.

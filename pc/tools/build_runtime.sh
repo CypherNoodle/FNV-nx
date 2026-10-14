@@ -2,6 +2,11 @@
 # Run in the pinned switch-dev container. /work is the FNV-nx repository,
 # /build is a disposable Linux build volume. No game or boot files are modified.
 set -eu
+if [ "${FNV_BUILD_HISTORICAL_WINE:-0}" != 1 ]; then
+    echo 'Inactive Wine experiment. Active PC work is native AOT; see pc/README.md.' >&2
+    echo 'To reproduce the historical experiment only, set FNV_BUILD_HISTORICAL_WINE=1.' >&2
+    exit 1
+fi
 pc=/work/pc
 pin=cbb0e4e6e7fa7f47f328d92441f51bfb507f266f
 root=/build/autorun-$pin
