@@ -83,6 +83,7 @@ inline IniSettings ParseSettingsIni(std::string_view text) {
             if (full == "pantalla.mostrar_fps") name = "fnv_show_fps";
             if (full == "diagnostico.tiempos_cpu") name = "fnv_call_profile";
             if (full == "diagnostico.tiempos_gpu") name = "fnv_gpu_timestamps";
+            if (full == "diagnostico.traza_grafica") name = "fnv_graphics_trace";
             if (full == "diagnostico.traza_guardado") name = "fnv_save_trace";
             if (full == "diagnostico.stacks_cpu") name = "switch_profile_stacks";
             if (name && (value == "true" || value == "false")) flag(name, value);

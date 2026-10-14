@@ -1,5 +1,38 @@
 # Performance investigation
 
+## Conservative alpha13 hardware and alpha14 FBO diagnosis
+
+The next run (October 14, 09:10:55 onwards) confirms all three experiments off:
+late FSI, notification and GPU queries. 20 non-startup intervals, no recorded
+fatal/Protect failures and no whole zero-FPS windows. Clocks are consistently
+1785/960/1862.4 MHz. Eight intervals above 800 draws/frame have median 2.4 FPS;
+representative 1,579-2,011 draws/frame yield 2.3-2.4 FPS. Lighter intervals are
+9.7-12.2 FPS and the menu peaks around 29.4. Stable clocks do not make scenes
+identical: this confirms sustained heavy-scene slowness, not a causal A/B win.
+No GPU samples exist because queries were correctly disabled. Native pressure
+appears 2,145 times. Pipeline creation has 237 records, but no repeated whole
+zero-frame windows like the previous run. Do not claim the setting rollback
+fixed the GPU throughput problem or prove absence of sub-interval hitches.
+
+Alpha14 is a diagnostic build for the FBO world-black investigation, not an
+FPS or rendering fix. Opt-in traza_grafica counts legacy/dynamic pass starts,
+pipeline barrier calls and memory/buffer/image items. ALL_COMMANDS barriers
+are counted separately. It logs at most 48 snapshots each for normalized guest
+target state, actual attachment begin metadata, requested image formats/sizes,
+and resolve tile spans. All original commands, register state, shader behavior,
+fences and resource ownership remain. No readback or pixels are added.
+
+With GPU queries enabled, twelve original pass callsites add bounded timestamps
+to sampled submissions. The longest ordered span and its boundary labels are
+reported with guest swap counters at submission begin/end and truncation status.
+This can narrow the expensive pass/dependency, but includes uploads and barriers;
+it is not pure shader execution or full-frame GPU busy time. Existing fence
+retirement, no WAIT/PARTIAL results, four slots and 64 markers remain. Reserve
+one marker for Finish; a truncated tail is classified as other rather than draw.
+Query/trace overhead excludes this run as a clean FPS
+benchmark. Requested FBO can fall back to FSI; target snapshots report the
+effective path. FBO visibility and correctness still need hardware evidence.
+
 ## Alpha13 hardware: conservative settings restored
 
 The user reports the game feels slower. The app log appends alpha12 and alpha13

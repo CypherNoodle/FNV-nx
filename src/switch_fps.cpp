@@ -1,4 +1,5 @@
 #include "switch_fps.h"
+#include "switch_graphics_trace.h"
 #include "fps_glyphs.h"
 #include <atomic>
 #include <chrono>
@@ -12,6 +13,7 @@ namespace {
 std::atomic<unsigned> fps_tenths{0};
 }
 extern "C" void RexFnvFpsFrame() {
+    RexFnvGraphicsFrame();
     // Single producer: the existing IssueSwap counter on GPU Commands.
     static auto start = std::chrono::steady_clock::now();
     static uint64_t frames = 0;

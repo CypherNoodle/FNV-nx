@@ -22,6 +22,9 @@ La prueba alpha13 sigue lenta y cambió de relojes durante la sesión, por lo qu
 no establece una mejora ni una regresión comparable. La notificación del ring
 sigue sin coincidir. El INI actual desactiva esa opción, el interlock tardío y
 las consultas GPU; funciona con el mismo NRO alpha13. FBO permanece experimental.
+Alpha14 prepara un diagnóstico FBO de targets, formatos, pasadas, barreras y
+resolves. Conserva el renderer y sus operaciones; todavía no corrige la escena
+negra ni acredita una mejora de FPS. La traza es optativa y tiene coste.
 El usuario confirmó que pudo guardar en el exterior en la última prueba.
 Su bloqueo anterior no tiene causa demostrada; caras y objetos visibles a
 través de paredes siguen siendo fallos gráficos pendientes.

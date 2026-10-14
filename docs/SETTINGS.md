@@ -24,6 +24,7 @@ Sin INI se mantienen los valores compilados. No hay lectura de ajustes por frame
 | pantalla / mostrar_fps | true/false | Texto propio sobre la salida final, actualizado con swaps del juego. Sin ImGui ni un envío adicional. |
 | diagnostico / tiempos_cpu | true/false | Tiempos inclusivos de calls, esperas, memoria, I/O y procesamiento de primitivas/índices. |
 | diagnostico / tiempos_gpu | true/false | Muestra uno de cada 16 envíos; grupos de draws, resolves y salida. Solo queries ya completadas, sin WAIT. |
+| diagnostico / traza_grafica | true/false | Alpha14: pasadas/barreras y hasta 48 snapshots por clase de targets, attachments, formatos y resolves. Con tiempos_gpu también añade límites de pasadas a las queries muestreadas. |
 | diagnostico / traza_guardado | true/false | Entradas/retornos del guardado y muestreo acotado si se detiene. |
 | diagnostico / stacks_cpu | true/false | Muestreo de stacks que pausa hilos. Desactivado normalmente porque altera el rendimiento. |
 
@@ -65,3 +66,13 @@ las miniaturas o los objetos visibles a través de paredes estén corregidos.
 Para comparar, mantener la misma partida/cámara/relojes y cambiar solo esa
 clave a true, reiniciar y conservar los logs de ambas ejecuciones. Un cambio
 de versión de shaders puede compilar variantes al principio: medir después.
+
+La traza gráfica no cambia profundidad, targets, copias ni barreras. Cuenta
+comandos guest diferidos; excluye el presenter host. Los snapshots son metadatos,
+no píxeles ni prueba de fidelidad. Los cambios de estado incluyen máscaras y
+profundidad, no equivalen necesariamente a cambiar la imagen adjunta.
+Las queries conservan cuatro slots, 64 marcadores y una muestra cada 16 envíos;
+se reserva un marcador final y se indica truncamiento. Los contadores de swaps
+al inicio/final identifican el intervalo del envío, no constituyen una medida
+completa de GPU ocupada por frame. La traza puede reducir FPS: desactivada
+normalmente. El paquete de diagnóstico FBO la activa junto a tiempos_gpu.

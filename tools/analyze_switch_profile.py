@@ -38,6 +38,10 @@ def analyze(profile, log=''):
         if scheduling:
             row['fsi_late_draw_attempts'] = int(scheduling[1])
             row['fsi_original_draw_attempts'] = int(scheduling[2])
+        topology = re.search(r'FNV render topology: (.*?) \| passes/frame=([\d.]+) barriers/frame=([\d.]+) changes/frame=([\d.]+)', block)
+        if topology:
+            row['render_topology'] = {k:int(v) for k,v in re.findall(r'(\w+)=(\d+)',topology[1])}
+            row['render_topology'].update(passes_per_frame=float(topology[2]),barriers_per_frame=float(topology[3]),changes_per_frame=float(topology[4]))
         row['call_timings'] = []
         for m in re.finditer(r'^       ([\w-]+): (\d+) calls \| ([\d.]+) calls/frame \| ([\d.]+) ms/frame \| ([\d.]+) ms/s \| mean ([\d.]+) ms \| max ([\d.]+) ms', block, re.MULTILINE):
             row['call_timings'].append(dict(name=m[1], calls=int(m[2]), calls_per_frame=float(m[3]),
@@ -52,6 +56,8 @@ def analyze(profile, log=''):
                   for m in re.finditer(r'FNV GPU ring wait: caller=8224AD30 pointer=([0-9A-F]+) '
                                        r'interval_s=([\d.]+) progress=(\d+) timeout250us=(\d+) fallback50us=(\d+)', log)]
     return dict(intervals=rows, gpu_samples=gpu_samples, ring_waits=ring_waits,
+                graphics_snapshots=[l for l in log.splitlines() if re.search(r'FNV (attachment|target|image|resolve) snapshot',l)],
+                gpu_boundary_spans=[l for l in log.splitlines() if 'FNV GPU boundary span:' in l],
                 application_sessions_detected=session_count,
                 profile_sessions_detected=len(profile_starts),
                 selected_application_header=log.splitlines()[0] if starts else None,

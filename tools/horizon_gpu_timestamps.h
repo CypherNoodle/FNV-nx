@@ -6,6 +6,8 @@
 #include <rex/logging.h>
 #include "fnv_gpu_timestamp_math.h"
 extern "C" bool RexFnvGpuTimestampsEnabled();
+extern "C" bool RexFnvGraphicsTraceEnabled();
+extern "C" uint64_t RexFnvGraphicsFrameId();
 
 namespace fnv {
 // GPU Commands only. Read results only for submissions already retired by the
@@ -14,9 +16,12 @@ class GpuTimestampProbe {
     static constexpr unsigned kSlots = 4, kQueries = 64;
     struct Sample {
         uint64_t submission = 0;
+        uint64_t frame_begin = 0, frame_end = 0;
         unsigned count = 0, category = 0;
         bool pending = false, ended = false;
         std::array<unsigned, kQueries> spans{};
+        std::array<unsigned, kQueries> reasons{};
+        bool truncated = false;
     };
     std::array<Sample, kSlots> samples_{};
     VkQueryPool pool_ = VK_NULL_HANDLE;
@@ -64,11 +69,12 @@ class GpuTimestampProbe {
                     bits_, period_);
         return true;
     }
-    void Stamp(rex::graphics::vulkan::DeferredCommandBuffer& commands, unsigned category) {
+    void Stamp(rex::graphics::vulkan::DeferredCommandBuffer& commands, unsigned category, unsigned reason=0) {
         if (active_ < 0) return;
         auto& s = samples_[active_];
         if (s.ended || s.count >= kQueries) return;
         s.spans[s.count] = category;
+        s.reasons[s.count] = reason;
         commands.CmdFnvWriteTimestamp(write_, pool_, unsigned(active_) * kQueries + s.count++);
     }
  public:
@@ -84,11 +90,25 @@ class GpuTimestampProbe {
             if (result == VK_NOT_READY) continue;
             if (result == VK_SUCCESS) {
                 double ms[3]{};
+                double longest = 0;
+                unsigned longest_index = 0;
                 for (unsigned i = 1; i < s.count; ++i)
-                    ms[s.spans[i - 1]] += TimestampDelta(values[i - 1], values[i], bits_) * period_ / 1e6;
+                {
+                    const double delta=TimestampDelta(values[i - 1], values[i], bits_) * period_ / 1e6;
+                    // Once markers run out, the final tail may contain several
+                    // categories. Keep it unclassified rather than label it draw.
+                    ms[s.truncated && i==s.count-1 ? 0 : s.spans[i - 1]] += delta;
+                    if (delta>longest) { longest=delta; longest_index=i; }
+                }
                 REXGPU_INFO("FNV GPU sample: submission={} groups={} draw_ms={:.3f} resolve_ms={:.3f} "
                             "other_ms={:.3f} total_ms={:.3f} (sparse sample; GPU ordered spans)",
                             s.submission, s.count - 1, ms[1], ms[2], ms[0], ms[0]+ms[1]+ms[2]);
+                if (RexFnvGraphicsTraceEnabled() && longest_index)
+                    REXGPU_INFO("FNV GPU boundary span: submission={} swaps_begin={} swaps_end={} "
+                                "markers={} truncated={} longest_ms={:.3f} category={} from={} to={} "
+                                "(0=category,1=pass_begin,2=pass_end,3=finish; ordered span includes dependencies)",
+                                s.submission,s.frame_begin,s.frame_end,s.count,s.truncated,longest,
+                                s.spans[longest_index-1],s.reasons[longest_index-1],s.reasons[longest_index]);
             } else {
                 REXGPU_WARN("FNV GPU query read failed: {}; original GPU completion retained", int(result));
             }
@@ -104,6 +124,7 @@ class GpuTimestampProbe {
             if (samples_[slot].pending) continue;
             active_ = int(slot);
             samples_[slot] = {};
+            samples_[slot].frame_begin=RexFnvGraphicsFrameId();
             commands.CmdVkResetQueryPool(pool_, slot * kQueries, kQueries);
             Stamp(commands, 0);
             break;
@@ -112,14 +133,23 @@ class GpuTimestampProbe {
     void Category(rex::graphics::vulkan::DeferredCommandBuffer& commands, unsigned category) {
         if (active_ < 0) return;
         auto& s = samples_[active_];
-        if (s.ended || category == s.category || s.count >= kQueries - 1) return;
+        if (s.ended || category == s.category) return;
+        if (s.count >= kQueries - 1) { s.truncated=true; return; }
         Stamp(commands, category);
         s.category = category;
     }
     void Finish(rex::graphics::vulkan::DeferredCommandBuffer& commands) {
         if (active_ < 0 || samples_[active_].ended) return;
-        Stamp(commands, 0);
+        samples_[active_].frame_end=RexFnvGraphicsFrameId();
+        Stamp(commands, 0, 3);
         samples_[active_].ended = true;
+    }
+    void Boundary(rex::graphics::vulkan::DeferredCommandBuffer& commands, unsigned kind) {
+        if (active_<0 || !RexFnvGraphicsTraceEnabled()) return;
+        auto& s=samples_[active_];
+        if (s.ended) return;
+        if (s.count>=kQueries-1) { s.truncated=true; return; }
+        Stamp(commands,s.category,kind);
     }
     void Commit(uint64_t submission) {
         if (active_ < 0) return;

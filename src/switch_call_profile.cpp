@@ -1,4 +1,5 @@
 #include "switch_call_profile.h"
+#include "switch_graphics_trace.h"
 #include <atomic>
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -78,6 +79,7 @@ extern "C" void RexFnvCallProfileReport(FILE* file, double seconds, double frame
     }
     last_host = host_now;
     last_guest = guest_now;
+    RexFnvGraphicsReport(file, frames);
     std::fprintf(file, "     FNV call timings: inclusive host wall time; nested rows overlap; "
                        "wait time is NOT GPU execution time; report-boundary counters approximate\n");
     std::fprintf(file, "     FNV FSI depth: requested=%llu active=%llu writes=%llu "
