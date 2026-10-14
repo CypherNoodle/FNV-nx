@@ -18,6 +18,9 @@ Los ajustes PC se hacen en [pc/fnv-pc.ini](pc/fnv-pc.ini), sin utilizar el INI
 Xbox. El NRO se coloca en `sd:/switch/FNV-nx/fnv-nx.nro`; cada usuario aporta
 su instalacion PC en `sd:/switch/FNV-nx/pc/`. No se incluyen archivos del juego.
 
-La version original examinada arranca desde la seccion `.bind` de Steam;
-el ejecutable permanece intacto. Ninguna comprobacion de archivos o de imports
-constituye prueba de que su autenticacion o el juego funcionen en Horizon.
+La version original examinada coincide con SteamStub 2.1 y usa Steamworks;
+el ejecutable permanece intacto. Copiarlo con steam_api.dll no elimina la
+dependencia del cliente Steam. Detalles en [pc/docs/steam-dependency.md](pc/docs/steam-dependency.md).
+La primera prueba hardware encontro los archivos del juego, pero el runtime
+abrio la biblioteca de Autorun al rechazar sus DLL. La entrada dedicada pc02
+elimina ese fallback y notifica el fallo; no elimina DRM ni demuestra arranque.

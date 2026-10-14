@@ -19,6 +19,8 @@ def test(cc, pc):
         good = subprocess.run([str(exe)],capture_output=True,text=True)
         assert good.returncode == 0 and str(game / "FalloutNV.exe") in good.stdout
         assert "buttons=2000,1000,8000,4000,000f" in good.stdout
+        supplied=subprocess.run([str(exe),"some-other-program.exe","--launcher"],capture_output=True,text=True)
+        assert supplied.returncode == 0 and str(game / "FalloutNV.exe") in supplied.stdout and "some-other-program.exe" not in supplied.stdout
         prefs=documents / "My Games/FalloutNV/FalloutPrefs.ini"
         assert "iSize W=960\n" in prefs.read_text() and "customSetting=123\n" in prefs.read_text()
         profile = (game / "FalloutNV.wine-nx.txt").read_text()

@@ -20,6 +20,13 @@ struct settings { int cpu, renderer, profile, verbose, cores, fps, vsync, cap, c
 static char *direct_argv[] = {FNV_PC_ROOT "/fnv-nx.nro", GAME, NULL};
 static int map_labels = 1;
 
+void fnv_pc_note_failure(const char *reason) {
+    FILE *log=fopen(FNV_PC_ROOT "/logs/fnv-pc-bootstrap.log","a");
+    if (log) { fprintf(log,"runtime_failure=%s\n",reason); fclose(log); }
+    printf("FNV-nx PC: %s\n",reason);
+    printf("Registro: " FNV_PC_ROOT "/logs/fnv-pc-bootstrap.log\n");
+}
+
 unsigned short fnv_pc_map_buttons(unsigned short b) {
     if (!map_labels) return b;
     return (b & 0x0fff) | ((b & 0x5000) << 1) | ((b & 0xa000) >> 1);
@@ -162,7 +169,7 @@ int fnv_pc_bootstrap(int *argc, char ***argv) {
     mkdir(FNV_PC_ROOT "/logs",0777);
     log = fopen(FNV_PC_ROOT "/logs/fnv-pc-bootstrap.log","w");
     if (!log) { printf("FNV PC: no se pudo abrir el registro.\n"); return 0; }
-    fprintf(log,"FNV-nx PC bootstrap 01\nengine_started=unverified\n");
+    fprintf(log,"FNV-nx PC bootstrap 02\nengine_started=unverified\n");
     if (!read_settings(&s,log)) goto fail;
     for (size_t i=0; i<sizeof(required)/sizeof(required[0]); ++i) {
         snprintf(path,sizeof(path),FNV_PC_ROOT "/pc/%s",required[i]);
@@ -184,7 +191,8 @@ int fnv_pc_bootstrap(int *argc, char ***argv) {
     fprintf(log,"button_layout=%s; xinput_rumble=not implemented by upstream\n",s.labels ? "labels":"positions");
     fprintf(log,"target=%s\ncpu=%s renderer=%s fps=%d vsync=%d cap=%d four_cores=%d\nsteam_bootstrap=original; authentication not bypassed\npreflight=PASS; handing execution to Wine\n",GAME,s.cpu ? "fex":"box64",s.renderer ? "dxvk":"wine",s.fps,s.vsync,s.cap,s.cores);
     fclose(log);
-    if (*argc < 2) { *argc = 2; *argv = direct_argv; }
+    /* A dedicated FNV application must ignore host launcher arguments. */
+    *argc = 2; *argv = direct_argv;
     return 1;
 fail:
     fclose(log); printf("FNV PC: revisa " FNV_PC_ROOT "/logs/fnv-pc-bootstrap.log\n"); return 0;

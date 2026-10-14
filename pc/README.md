@@ -5,6 +5,12 @@ PC original en Nintendo Switch. La primera ruta usa Autorun/Wine con FEX o
 Box64 y D3D9 mediante DXVK/Mesa NVK. Es traduccion dinamica de CPU; todavia no
 es la recompilacion estatica del motor ni demuestra rendimiento del juego.
 
+La primera prueba hardware encontro los archivos, pero abrio la biblioteca
+upstream al fallar su comprobacion de DLL. La entrada pc02 elimina esa
+interfaz: carga exclusivamente New Vegas o muestra el motivo del fallo y sale
+con +. Las DLL Wine/FEX/DXVK siguen siendo dependencias internas necesarias,
+incluidas en el paquete; no requieren usar la biblioteca de juegos de Autorun.
+
 ## Que esta preparado
 
 * Auditoria de PE32, imports, DLL originales, cabeceras BSA y archivos requeridos.
@@ -22,9 +28,11 @@ es la recompilacion estatica del motor ni demuestra rendimiento del juego.
   NVK de Xbox con utilidades Mesa de otra version.
 
 La auditoria de la instalacion Steam examinada pasa. Su entrada original esta
-en `.bind`, el arranque de Steam. No se modifica ese ejecutable ni se suplanta
-su autenticacion. Que Wine, Steam, el motor, audio y D3D9 puedan inicializarse
-juntos en Horizon requiere comprobarlo con el NRO y archivos propios.
+en `.bind` y coincide con SteamStub 2.1; usa ademas Steamworks. Copiar el EXE
+y steam_api.dll no elimina la dependencia de Steam. No se modifica ese
+ejecutable ni se suplanta su autenticacion. Revisar
+[el estudio de esta dependencia](docs/steam-dependency.md) antes de pedir otra
+prueba de arranque del motor con la distribucion Steam original.
 Tambien pasa la cobertura de imports estaticos del ejecutable y sus DLL
 originales Steam, Bink y Vorbis; que exista un export no prueba su comportamiento
 ni cubre DLL cargadas dinamicamente.
