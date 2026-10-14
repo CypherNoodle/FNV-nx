@@ -24,6 +24,10 @@ def analyze(profile, log=''):
         for name, pattern in patterns.items():
             m = re.search(pattern, block)
             if m: row[name] = float(m[1])
+        scheduling = re.search(r'FNV FSI scheduling: late_opaque=(\d+) original=(\d+)', block)
+        if scheduling:
+            row['fsi_late_draw_attempts'] = int(scheduling[1])
+            row['fsi_original_draw_attempts'] = int(scheduling[2])
         row['call_timings'] = []
         for m in re.finditer(r'^       ([\w-]+): (\d+) calls \| ([\d.]+) calls/frame \| ([\d.]+) ms/frame \| ([\d.]+) ms/s \| mean ([\d.]+) ms \| max ([\d.]+) ms', block, re.MULTILINE):
             row['call_timings'].append(dict(name=m[1], calls=int(m[2]), calls_per_frame=float(m[3]),

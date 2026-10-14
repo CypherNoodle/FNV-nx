@@ -1,5 +1,50 @@
 # Performance investigation
 
+## Alpha12 hardware and alpha13 experiment
+
+Alpha12 does not demonstrate a meaningful outdoor FPS improvement. Its latest
+59 non-startup intervals include 23 with over 800 draws/frame: median 2.9 FPS.
+One heavy interval is 2.6 FPS, 1,597 draws, 15 resolves and 3.3 submissions/frame.
+There are no recorded fatal or Protect failures in this run. Saving outside
+works according to the user; face/depth and save-thumbnail artifacts remain.
+
+The notified wait failed to match the actual ring alias FFCA3000. The pinned SDK
+maps its E/F heap with an extra physical 0x1000, so the canonical address is
+1FCA4000, not 1FCA3000. Alpha12 recorded zero notified waits and 8,124,659
+fallback sleeps. Alpha13 corrects this mapping and validates heap bounds,
+wrap/reset/prepublished progress. Original PPC polls and the recovery timeout
+are retained. Hardware must confirm notifications and CPU savings.
+
+Sparse completed GPU samples show draw groups around 154-157 ms and resolves
+around 2.7-3.0 ms in the heaviest sampled submissions. Draw groups include
+uploads/barriers and ordering dependencies; these are not isolated pixel shader
+times. Together with submission pressure this prioritizes FSI work/serialization
+over rewriting matrix math or removing synchronization without evidence.
+Depth observations had requested=active and alias_disabled=0: this excludes that
+particular suppression in this run, but does not establish correct visibility.
+
+Alpha13 adds fsi_interlock_tardio. For guarded opaque shaders, run shading before
+entering the SDK's existing late-depth ordered interlock. Depth comparison,
+depth/color writes, blending, fences and barriers remain. Reject shaders with
+kill/depth export/memexport, vertex memexport, stencil or alpha-dependent coverage.
+The shader modifier has a distinct value and cache identity version13. This can
+reduce lock contention, but loses early depth rejection and may worsen overdraw.
+It is an experiment, not a measured FPS or graphics fix.
+
+Offline translation of 38 captured PS variants validates both deferred-kill and
+native-demote FSI paths: 38 originals and 29 eligible late variants per path;
+9 unsafe variants rejected. Validation also found missing alpha/coverage SSA
+merge values in the SDK deferred-kill path. The preparation fixes the generator
+with conditional Phi merges, preserving original statements and roundtripping;
+no binary shader patching. NVK advertises demote: this deferred-path bug is not
+evidence for the reported live face artifacts. GPU image equivalence is pending.
+
+Compare the same saved outdoor camera/clocks/cache, first true then false, with
+only fsi_interlock_tardio changed and the app restarted. Keep GPU diagnostic
+queries identical in both runs, or disable tiempos_gpu in both for FPS-only
+comparison. Cache version changes may cause initial compilation; measure once
+the camera is stable. Keep copies of both logs directories before the next run.
+
 ## Alpha11 hardware and alpha12 changes
 
 The user reports a modest interior improvement at 540p, but no useful outdoor

@@ -79,6 +79,7 @@ inline IniSettings ParseSettingsIni(std::string_view text) {
             if (full == "optimizacion.espera_gpu_notificada") name = "fnv_gpu_wait_notify";
             if (full == "optimizacion.backoff_gpu") name = "fnv_gpu_wait_backoff";
             if (full == "optimizacion.agrupar_envios_gpu") name = "fnv_batch_submissions";
+            if (full == "optimizacion.fsi_interlock_tardio") name = "fnv_fsi_late_opaque";
             if (full == "pantalla.mostrar_fps") name = "fnv_show_fps";
             if (full == "diagnostico.tiempos_cpu") name = "fnv_call_profile";
             if (full == "diagnostico.tiempos_gpu") name = "fnv_gpu_timestamps";

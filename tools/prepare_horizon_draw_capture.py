@@ -11,7 +11,7 @@ parser.add_argument('--sdk', type=Path, required=True)
 args = parser.parse_args()
 file = args.sdk / 'src/graphics/vulkan/command_processor.cpp'
 original = file.read_bytes()
-text = original.decode()
+text = original.decode().replace('\r\n', '\n')
 includes = '''#include <cstdio>
 #include <filesystem>
 #if REX_PLATFORM_SWITCH

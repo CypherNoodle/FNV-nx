@@ -51,12 +51,18 @@ class RingProgressGate {
     bool valid_ = false;
 };
 
-// Only the guest physical alias windows are comparable to TranslatePhysical.
+// Match the pinned SDK PhysicalHeap::GetPhysicalAddress, not just a bit mask.
+// The E0000000 heap begins at physical 0x1000 and ends at guest FFD00000.
 inline bool RingPhysicalAddress(uint32_t guest, uint32_t& physical) {
     const uint32_t window = guest & 0xE0000000u;
     if ((window != 0xA0000000u && window != 0xC0000000u && window != 0xE0000000u) ||
         (guest & 3u)) return false;
-    physical = guest & 0x1FFFFFFFu;
+    if (window == 0xE0000000u) {
+        if (guest >= 0xFFD00000u) return false;
+        physical = (guest - 0xE0000000u) + 0x1000u;
+    } else {
+        physical = guest & 0x1FFFFFFFu;
+    }
     return true;
 }
 }

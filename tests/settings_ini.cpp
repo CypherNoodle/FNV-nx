@@ -9,5 +9,8 @@ int main() {
     const auto bad = fnv::ParseSettingsIni("version=9\n[cpu]\nprincipal=3\ncomandos_gpu=-1\n[graficos]\nresolucion=1000x720\nvsync=off\nvsync=on\n[pantalla]\nmostrar_fps=yes\ninventado=true\n");
     assert(!bad.valid_version && bad.errors.size() == 7 && !bad.main_core && !bad.gpu_core);
     assert(bad.flags.size() == 3);
+    const auto fsi = fnv::ParseSettingsIni("version=1\n[optimizacion]\nfsi_interlock_tardio=true\n");
+    assert(fsi.errors.empty() && fsi.flags.size() == 1);
+    assert(fsi.flags[0].first == "fnv_fsi_late_opaque" && fsi.flags[0].second == "true");
     std::cout << "PASS INI: UTF8/CRLF, comments, mapping, invalid values, duplicates, version, core range, vblank unchanged\n";
 }

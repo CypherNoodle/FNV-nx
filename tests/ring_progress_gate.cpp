@@ -11,10 +11,22 @@ int main() {
     uint32_t physical = 0;
     assert(fnv::RingPhysicalAddress(0xA1234000, physical) && physical == 0x01234000);
     assert(fnv::RingPhysicalAddress(0xC1234000, physical) && physical == 0x01234000);
-    assert(fnv::RingPhysicalAddress(0xE1234000, physical) && physical == 0x01234000);
+    assert(fnv::RingPhysicalAddress(0xE1234000, physical) && physical == 0x01235000);
+    // Actual alpha12 failure: the guest pointer names the E heap's shifted alias.
+    assert(fnv::RingPhysicalAddress(0xFFCA3000, physical) && physical == 0x1FCA4000);
+    assert(fnv::RingPhysicalAddress(0xE0000000, physical) && physical == 0x1000);
+    assert(fnv::RingPhysicalAddress(0xFFcffFFC, physical) && physical == 0x1FD00FFC);
+    assert(!fnv::RingPhysicalAddress(0xFFD00000, physical));
+    assert(!fnv::RingPhysicalAddress(0xFFFFF000, physical));
     assert(!fnv::RingPhysicalAddress(0x81234000, physical));
     assert(!fnv::RingPhysicalAddress(0xA1234001, physical));
     Gate gate;
+    uint32_t actual = 0;
+    assert(fnv::RingPhysicalAddress(0xFFCA3000, actual));
+    gate.Publish(0x1FCA4000, 32); // CP's actual physical writeback
+    assert(gate.Wait(actual, 0, 1ms) == Result::Changed);
+    assert(gate.Wait(0x1FCA3000, 0, 1ms) == Result::Unsupported); // old implementation
+    gate.Invalidate();
     assert(gate.Wait(16, 8, 1ms) == Result::Unsupported);
     gate.Publish(16, 8);
     assert(gate.Wait(20, 8, 1ms) == Result::Unsupported);

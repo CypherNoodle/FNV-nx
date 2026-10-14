@@ -112,6 +112,8 @@ REX_EXTERN(sub_8278FC10) {
         REXLOG_INFO("FNV GPU ring wait: caller=8224AD30 pointer={:08X} interval_s={:.3f} "
                     "progress={} timeout250us={} fallback50us={} (interval counts; not GPU completion)",
                     guest_pointer, seconds, poll.changed, poll.timed_out, poll.fallback);
+        REXLOG_INFO("FNV ring mapping: virtual={:08X} physical={:08X} (SDK E alias includes +1000)",
+                    guest_pointer, physical_pointer);
         poll.changed = poll.timed_out = poll.fallback = 0;
         poll.last_report = now;
     }

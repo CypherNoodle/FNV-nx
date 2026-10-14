@@ -30,3 +30,12 @@ comprobarse al conectar los recursos reales al backend.
 
 Los microcódigos, SPIR-V, DKSH y manifiestos derivados se guardan en `local/`.
 No distribuirlos en el repositorio ni compilar UAM durante el juego en Switch.
+
+Para validar la prueba FSI de alpha13, ejecutar primero
+tools/prepare_horizon_fsi_lock.py contra el SDK y reconstruir esta herramienta.
+Su argumento opcional final fsi selecciona interlock con deferred-kill;
+fsi-native selecciona interlock con demote, como el soporte anunciado por NVK.
+Sin ese argumento sigue seleccionando targets host para la prueba deko3d.
+El modo de profundidad 4 (bits 46..48 de la modificación) identifica el
+interlock tardío y se rechaza para shaders incompatibles. Validar los SPIR-V
+con spirv-val --target-env vulkan1.2 --scalar-block-layout. No prueba imagen GPU.

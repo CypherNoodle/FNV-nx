@@ -13,7 +13,11 @@ largas. Los 30 FPS del menú se observaron con OC y no acreditan 30 FPS en juego
 Alpha12 incorpora espera por avance real del ring, una prueba optativa de
 agrupación de envíos, medición GPU por grupos y contador FPS propio.
 Todos los ajustes de Switch se hacen en [fnv-settings.ini](config/fnv-settings.ini);
-el port ya no lee fnv-nx.toml. La mejora de FPS de alpha12 necesita consola.
+el port ya no lee fnv-nx.toml. Alpha12 sigue con una mediana de 2,9 FPS en
+intervalos pesados; no demuestra una mejora útil en el exterior.
+Alpha13 corrige la notificación del ring y prueba reducir el tramo del shader
+que mantiene bloqueada la eDRAM, con fsi_interlock_tardio en el INI.
+Compilación y shaders se verifican en host; la mejora y fidelidad requieren consola.
 El usuario confirmó que pudo guardar en el exterior en la última prueba.
 Su bloqueo anterior no tiene causa demostrada; caras y objetos visibles a
 través de paredes siguen siendo fallos gráficos pendientes.

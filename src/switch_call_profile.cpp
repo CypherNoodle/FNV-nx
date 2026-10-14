@@ -23,6 +23,11 @@ constexpr const char* names[] = {
 };
 Counters counters[sizeof(names) / sizeof(names[0])];
 std::atomic<uint64_t> depth_requested{0}, depth_active{0}, depth_alias_disabled{0}, depth_writes{0};
+std::atomic<uint64_t> late_fsi_draws{0}, original_fsi_draws{0};
+}
+extern "C" void RexFnvLateFsiNote(bool selected) {
+    if (!REXCVAR_GET(fnv_call_profile)) return;
+    (selected ? late_fsi_draws : original_fsi_draws).fetch_add(1, std::memory_order_relaxed);
 }
 extern "C" void RexFnvDepthState(bool requested, bool active, bool writes,
                                 uint32_t depth_base, uint32_t color_base, uint32_t pitch,
@@ -81,6 +86,9 @@ extern "C" void RexFnvCallProfileReport(FILE* file, double seconds, double frame
                  (unsigned long long)depth_active.exchange(0),
                  (unsigned long long)depth_writes.exchange(0),
                  (unsigned long long)depth_alias_disabled.exchange(0));
+    std::fprintf(file, "     FNV FSI scheduling: late_opaque=%llu original=%llu (draw attempts)\n",
+                 (unsigned long long)late_fsi_draws.exchange(0),
+                 (unsigned long long)original_fsi_draws.exchange(0));
     for (unsigned id = 0; id < sizeof(names) / sizeof(names[0]); ++id) {
         auto& c = counters[id];
         const auto calls = c.calls.exchange(0, std::memory_order_relaxed);
