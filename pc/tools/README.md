@@ -19,6 +19,9 @@ no forman parte del codigo fuente de las herramientas.
 | `../native/guest_memory.c/.h` + `host_mutex.h` | Pool guest32 de datos con reserve/commit/free/query/protect, presupuesto explicito y mutex bloqueante; conserva la representacion plana del SDK. |
 | `../native/memory_horizon.c/.h` | Permisos reales por rangos y rollback; adaptador libnx, backing fisico eager, sin devolver RAM al decommit. |
 | `../native/windows_memory.c/.h` | Cuatro bridges Virtual* con MBI32, LastError y parada estricta si el backend queda incoherente; no implementa heap ni SEH. |
+| `../native/d3d9_constants.c/.h` | Bancos VS/PS float4, int4 y BOOL, con agrupacion de cambios, mutex y reintento de subidas; independiente del backend, aun sin dispatch COM. |
+| `shader_packages.py` | Inventario acotado de SDP y exportacion privada opcional por hash; no traduce ni valida semantica de shaders. |
+| `build_d3d9_constants.py` | Agrega el banco de constantes al conjunto CPU/Windows/VM verificado, con flags Switch y auditoria de externos. No construye renderer ni NRO. |
 | `prepare_aot_image.py` | Valida identidad y empaqueta secciones PE en el contenedor x86 que espera el SDK; permite una captura de texto declarada. |
 | `run_aot_analysis.py` | Orquesta scan/ABI/codegen con hashes y variantes separadas; no aplica firmas XDK al programa Windows. |
 | `audit_aot_gaps.py` | Clasifica destinos pendientes, todos sus propietarios solapados y procedencia en C generado. Solo lectura. |
@@ -89,3 +92,6 @@ API del host Windows. Ver [contrato y comandos](../docs/native-windows-thread.md
 `test_guest_memory.py` compara reservas/paginas con Windows e inyecta fallos
 del backend; `test_windows_memory.py` ejecuta los bridges y accesos MEM
 traducidos. Ver [memoria y limites](../docs/native-windows-memory.md).
+`test_shader_packages.py` comprueba entradas malformadas; `test_d3d9_constants.py`
+compara los bancos con D3D9 NULLREF de Windows, procesa setters conservados y
+comprueba CreateShader/GetFunction del catalogo. Ver [contrato D3D9](../docs/native-d3d9-constants.md).

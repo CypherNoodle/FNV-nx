@@ -94,6 +94,13 @@ intacto y no se sustituye su autenticacion. Consultar
 [el estudio de la dependencia](docs/steam-dependency.md). No se presupone
 compatibilidad con otra distribucion hasta auditar su archivo real.
 
+El primer [componente D3D9](docs/native-d3d9-constants.md) ya conserva los
+bancos VS/PS de constantes y agrupa cambios para el backend. Paso el oraculo
+Windows, reintentos y concurrencia; los 1.809 shaders distintos tambien
+pasaron creacion/GetFunction en NULLREF. El enlace parcial suma ahora 353
+unidades. No se ha conectado el dispatch COM ni renderizado un draw con esta
+ruta; la creacion de objetos Windows no prueba traduccion o ejecucion en Switch.
+
 ## Carpeta de instalacion objetivo
 
 Este es el contrato del futuro port, no un paquete ya disponible:

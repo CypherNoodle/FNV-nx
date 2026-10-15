@@ -38,8 +38,9 @@ en ambos y medidas de CPU/GPU. No atribuir el coste de la antigua emulacion
 Xenos al coste de Vulkan del futuro renderer PC.
 
 La instalacion Steam revisada contiene 16 archivos `Data/Shaders/shaderpackage*.sdp`.
-Son candidatos para el inventario offline de shaders PC; aun no se ha validado
-su parser ni se ha traducido su contenido. La ruta de shaders XenosRecomp de
+El nuevo parser acotado ya inventaria 15.791 registros y 1.809 bytecodes
+distintos, con creacion/GetFunction comprobados en D3D9 NULLREF de Windows.
+No se ha validado su traduccion en el nuevo backend. La ruta de shaders XenosRecomp de
 los ports Xbox no convierte automaticamente estos shaders D3D9.
 
 ## Peggle: que se puede trasladar a D3D9 PC
@@ -72,7 +73,8 @@ Las operaciones pendientes deben detenerse con diagnostico, sin devolver
 objetos o resultados de exito ficticios.
 
 Esta tabla es un plan verificable: estos objetos COM y el renderer D3D9 PC
-todavia no estan implementados. No se han trasladado codigo ni cifras de
+todavia no estan implementados. El [banco de constantes](native-d3d9-constants.md)
+es el primer componente probado; aun no recibe llamadas del motor. No se han trasladado codigo ni cifras de
 rendimiento de Peggle a FNV.
 
 ## Medidas desde el primer frame
