@@ -42,6 +42,39 @@ Son candidatos para el inventario offline de shaders PC; aun no se ha validado
 su parser ni se ha traducido su contenido. La ruta de shaders XenosRecomp de
 los ports Xbox no convierte automaticamente estos shaders D3D9.
 
+## Peggle: que se puede trasladar a D3D9 PC
+
+Se revisaron tambien las fuentes del mismo commit: [draws de API](https://github.com/ChanseyIsTheBest/peggle2-nx/blob/a6fb9374c90a8ac2ef7bc5e92cccfa2c20e5eb40/app/src/me/peggle2_api_draw.cpp),
+[hooks](https://github.com/ChanseyIsTheBest/peggle2-nx/blob/a6fb9374c90a8ac2ef7bc5e92cccfa2c20e5eb40/app/src/me/peggle2_me_hooks.cpp)
+y [targets nativos](https://github.com/ChanseyIsTheBest/peggle2-nx/blob/a6fb9374c90a8ac2ef7bc5e92cccfa2c20e5eb40/app/src/me/masseffect/masseffect_native_targets.h).
+La ruta es hibrida: algunos draws y estados producen registros nativos,
+mientras otras operaciones siguen usando el ring PM4. Su validacion compara
+las operaciones originales con las sustituidas antes de ampliar la cobertura.
+No demuestra que todo el procesador de comandos haya desaparecido.
+
+Para PC, las interfaces COM proporcionan un limite explicito sin identificar
+las funciones internas D3D del XDK. El plan de implementacion es:
+
+| Contrato D3D9 guest | Implementacion propia y comprobacion |
+| --- | --- |
+| Direct3DCreate9, CreateDevice y vtables | Objetos guest32 con tokens y bridges stdcall/thiscall segun cada contrato. Nunca truncar punteros host a 32 bits; verificar QueryInterface, AddRef y Release. |
+| Texturas, surfaces, vertex/index buffers | Tabla de identidad, formato, subrecurso y vida; Lock/Unlock con pitch y regiones explicitas. Validar bytes subidos y referencias antes de reutilizar memoria. |
+| SetRenderState, samplers, shaders y constantes | Estado D3D9 persistente con rangos sucios. Comparar el estado consumido por cada draw; no asumir que el orden de setters permite omitir una dependencia. |
+| DrawPrimitive, DrawIndexedPrimitive y variantes UP | Registro de draw completo, indices, declaracion de vertices, shaders y bindings; UP copia los datos necesarios antes de retornar. Comparar primero un draw real con textura y profundidad. |
+| Targets, Clear, StretchRect y Present | Imagenes host con subrecursos y dependencias; conservar viewport, scissor, depth/stencil, alpha y multisampling. Medir tiempos sin bloquear para obtener contadores. |
+| Bytecode de shaders D3D9 | Inventario y traduccion propios de VS/PS PC, con identidad por contenido y opciones. XenosRecomp no es el traductor de ese bytecode. |
+
+Primero registrar una secuencia D3D9 del original PC y reproducirla en el
+backend; despues conectar los mismos bridges al CPU recompilado. Comparar
+operaciones, datos y frames alineados, incluidos primera/tercera persona y
+Pip-Boy. Un replay correcto acredita esa secuencia, no un arranque del motor.
+Las operaciones pendientes deben detenerse con diagnostico, sin devolver
+objetos o resultados de exito ficticios.
+
+Esta tabla es un plan verificable: estos objetos COM y el renderer D3D9 PC
+todavia no estan implementados. No se han trasladado codigo ni cifras de
+rendimiento de Peggle a FNV.
+
 ## Medidas desde el primer frame
 
 Registrar por ventana, con contadores en memoria y escritura agrupada:

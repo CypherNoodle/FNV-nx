@@ -58,6 +58,12 @@ ID de proceso y pagina PEB preparada. Posee el runtime CPU. Su funcion
 bind_imports combina los ocho exports con otros exports explicitos del
 llamador y conserva el enlace atomico; las colisiones se rechazan.
 
+La configuracion puede asociar un gestor `memory` de
+[memoria guest](native-windows-memory.md). El proceso conserva una referencia
+hasta destruirse; su backing debe coincidir exactamente con el offset del
+arena CPU y no solaparse con imagen, PEB ni reservas de los hilos. NULL
+mantiene disponible el modulo TLS sin habilitar las API Virtual*.
+
 Cada hilo host usa `fnv_windows_thread_attach` con estado CPU, ID, TEB,
 expansion y pila propios. El vector TLS estatico opcional declara tambien
 su tamano completo. Se rechazan rangos fuera del arena, solapamientos con
@@ -101,7 +107,7 @@ python pc/tests/test_windows_thread.py --sdk /ruta/xboxrecomp \
 
 CMake agrega `fnv_native_windows_thread` al proporcionar FNV_X86_SDK.
 La herramienta siguiente comprueba por hash los inputs y todos los objetos
-del lote CPU aceptado, compila solo el modulo nuevo con las mismas opciones
+del lote CPU aceptado, compila el modulo y su gestor VM con las mismas opciones
 Switch y realiza el enlace relocatable. No acepta un lote modificado.
 
 ```sh
@@ -109,14 +115,20 @@ python pc/tools/build_windows_thread.py \
   --base-validation /privado/cpu-runtime-switch/revalidation.json \
   --analysis /privado/analisis-derivado --sdk /ruta/xboxrecomp \
   --python-deps /ruta/dependencias \
+  --libnx /ruta/libnx \
+  --platform-validation /privado/cpu-runtime-switch/platform-symbols.json \
   --cc /ruta/aarch64-none-elf-gcc --ld /ruta/aarch64-none-elf-ld \
   --nm /ruta/aarch64-none-elf-nm --objdump /ruta/aarch64-none-elf-objdump \
   --output /privado/windows-thread-switch
 ```
 
-El conjunto suma 349 unidades, sin simbolos propios pendientes. Sus 31
-externos son libc/math/newlib/libnx. Los objetos derivados siguen privados;
-este enlace no es un NRO ni prueba arranque o rendimiento del motor.
+La integracion anterior de TLS sumaba 349 unidades. Ahora el gestor de
+memoria es una dependencia adicional: el modo predeterminado agrega dos
+unidades a las 348 de CPU; `--memory-exports` agrega cuatro e incluye el
+backend de permisos Horizon y Virtual*. Se comprueban las definiciones de
+los externos en las bibliotecas de plataforma identificadas por hash.
+Los objetos derivados siguen privados; este enlace no es un NRO ni prueba
+arranque o rendimiento del motor.
 
 ## Referencias de contrato
 

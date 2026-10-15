@@ -7,9 +7,11 @@
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
 #define FNV_WINDOWS_THREAD_EXPORTS 8u
 struct fnv_windows_process;
+struct fnv_guest_memory;
 struct fnv_windows_config {
     struct fnv_cpu_config cpu;
     uint32_t image_bytes, process_id, peb_address;
+    struct fnv_guest_memory *memory; /* Optional, disjoint managed data pool. */
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
@@ -30,4 +32,7 @@ enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *,
  * pointers. Get/Set TLS serialize with index recycling, not guest execution. */
 enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *, const struct fnv_windows_thread_config *);
 enum fnv_cpu_result fnv_windows_thread_detach(void);
+/* For native import modules; require the matching attached Windows thread. */
+struct fnv_guest_memory *fnv_windows_current_memory(void);
+void fnv_windows_set_last_error(uint32_t value);
 #endif

@@ -2,6 +2,7 @@
  * docs/native-windows-thread.md. No Wine source or DLLs are incorporated. */
 #include "fnv_sdk_runtime.h"
 #include "windows_thread.h"
+#include "guest_memory.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 
@@ -58,6 +59,12 @@ static struct windows_thread *thread(void) {
 }
 static unsigned char *slot(struct windows_thread *t,uint32_t index) {
     return index<64?t->teb+TEB_SLOTS+index*4:t->expansion+(index-64)*4;
+}
+struct fnv_guest_memory *fnv_windows_current_memory(void) { return thread()->process->config.memory; }
+void fnv_windows_set_last_error(uint32_t value) { write32(thread()->teb+TEB_ERROR,value); }
+static int pool_overlap(struct fnv_windows_process *p,uint32_t address,uint32_t bytes) {
+    unsigned char *backing;uint32_t base,size;
+    return fnv_vm_binding(p->config.memory,&backing,&base,&size) && overlap(address,bytes,base,size);
 }
 static void api_get_error(void) {
     struct windows_thread *t=thread();
@@ -142,8 +149,15 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
        overlap(c->peb_address,4096,c->cpu.guest_base,c->image_bytes))return FNV_CPU_INVALID;
     struct fnv_windows_process *p=calloc(1,sizeof(*p));if(!p)return FNV_CPU_NO_MEMORY;
     p->config=*c;p->guard=(atomic_flag)ATOMIC_FLAG_INIT;
+    if(c->memory) {
+        unsigned char *backing;uint32_t base,size;
+        if(!fnv_vm_binding(c->memory,&backing,&base,&size) || !inside(c,base,size) ||
+           backing!=c->cpu.memory+(base-c->cpu.guest_base) ||
+           pool_overlap(p,c->cpu.guest_base,c->image_bytes) || pool_overlap(p,c->peb_address,4096) ||
+           !fnv_vm_retain(c->memory)){free(p);return FNV_CPU_INVALID;}
+    }
     enum fnv_cpu_result result=fnv_cpu_create(&c->cpu,&p->cpu);
-    if(result!=FNV_CPU_OK){free(p);return result;}
+    if(result!=FNV_CPU_OK){fnv_vm_release_reference(c->memory);free(p);return result;}
     *out=p;return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
@@ -151,7 +165,7 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     lock(p);
     if(p->threads){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
-    unlock(p);if(result==FNV_CPU_OK)free(p);return result;
+    unlock(p);if(result==FNV_CPU_OK){fnv_vm_release_reference(p->config.memory);free(p);}return result;
 }
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *p,
     struct fnv_native_image *image,struct fnv_native_import *scratch,size_t capacity,
@@ -181,10 +195,11 @@ enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *p,cons
     uint32_t sizes[]={4096,4096,c->stack_high-c->stack_low};
     if(c->static_tls_vector &&
        (overlap(c->static_tls_vector,c->static_tls_vector_bytes,p->config.cpu.guest_base,p->config.image_bytes) ||
-        overlap(c->static_tls_vector,c->static_tls_vector_bytes,p->config.peb_address,4096)))return FNV_CPU_INVALID;
+        overlap(c->static_tls_vector,c->static_tls_vector_bytes,p->config.peb_address,4096) ||
+        pool_overlap(p,c->static_tls_vector,c->static_tls_vector_bytes)))return FNV_CPU_INVALID;
     for(unsigned i=0;i<3;i++) {
         if(overlap(starts[i],sizes[i],p->config.cpu.guest_base,p->config.image_bytes) ||
-           overlap(starts[i],sizes[i],p->config.peb_address,4096))return FNV_CPU_INVALID;
+           overlap(starts[i],sizes[i],p->config.peb_address,4096) || pool_overlap(p,starts[i],sizes[i]))return FNV_CPU_INVALID;
         for(unsigned j=0;j<i;j++)if(overlap(starts[i],sizes[i],starts[j],sizes[j]))return FNV_CPU_INVALID;
         if(c->static_tls_vector && overlap(starts[i],sizes[i],c->static_tls_vector,c->static_tls_vector_bytes))return FNV_CPU_INVALID;
     }

@@ -75,9 +75,18 @@ El primer [modulo Windows por hilo](docs/native-windows-thread.md) implementa
 ocho imports Kernel32: TLS, LastError e IDs guest, con campos TEB coherentes
 con los accesos FS traducidos. Pasaron los 1.088 slots, 2.000 rondas entre
 dos hilos, once comparaciones con Windows y los casos de memoria/conflicto.
-Se integro con el lote anterior (349 unidades en total); otros 272 slots
-normales del EXE examinado siguen pendientes. No implementa CreateThread,
+Su integracion inicial sumaba 349 unidades. No implementa CreateThread,
 heap guest, excepciones o arranque original.
+
+El [gestor de memoria guest](docs/native-windows-memory.md) agrega reservas,
+commit/decommit, query y proteccion real NOACCESS/R/RW, con cuatro bridges
+Virtual*. Pasaron 1.600 operaciones aleatorias y 25.609 consultas contra
+Windows, 500 ciclos concurrentes, fallos inyectados y accesos MEM traducidos.
+El backend Horizon usa libnx y conserva backing fisico preasignado: decommit
+no devuelve RAM al kernel. El enlace ARM64 suma 352 unidades; sus 34 externos
+de plataforma tienen definiciones comprobadas en bibliotecas identificadas.
+No es un enlace final ni prueba de consola. Se cubren once slots normales
+de la IAT examinada; los otros 269, el heap y la carga dinamica siguen pendientes.
 
 La version Steam examinada coincide con SteamStub 2.1 y depende tambien de
 Steamworks. Su entrada original esta en `.bind`. El archivo permanece
@@ -140,7 +149,7 @@ cmake --build /ruta/privada/native-build
 
 `--game` es opcional para ejecutar solo fixtures. `--cc` admite un comando
 con argumentos, por ejemplo `--cc /ruta/zig cc`. CMake construye una
-biblioteca de carga de datos; no genera un NRO ni recompila el motor.
+bibliotecas de carga de datos y gestion de memoria; no genera un NRO ni recompila el motor.
 Con `-DFNV_X86_SDK=/ruta/xboxrecomp` construye tambien la biblioteca CPU
 opcional; las funciones del juego y sus servicios siguen siendo externos.
 `audit_native_imports.py` produce una lista de requisitos, sin afirmar que
