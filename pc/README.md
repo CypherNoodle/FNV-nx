@@ -51,12 +51,25 @@ secuencias de flags, 2.400 casos entre bloques y la regresion SIMD de 11.920
 casos. Las pruebas de tablas protegen entradas reales y rechazan selecciones
 manipuladas. Tras corregir la seleccion compilaron las 346 unidades C del
 conjunto completo, incluido el bloque que emitia `cr2`, y paso el enlace
-relocatable sin duplicados. Quedan 60 simbolos externos de estado, libc/math
-y runtime; ese inventario no incluye ni implementa las API Windows de la IAT.
+relocatable sin duplicados. Ese primer enlace ARM64 inventario 60 simbolos
+externos de estado, libc/math y runtime; no incluye las API Windows de la IAT.
 Estos contadores describen el analisis de la captura; no acreditan un motor
 enlazado ni arranque desde disco. Ver
 [analisis y validacion](docs/native-aot.md) e
 [inventario de herramientas reutilizables](tools/README.md).
+
+La siguiente integracion agrega un runtime con registros y traza por hilo,
+resolucion IAT por tokens de 32 bits y parada con diagnostico ante codigo
+pendiente. Pasaron 1.000 llamadas concurrentes entre dos hilos y doce casos
+de fallo sobre rutinas sinteticas traducidas por el SDK. No implementa aun
+las API Windows del juego. El
+[contrato del runtime CPU](docs/native-cpu-runtime.md) documenta sus limites,
+el wrapper obligatorio y el ABI TLS especifico de Switch, que requiere
+recompilar todos los objetos en vez de reutilizar el lote ARM64 generico.
+Con esa configuracion compilaron 348 unidades y paso el enlace parcial con
+el runtime: ya no quedan simbolos propios de CPU sin resolver; los 30
+externos restantes pertenecen a las bibliotecas de plataforma. Esto sigue
+sin implementar las llamadas Windows ni enlazar un ejecutable del motor.
 
 La version Steam examinada coincide con SteamStub 2.1 y depende tambien de
 Steamworks. Su entrada original esta en `.bind`. El archivo permanece
@@ -120,6 +133,8 @@ cmake --build /ruta/privada/native-build
 `--game` es opcional para ejecutar solo fixtures. `--cc` admite un comando
 con argumentos, por ejemplo `--cc /ruta/zig cc`. CMake construye una
 biblioteca de carga de datos; no genera un NRO ni recompila el motor.
+Con `-DFNV_X86_SDK=/ruta/xboxrecomp` construye tambien la biblioteca CPU
+opcional; las funciones del juego y sus servicios siguen siendo externos.
 `audit_native_imports.py` produce una lista de requisitos, sin afirmar que
 los bridges esten implementados ni que el ejecutable carezca de DRM.
 

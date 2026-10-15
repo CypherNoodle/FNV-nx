@@ -11,13 +11,15 @@ las llamadas Windows mediante implementaciones nativas incluidas en el NRO.
 No requiere una biblioteca de juegos de Autorun ni un prefijo Wine en la SD.
 
 **Todavia no existe un NRO PC nativo que arranque el motor.** La biblioteca
-actual carga los datos PE32 y permite enlazar imports con tokens nativos;
-no ejecuta x86 ni implementa las API que necesita el juego. El laboratorio
+actual carga los datos PE32 y el runtime CPU integra estado por hilo,
+imports por tokens y diagnosticos para el codigo previamente traducido.
+Todavia faltan las API que necesita el juego. El laboratorio
 anterior llega a parte de la inicializacion CRT con codigo capturado, antes
 del motor, y no acredita un arranque desde el EXE original.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
+Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-runtime.md).
 Los builds PC01–PC03 con Wine se conservan como
 [experimento anterior](pc/docs/wine-experiment.md), fuera de la ruta activa.
 No deben confundirse con el futuro port nativo.

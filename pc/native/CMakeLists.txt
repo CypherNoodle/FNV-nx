@@ -4,4 +4,30 @@ add_library(fnv_native_pe STATIC pe_image.c)
 target_include_directories(fnv_native_pe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(fnv_native_pe PUBLIC c_std_11)
 target_compile_options(fnv_native_pe PRIVATE -Wall -Wextra -Werror)
-# This is a data loader library, not a game launcher or an NRO target.
+# Optional CPU integration against a separately supplied x86 SDK. Neither
+# target is a game launcher or an NRO; no proprietary/generated code is bundled.
+set(FNV_X86_SDK "" CACHE PATH "External SH2/SH3 x86 recompiler SDK root")
+if(FNV_X86_SDK)
+  if(NOT EXISTS "${FNV_X86_SDK}/templates/runtime/recomp_types.h")
+    message(FATAL_ERROR "FNV_X86_SDK must contain templates/runtime/recomp_types.h")
+  endif()
+  add_library(fnv_generated_cpu_abi INTERFACE)
+  target_include_directories(fnv_generated_cpu_abi INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${FNV_X86_SDK}/templates/runtime ${FNV_X86_SDK}/src/kernel)
+  target_compile_options(fnv_generated_cpu_abi INTERFACE
+    -fno-strict-aliasing -ffp-contract=off
+    "SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/fnv_sdk_runtime.h\"")
+  if(NINTENDO_SWITCH)
+    # Same TLS ABI as devkitPro's NintendoSwitch platform. Apply to every
+    # generated target too: generic ARM64 defaults read the wrong TP register.
+    target_compile_options(fnv_generated_cpu_abi INTERFACE
+      -march=armv8-a+crc+crypto -mtune=cortex-a57
+      -mtp=soft -ftls-model=local-exec -fPIE)
+  endif()
+  add_library(fnv_native_cpu STATIC cpu_runtime.c)
+  target_compile_features(fnv_native_cpu PUBLIC c_std_11)
+  target_include_directories(fnv_native_cpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_options(fnv_native_cpu PRIVATE -Wall -Wextra -Werror)
+  target_link_libraries(fnv_native_cpu PRIVATE fnv_generated_cpu_abi PUBLIC fnv_native_pe)
+endif()

@@ -326,9 +326,11 @@ sirve para identificar el fallo; no los convierte en servicios funcionales.
 
 El clasificador actual de llamadas indirectas del SDK permite el rango del
 codigo guest y reserva direcciones desde `0xFE000000` para tokens de imports.
-El futuro resolver PC debe usar un contrato compatible o adaptar y validar
-ese clasificador. Los tokens sinteticos de la prueba del cargador PE no
-demuestran esa integracion, y un puntero ARM64 host no cabe en una IAT x86.
+El resolver PC debe usar un contrato compatible o adaptar y validar
+ese clasificador. El nuevo [runtime CPU](native-cpu-runtime.md) integra
+tokens en ese rango y una tabla host de imports. Sus pruebas incluyen
+llamadas x86 traducidas por nombre y ordinal, conservando el SDK externo.
+Esto no implementa las API Windows; un puntero ARM64 host no cabe en la IAT.
 
 ```sh
 python pc/tools/aot_code_data.py --analysis /ruta/privada/aot --report /ruta/privada/tablas.json --python-deps /ruta/dependencias --derive /ruta/privada/aot-filtrado
@@ -367,3 +369,10 @@ Estos 60 simbolos no equivalen a todas las dependencias del juego; las API
 Windows de los 280 slots IAT siguen requiriendo implementaciones con ABI
 correcta. Tampoco se enlazo un ejecutable final, verifico el arranque desde
 disco ni genero un NRO del motor.
+
+El lote anterior valida objetos ARM64 genericos. El ABI TLS de libnx exige
+`-mtp=soft -ftls-model=local-exec`; no se deben usar esos objetos anteriores
+en la aplicacion Switch. `build_cpu_runtime.py` reconstruye el conjunto
+completo con esas opciones, el wrapper de traza por hilo y las bibliotecas
+CPU/PE propias. El enlace relocatable sigue sin sustituir un ejecutable,
+perfil de entrada original ni renderer del motor.
