@@ -12,11 +12,13 @@ no forman parte del codigo fuente de las herramientas.
 | `aot_index.py` | Indice incremental y decode acotado para el analizador x86 del SDK externo. No depende de direcciones de FNV. |
 | `aot_simd_bits.py` + `../native/fnv_simd_bits.h` | Extension explicita de 13 instrucciones SSE2 de bits/copias/barajado/shifts. Usa la API `RecompXmm` del SDK; no contiene codigo del juego. |
 | `aot_mul_flags.py` + `../native/fnv_mul_flags.h` | Productos de 8/16/32 bits, con signo y sin signo, y captura de CF/OF; integracion conservadora con el seguimiento de flags del SDK. |
+| `aot_code_data.py` | Audita switches MSVC de dos niveles con limite explicito y crea una seleccion derivada separada; solo aparta seeds `gap_prologue` sin referencias contradictorias confinados a tablas/padding. |
 | `../native/pe_image.c/.h` | Carga de datos PE32/i386 y enlace IAT mediante un resolver del llamador. No ejecuta x86 ni implementa Windows. |
 | `prepare_aot_image.py` | Valida identidad y empaqueta secciones PE en el contenedor x86 que espera el SDK; permite una captura de texto declarada. |
 | `run_aot_analysis.py` | Orquesta scan/ABI/codegen con hashes y variantes separadas; no aplica firmas XDK al programa Windows. |
 | `audit_aot_gaps.py` | Clasifica destinos pendientes, todos sus propietarios solapados y procedencia en C generado. Solo lectura. |
 | `verify_aot_simd.py` | Compara baseline/variante SIMD o multiplicacion, comprueba dispatch y compila a ARM64 todos los chunks cambiados. No enlaza el juego. |
+| `verify_aot_code_data.py` | Reproduce el filtro desde el analisis padre, comprueba los cuerpos retenidos y compila todos los C. Puede enlazar los objetos con `--ld` e inventariar dependencias con `--nm`. |
 | `audit_native_imports.py` | Inventario de imports que necesita el futuro runtime nativo. Un inventario no significa que existan sus bridges. |
 | `audit_install.py` | Inspeccion PE y comprobaciones de la instalacion FNV; contiene reglas especificas de esta edicion. |
 
@@ -63,6 +65,7 @@ python pc/tests/test_aot_sdk_overlay.py --sdk /ruta/xboxrecomp --python-deps /ru
 python pc/tests/test_aot_simd_bits.py --sdk /ruta/xboxrecomp --python-deps /ruta/dependencias --cc /ruta/aarch64-none-elf-gcc.exe --output /ruta/privada/prueba-simd
 python pc/tests/test_aot_mul_flags.py --sdk /ruta/xboxrecomp --python-deps /ruta/dependencias --cc /ruta/aarch64-none-elf-gcc.exe --output /ruta/privada/prueba-mul
 python pc/tests/test_aot_mul_cfg.py --sdk /ruta/xboxrecomp --python-deps /ruta/dependencias --cc /ruta/aarch64-none-elf-gcc.exe --output /ruta/privada/prueba-mul-cfg
+python pc/tests/test_aot_code_data.py --python-deps /ruta/dependencias --temp-dir /ruta/privada/tmp
 ```
 
 Las salidas SIMD y de multiplicacion exigen un directorio nuevo y guardan hashes, flags del

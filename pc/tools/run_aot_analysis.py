@@ -101,12 +101,21 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     if stage=="scan": return
     generated=paths['generated']
     scan=json.loads(scan_manifest.read_text())
+    scan_sha=sha(scan_manifest)
     if scan["input_sha256"]!=sha(image) or scan["sdk_sha256"]!=fingerprint:
         raise ValueError("Disassembly source/SDK identity mismatch; rerun scan")
     verified_wrapper = verified_scan_wrapper(analysis, scan, index_wrapper)
     index_sha = scan['index_wrapper_sha256']
     for name,digest in scan["files"].items():
         if sha(analysis/"disasm"/name)!=digest: raise ValueError("Modified disassembly: "+name)
+    code_data_filter=None
+    if scan.get('code_data_filter'):
+        if generation_name is None: raise ValueError('Filtered selection requires a separate named generation')
+        if deps: sys.path.insert(0,str(deps.resolve()))
+        import capstone
+        from aot_code_data import verify_derivation
+        decoder=capstone.Cs(capstone.CS_ARCH_X86,capstone.CS_MODE_32);decoder.detail=True
+        code_data_filter=verify_derivation(analysis,decoder)
     # No Xbox kernel/RenderWare signatures are assumed to describe FNV PC.
     classifications=paths['classifications']
     classifications.mkdir(exist_ok=True)
@@ -130,6 +139,8 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         header.write_text(code.replace(marker, marker+''.join('\n#include "'+name+'"' for name in includes)), encoding='utf-8')
     if sdk_identity(sdk) != fingerprint:
         raise ValueError('SDK source changed during generation')
+    if sha(scan_manifest)!=scan_sha or (code_data_filter and verify_derivation(analysis,decoder)!=code_data_filter):
+        raise ValueError('Analysis selection changed during generation')
     for identity, source, runtime in ((overlay_identity,overlay,native/'fnv_simd_bits.h'),
                                      (multiply_identity,mul_overlay,native/'fnv_mul_flags.h')):
         if identity and (sha(source) != identity['source_sha256'] or sha(runtime) != identity['runtime_header_sha256']):
@@ -143,6 +154,7 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     report=dict(status="GENERATED_WITH_GAPS" if incomplete else "GENERATED_UNVALIDATED",
         input_profile_sha256=sha(analysis/"input-profile.json"),sdk_sha256=fingerprint,index_wrapper_sha256=index_sha,
         generation_name=generation_name, scan_wrapper_verified_from=verified_wrapper.name,
+        scan_identity_sha256=scan_sha,code_data_filter=code_data_filter,
         codegen_overlay=overlay_identity,multiply_overlay=multiply_identity,
         functions_detected=len(json.loads((analysis/"disasm/functions.json").read_text())),
         functions_requested=summary.get("total"),functions_generated=summary.get("translated"),

@@ -280,3 +280,90 @@ La [referencia historica aportada](https://web.itu.edu.tr/kesgin/mul06/intel/ind
 organiza el x86 hasta 486. Sus tablas de ciclos no son estimaciones para Switch;
 la referencia normativa de estas operaciones sigue siendo el
 [Intel SDM](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
+
+## Separacion de tablas y codigo
+
+`aot_code_data.py` reconoce una forma acotada del switch MSVC de dos niveles:
+CMP con limite unsigned, JA al caso por defecto, carga del indice si esta en
+una variable de pila, MOVZX desde una tabla de bytes y JMP desde una tabla de
+punteros. Exige instrucciones consecutivas, una ruta directa desde el
+prologo al CMP y ninguna referencia conocida que entre despues del CMP para
+saltarse la comprobacion. Los destinos deben ser limites de instrucciones
+dentro del cuerpo anterior; las tablas deben ser adyacentes y estar despues
+del RET, con un maximo de quince bytes de padding.
+
+Solo aparta entradas `gap_prologue` sin llamadas ni referencias entrantes que
+queden confinadas a esas tablas y al padding permitido. Una entrada fuerte,
+una rama exterior hacia los datos, un destino mal alineado con el decode o
+un patron ambiguo impiden aplicar el filtro. No es un detector universal de
+datos ni una prueba completa de alcanzabilidad por llamadas indirectas.
+
+La herramienta conserva el analisis original y crea otro directorio con la
+misma imagen y perfil. Cambian solo la seleccion de funciones y sus
+estadisticas; xrefs, labels y bytes del ejecutable se conservan. Registra el
+hash del padre, la fuente de la herramienta y las tablas reconocidas. Antes
+y despues de generar, el runner vuelve al padre y reproduce la decision:
+no confia simplemente en una lista de direcciones excluidas.
+
+`verify_aot_code_data.py` exige que el unico cambio de cuerpos C sea la
+ausencia de esas entradas: los cuerpos retenidos deben conservar sus hashes
+y no referenciarlas. Comprueba tambien el dispatch y que las instrucciones
+pendientes retiradas pertenezcan a los rangos apartados. Su compilacion
+abarca todos los C generados, incluidos dispatch y destinos pendientes, sin
+enlazar ni ejecutar el motor. Las apariciones retiradas por ser datos se
+contabilizan aparte de instrucciones realmente implementadas. Opcionalmente,
+`--ld` enlaza los objetos en uno relocatable para detectar definiciones
+duplicadas; `--nm` inventaria los simbolos aun pendientes del runtime. Este
+enlace parcial permite simbolos externos y no sustituye el enlace del motor.
+Un simbolo generado `sub_...` que siga indefinido se trata como un fallo.
+
+La integracion del runtime debe detener la ejecucion en `recomp_unimpl`,
+`recomp_icall_fail_log` y `recomp_icall_not_code_log`, conservando diagnostico
+del destino. El header actual del SDK puede continuar despues de esos hooks
+si retornan, restaurando ESP o dejando EAX en cero. Ese fallback no acredita
+que la llamada Windows se haya implementado. Compilar los destinos pendientes
+sirve para identificar el fallo; no los convierte en servicios funcionales.
+
+El clasificador actual de llamadas indirectas del SDK permite el rango del
+codigo guest y reserva direcciones desde `0xFE000000` para tokens de imports.
+El futuro resolver PC debe usar un contrato compatible o adaptar y validar
+ese clasificador. Los tokens sinteticos de la prueba del cargador PE no
+demuestran esa integracion, y un puntero ARM64 host no cabe en una IAT x86.
+
+```sh
+python pc/tools/aot_code_data.py --analysis /ruta/privada/aot --report /ruta/privada/tablas.json --python-deps /ruta/dependencias --derive /ruta/privada/aot-filtrado
+python pc/tools/run_aot_analysis.py --analysis /ruta/privada/aot-filtrado --sdk /ruta/xboxrecomp --python-deps /ruta/dependencias --stage generate --generation-name code-data01 --simd-bits --mul-flags
+python pc/tools/verify_aot_code_data.py --analysis /ruta/privada/aot-filtrado --generation-name code-data01 --baseline-analysis /ruta/privada/aot --baseline-name mul-flags02 --sdk /ruta/xboxrecomp --cc /ruta/aarch64-none-elf-gcc.exe --ld /ruta/aarch64-none-elf-ld.exe --nm /ruta/aarch64-none-elf-nm.exe --python-deps /ruta/dependencias --output /ruta/privada/objetos-filtrados --jobs 4
+```
+
+La prueba sintetica cubre indices en pila y registro, limites, destinos
+interiores a instrucciones, registros equivocados, saltos que eluden el
+guard, referencias de callbacks y una funcion real adyacente. Comprueba
+ademas que el padre quede intacto y rechaza una seleccion manipulada aunque
+se recalculen sus hashes. No usa ni ejecuta codigo del juego.
+
+Resultado de `code-data01` (15 de octubre): se reconocieron 132 patrones y
+se apartaron 42 seeds, incluidos los que causaban el error de CR2. Otros tres
+patrones se rechazaron por evidencia contradictoria o guard no demostrado.
+La generacion termino con 85.885 cuerpos, cero fallos y sus cuerpos retenidos
+identicos a los anteriores. Se retiraron como datos 56 apariciones pendientes
+y 16 destinos; quedan 797 apariciones y 648 destinos. Esto no se cuenta como
+soporte nuevo de instrucciones ni una medida de cobertura en ejecucion.
+
+Compilaron las 346 unidades C (307.214.088 bytes de objetos) y paso el enlace
+parcial con `ld -r` (301.285.408 bytes). SHA256 del objeto relocatable:
+`37df17252148ac016a55c9ab1cde7013e951c5fd0cb38c5e539e849ee5b53c80`.
+No quedo ningun simbolo generado `sub_...` indefinido ni aparecieron fallos de
+compilacion. Se registraron los ocho headers del SDK usados como entrada,
+el compilador y los flags, y se comprobaron sus identidades al terminar.
+
+El inventario de `nm` conserva 60 simbolos externos: 38 variables de estado,
+15 funciones de libc/math y siete funciones del runtime:
+`recomp_cpuid`, `recomp_icall_fail_log`, `recomp_icall_not_code_log`,
+`recomp_lookup_kernel`, `recomp_lookup_manual`, `recomp_unimpl` y
+`xbox_ReadTimeStampCounter`. El nombre kernel del SDK no convierte las
+llamadas Windows en llamadas Xbox: necesita un resolver PC apropiado.
+Estos 60 simbolos no equivalen a todas las dependencias del juego; las API
+Windows de los 280 slots IAT siguen requiriendo implementaciones con ABI
+correcta. Tampoco se enlazo un ejecutable final, verifico el arranque desde
+disco ni genero un NRO del motor.

@@ -35,18 +35,24 @@ No se ejecuto codigo del juego ni se verifico este cargador en consola.
 El laboratorio nativo previo conserva 412 constructores CRT observados y
 una frontera en `0x44F770`, antes del motor. Usa codigo capturado de una
 sesion PC y no es una recompilacion completa ni un arranque desde el EXE
-original. No hay un perfil AOT del motor listo, un launcher nativo del juego
+original. No hay un perfil AOT listo para arrancar el motor, un launcher nativo del juego
 ni un NRO nuevo para probarlo todavia.
 
-El analisis AOT amplio conserva 85.927 cuerpos C generados a partir de esa
-captura. La extension SIMD del 15 de octubre resolvio 419 apariciones de
-instrucciones pendientes. El lote posterior de MUL/IMUL y CF/OF resolvio
-otras 716; quedan 853 y 664 destinos por revisar. Pasaron 176.332
-comparaciones diferenciales x86/ARM64 de multiplicacion y secuencias de flags,
-2.400 casos entre bloques y la regresion SIMD de 11.920 casos. Compilaron
-201 de los 202 bloques modificados a ARM64; uno mantiene un fallo anterior
-del SDK al tratar una tabla de saltos como codigo y emitir un registro `cr2`.
-El informe conserva este bloqueo, sin marcar la compilacion como exitosa.
+El analisis AOT amplio conserva 85.885 cuerpos C generados a partir de esa
+captura. La extension SIMD resolvio 419 apariciones de instrucciones y el
+lote MUL/IMUL y CF/OF otras 716. Una auditoria posterior reconocio 132 tablas
+de switches acotados y aparto 42 entradas creadas por la heuristica sobre
+datos. Sus 56 instrucciones y 16 destinos falsos se cuentan como datos
+retirados, no instrucciones implementadas: quedan 797 y 648 destinos por
+revisar. Los cuerpos C retenidos son identicos a los del lote anterior.
+
+Pasaron 176.332 comparaciones diferenciales x86/ARM64 de multiplicacion y
+secuencias de flags, 2.400 casos entre bloques y la regresion SIMD de 11.920
+casos. Las pruebas de tablas protegen entradas reales y rechazan selecciones
+manipuladas. Tras corregir la seleccion compilaron las 346 unidades C del
+conjunto completo, incluido el bloque que emitia `cr2`, y paso el enlace
+relocatable sin duplicados. Quedan 60 simbolos externos de estado, libc/math
+y runtime; ese inventario no incluye ni implementa las API Windows de la IAT.
 Estos contadores describen el analisis de la captura; no acreditan un motor
 enlazado ni arranque desde disco. Ver
 [analisis y validacion](docs/native-aot.md) e
