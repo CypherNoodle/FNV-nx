@@ -58,8 +58,10 @@ def emit(insn):
 
 
 def install():
+    from tools.recomp import lifter as module
     from tools.recomp.lifter import Lifter
     if getattr(Lifter.lift_instruction, '_fnv_simd_bits', False): return
+    module._EFLAGS_PRESERVE = module._EFLAGS_PRESERVE | SUPPORTED
     original = Lifter.lift_instruction
     def lift(self, insn):
         result = emit(insn)

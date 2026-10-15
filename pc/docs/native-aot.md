@@ -196,3 +196,87 @@ destinos siguen sin resolver. Compilaron los ocho chunks modificados a ARM64
 con los flags indicados; 339 archivos generados conservaron sus hashes y el
 dispatch permanecio identico. La diferencia adicional es el include del
 header SIMD en las declaraciones compartidas. No se enlazo ni ejecuto el motor.
+
+## Multiplicacion y flags definidos
+
+El overlay `aot_mul_flags.py` amplia MUL e IMUL de 8/16/32 bits, con una,
+dos o tres entradas segun el opcode. Captura ambos operandos antes de escribir
+los registros, incluido el caso en que la direccion de memoria usa el registro
+destino. Los accesos de memoria usan bytes para respetar operandos desalineados.
+
+MUL calcula el producto unsigned de doble ancho y CF/OF indican si la mitad
+alta es distinta de cero. IMUL calcula un producto signed de 64 bits sin
+overflow C: CF/OF indican si cabe en el rango signed del destino. El resultado
+se recorta por conversion unsigned definida; los registros parciales conservan
+sus bits superiores. El modo de ocho bits escribe AX y deja EDX intacto.
+No se usa una multiplicacion signed C de 32 bits para un producto de 32 bits.
+
+Una variable local captura esos flags antes de que MOV o SETcc cambien los
+operandos originales. El generador conserva la procedencia entre bloques
+cuando coincide; INC/DEC pueden cambiar OF sin alterar CF. MUL no define
+SF/ZF/AF/PF, por lo que no se deducen a partir de su resultado. SETO/SETNO y
+JO/JNO consultan la captura solo si el productor conocido lo permite.
+
+Una llamada puede modificar los flags en su callee. Al no existir todavia un
+EFLAGS arquitectonico compartido entre funciones, el overlay invalida la
+procedencia anterior a CALL. Un SETO que depende de flags de entrada,
+de una llamada o de un join no resuelto permanece pendiente. Las otras rutas
+de fallback del SDK tambien necesitan auditoria antes de ejecutar el motor;
+este cambio no anuncia soporte completo de flags ni de callbacks/API.
+
+La revision SIMD tambien registra las trece instrucciones como conservadoras
+de EFLAGS. Varias faltaban en la lista del SDK: su resultado vectorial era
+correcto pero el analizador perdia el productor entero anterior. Se verifico
+el seguimiento de todas las formas y una secuencia MUL→SIMD→SETO completa.
+
+Pruebas: 157 formas y 176.332 comparaciones x86/ARM64, incluidos 131.072 pares
+exhaustivos de ocho bits (MUL/IMUL), limites signed/unsigned, productos de
+32 bits que desbordan, alias, inmediatos negativos, memoria desalineada,
+sobrescritura de operandos, ADC/SBB e INC/DEC. En 173.412 casos se comparan CF
+y OF; los 2.920 casos con ADC/SBB comparan solo CF porque el SDK no suministra
+una expresion de OF para esas secuencias. Ademas pasaron 2.400 casos de
+seis funciones completas generadas por el SDK, con JO/JNO/JB/JAE, saltos a
+otro bloque y un bucle. El test comprueba que un join de productores diferentes
+siga marcado como pendiente. La regresion SIMD mantiene sus 11.920 casos.
+
+```sh
+python pc/tools/run_aot_analysis.py --analysis /ruta/privada/aot --sdk /ruta/xboxrecomp --python-deps /ruta/dependencias --stage generate --generation-name mul-flags02 --simd-bits --mul-flags
+python pc/tools/verify_aot_simd.py --analysis /ruta/privada/aot --baseline-name simd-bits01 --generation-name mul-flags02 --mul-flags --simd-flags-preserve --sdk /ruta/xboxrecomp --cc /ruta/aarch64-none-elf-gcc.exe --output /ruta/privada/objetos-mul --jobs 2
+```
+
+El verificador diferencia apariciones resueltas de nuevas apariciones de
+SETO/SETNO que ahora resultan desconocidas al invalidar CALL; no oculta estas
+ultimas en el saldo. Ambos perfiles deben usar el mismo runtime SIMD. El
+cambio de procedencia SIMD exige el switch explicito mostrado; la identidad
+de las fuentes y headers usados queda registrada y se verifica antes/despues
+de generar. Se mantienen privados los C, objetos y reportes con bytes del juego.
+
+Resultado de `mul-flags02`: 85.927 cuerpos C y cero fallos de generacion. Se
+resolvieron 716 apariciones de SETO, sin apariciones pendientes nuevas; el
+contador del SDK paso de 1.569 a 853. Los 664 destinos siguen pendientes y el
+dispatch publico se conserva. Cambiaron 202 chunks C y el include compartido;
+145 archivos generados permanecen identicos al lote SIMD anterior.
+
+Se intentaron compilar los 202 chunks modificados a ARM64 con GCC16.1.0:
+201 compilaron (263.949.432 bytes de objetos) y uno fallo. El verificador
+termino con codigo distinto de cero y `COMPILE_FAILURE`; no se considera un
+build completo ni se reetiqueta como PASS por tratarse de un fallo previo.
+
+La compilacion amplia encontro ademas un fallo C preexistente que no figura
+en ese contador de instrucciones: el SDK emite una escritura a `cr2`, ausente
+en su runtime. Se reprodujo al compilar el mismo chunk anterior. La funcion
+detectada por `gap_prologue` comienza con dos bytes de padding y atraviesa una
+tabla de saltos: un dispatch con limite comprobado consulta 143 selectores y
+35 destinos, todos dentro del cuerpo anterior y en limites de instrucciones.
+Esto es evidencia de datos confundidos con codigo, no permiso para eliminar
+la funcion sin revisar el flujo. El informe privado conserva las identidades,
+el dispatch y las tablas; no se altero el scan ni se invento un registro CR2.
+
+Los contadores de instrucciones no sustituyen la compilacion, el analisis de
+alcanzabilidad, la auditoria ABI ni la implementacion de servicios Windows.
+Un cuerpo detectado o traducido no demuestra que sea codigo ejecutable real.
+
+La [referencia historica aportada](https://web.itu.edu.tr/kesgin/mul06/intel/index.html)
+organiza el x86 hasta 486. Sus tablas de ciclos no son estimaciones para Switch;
+la referencia normativa de estas operaciones sigue siendo el
+[Intel SDM](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).

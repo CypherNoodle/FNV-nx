@@ -93,6 +93,9 @@ def test(temp_dir=None):
         except ValueError as e: assert 'Generation output already exists' in str(e)
         else: raise AssertionError('Existing output accepted')
         assert accepted.read_bytes()==accepted_bytes
+        try: run(root/'no-profile-needed',root/'missing-sdk',stage='generate',mul_flags=True)
+        except ValueError as e: assert 'separate named generation' in str(e)
+        else: raise AssertionError('Multiply overlay accepted without isolated outputs')
         print('PASS: eight-section container, TLS metadata, exact code identity, unchanged EXE, packed-entry rejection, codegen gaps; no guest execution')
 
 if __name__=='__main__':

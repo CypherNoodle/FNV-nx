@@ -88,6 +88,14 @@ def test(sdk, deps, compiler, output):
     install(); patched = Lifter.lift_instruction; install()
     assert Lifter.lift_instruction is patched and Lifter().lift_instruction(nop) == stock
     assert Lifter().lift_instruction(sample) == emit(sample)
+    # Every newly supported form must preserve the producer/operands of the
+    # incoming integer flags; otherwise a later Jcc/SETcc silently loses them.
+    from tools.recomp.lifter import lift_basic_block
+    from tools.recomp.disasm import BasicBlock
+    for form in corpus:
+        statement,state=lift_basic_block(Lifter(),BasicBlock(0x400000,[form['instruction']]),
+            flag_state=('test',[Operand(type='reg',reg='eax'),Operand(type='reg',reg='eax')]))
+        assert state and state[0] == 'test',form['name']
     source = '''#include "fnv_simd_bits.h"
 typedef struct { uint32_t gpr[8]; RecompXmm xmm[8]; unsigned char memory[96];
   uint32_t eflags, mxcsr, diagnostic; } State;

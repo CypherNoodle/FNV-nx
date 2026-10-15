@@ -40,10 +40,15 @@ ni un NRO nuevo para probarlo todavia.
 
 El analisis AOT amplio conserva 85.927 cuerpos C generados a partir de esa
 captura. La extension SIMD del 15 de octubre resolvio 419 apariciones de
-instrucciones pendientes; quedan 1.569 y 664 destinos por revisar. Pasaron
-11.920 comparaciones diferenciales x86/ARM64 y la compilacion de los ocho
-chunks afectados; el resto de archivos generados y el dispatch se conservaron.
-Eso no acredita un motor enlazado ni arranque desde disco. Ver
+instrucciones pendientes. El lote posterior de MUL/IMUL y CF/OF resolvio
+otras 716; quedan 853 y 664 destinos por revisar. Pasaron 176.332
+comparaciones diferenciales x86/ARM64 de multiplicacion y secuencias de flags,
+2.400 casos entre bloques y la regresion SIMD de 11.920 casos. Compilaron
+201 de los 202 bloques modificados a ARM64; uno mantiene un fallo anterior
+del SDK al tratar una tabla de saltos como codigo y emitir un registro `cr2`.
+El informe conserva este bloqueo, sin marcar la compilacion como exitosa.
+Estos contadores describen el analisis de la captura; no acreditan un motor
+enlazado ni arranque desde disco. Ver
 [analisis y validacion](docs/native-aot.md) e
 [inventario de herramientas reutilizables](tools/README.md).
 
@@ -71,7 +76,7 @@ Las rutas de guardados y cache nativos se definiran al integrar esos servicios.
 
 ## Proxima integracion
 
-Se esta preparando la generacion amplia con el pipeline x86 de SH3:
+La generacion amplia para analisis usa el pipeline x86 de SH3:
 [herramientas AOT, identidad de entradas y control de fallos](docs/native-aot.md).
 La captura y el EXE Steam empaquetado son entradas diferentes; los resultados
 del analisis no se presentan como un arranque desde disco.
