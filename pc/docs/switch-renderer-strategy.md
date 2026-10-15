@@ -1,6 +1,6 @@
 # Renderer PC y optimizacion para Switch
 
-Revision del 14 de octubre de 2026. Xbox sigue pausado; estas decisiones son
+Revision del 15 de octubre de 2026. Xbox sigue pausado; estas decisiones son
 para el port nativo PC. Todavia no hay frames del motor PC en Switch que
 permitan afirmar una mejora de FPS.
 
@@ -101,3 +101,36 @@ con early-ra de GCC 16.1.0. Es una alerta para pruebas de SIMD y ensamblado,
 no una explicacion comprobada de las texturas de FNV. Las comprobaciones ARM64
 de esta etapa usan `-mearly-ra=none`, `-fno-strict-aliasing` y `-ffp-contract=off`;
 los flags finales se verificaran en los comandos reales de todos los targets.
+
+## Revision de Prototype 2
+
+Se revisaron el arbol completo y los tres documentos de desarrollo/instalacion
+en el commit `e1a496bc3bb161fa9331dbecbf3ae93c3a58a35f`, ademas de configuracion
+y fuentes seleccionadas. [Build](https://github.com/penettrator/prototype2-nx/blob/e1a496bc3bb161fa9331dbecbf3ae93c3a58a35f/docs/BUILD.ru.md)
+y [cuarto nucleo](https://github.com/penettrator/prototype2-nx/blob/e1a496bc3bb161fa9331dbecbf3ae93c3a58a35f/docs/FOURTH_CORE.ru.md)
+describen una ruta Xbox 360/ReXGlue; no es un recompilador de EXE Windows.
+
+La [configuracion publicada](https://github.com/penettrator/prototype2-nx/blob/e1a496bc3bb161fa9331dbecbf3ae93c3a58a35f/config/prototype2.toml)
+activa renderer nativo Vulkan, grabacion de comandos en otro hilo y precarga
+de pipelines; presenta 640x352 mediante FSR. El README interno del renderer
+aun describe FSI como predeterminado: para identificar la ruta usar la
+configuracion efectiva y el log, no solo ese README. Estos ajustes no
+acreditan una mejora de FNV ni prueban que necesite deko3d.
+
+| Idea observada | Aplicacion a FNV PC |
+| --- | --- |
+| Atribucion de esperas GPU/WSI por hilo y alcance anidado | Medir tiempo inclusivo y exclusivo. La latencia desde una consulta pendiente hasta completarla no equivale a CPU bloqueada; no sumar alcances anidados como trabajo independiente. |
+| Llamadas directas con una lista protegida de overrides | Antes de inlining/LTO, conservar bridges, hooks, callbacks y dispatch publico; comprobar simbolos y hashes del dispatch despues de transformar. |
+| Identidad de copias de buffers dinamicos por contenido/epoca | Un buffer reescrito requiere invalidacion por escritura y vida protegida por fence. Comprobarlo una vez por frame no demuestra que no cambie entre dos draws. No introducir muestreo aproximado como prueba de identidad. |
+| Afinidad y helper de skinning | Consultar permisos efectivos del proceso; intersectar mascaras solicitadas con nucleos permitidos. Core3 puede compartir servicios del sistema. Un INI no concede permisos adicionales. |
+| Perfil de release con diagnosticos desactivados | Separar mediciones de desarrollo y distribucion; mantener contadores ligeros y evitar capturas/logs SD durante benchmarks. |
+
+Referencias de codigo: [esperas](https://github.com/penettrator/prototype2-nx/blob/e1a496bc3bb161fa9331dbecbf3ae93c3a58a35f/project/src/native/gpu_wait_diagnostics.cpp),
+[llamadas directas](https://github.com/penettrator/prototype2-nx/blob/e1a496bc3bb161fa9331dbecbf3ae93c3a58a35f/tools/prepare_direct_calls.py),
+[copias dinamicas](https://github.com/penettrator/prototype2-nx/blob/e1a496bc3bb161fa9331dbecbf3ae93c3a58a35f/project/src/native/dynamic_buffer_stamp.h).
+
+El perfil tambien reduce densidad/LOD, desactiva efectos y habilita skinning
+aproximado. Esas concesiones visuales y sus hooks son especificos de Prototype;
+no copiar sus valores ni atribuir todo el resultado a la API grafica. FSR se
+evalua despues de medir la escena de FNV y separar su UI; no soluciona un
+cuello de botella CPU. No se ha integrado codigo de ese renderer en PC.

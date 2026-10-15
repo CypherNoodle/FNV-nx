@@ -101,3 +101,33 @@ python pc/tests/test_aot_sdk_overlay.py --sdk /ruta/xboxrecomp
 ```
 
 En un entorno con carpeta temporal restringida, usar `--temp-dir /ruta/permitida`.
+
+## Auditoria de destinos pendientes
+
+`audit_aot_gaps.py` compara la identidad del contenedor, perfil, scan y stubs
+generados antes de leer las referencias. Consulta todos los rangos de funciones
+que contienen un destino, incluidos solapamientos; elegir solo la entrada
+anterior mas cercana puede dar un propietario incorrecto. No modifica el SDK,
+el scan, el codigo generado ni el ejecutable y rechaza sobrescribir su informe.
+
+```sh
+python pc/tests/test_aot_gaps.py --python-deps /ruta/dependencias
+python pc/tools/audit_aot_gaps.py --analysis /ruta/privada/aot --output /ruta/privada/audit.json --python-deps /ruta/dependencias
+```
+
+Resultado del analisis conservado, 15 de octubre: de los 664 destinos, 609
+caen dentro de cuerpos detectados, 17 en huecos ejecutables y 38 fuera de la
+imagen. Hay 530 con un limite de instruccion observado desde algun propietario,
+68 dentro de instrucciones segun ese decode y 11 cuyo decode acotado no
+resuelve el limite; los otros 55 no tienen propietario. 139 no tienen xrefs
+en el scan original y requieren rastrear su origen en la generacion.
+
+No interpretar estos grupos como funciones verificadas o referencias descartadas.
+El decode lineal puede atravesar datos y los rangos son heuristicos; para
+aceptar una entrada hacen falta flujo real y ABI coherente. Las 664 referencias
+siguen pendientes, sin agregar aliases ni retornos de exito. El informe privado
+contiene bytes, instrucciones, propietarios y llamadores; no subirlo al repo.
+
+La prueba incluye 2004 consultas comparadas con un oraculo de intervalos,
+propietarios solapados, direccion interior a una instruccion x86, perfiles
+anteriores y actuales, rechazo de entradas alteradas y ausencia de mutaciones.
