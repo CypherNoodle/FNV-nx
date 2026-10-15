@@ -1,0 +1,103 @@
+# Renderer PC y optimizacion para Switch
+
+Revision del 14 de octubre de 2026. Xbox sigue pausado; estas decisiones son
+para el port nativo PC. Todavia no hay frames del motor PC en Switch que
+permitan afirmar una mejora de FPS.
+
+## Referencias revisadas
+
+* [Peggle 2, plan](https://github.com/ChanseyIsTheBest/peggle2-nx/blob/a6fb9374c90a8ac2ef7bc5e92cccfa2c20e5eb40/docs/plan.md)
+  y [notas](https://github.com/ChanseyIsTheBest/peggle2-nx/blob/a6fb9374c90a8ac2ef7bc5e92cccfa2c20e5eb40/docs/peggle2-notes.md).
+* [SA2, guia de ports](https://github.com/ChanseyIsTheBest/sa2-nx/blob/main/docs/porting-guide.md),
+  [renderer de API](https://github.com/ChanseyIsTheBest/sa2-nx/blob/main/docs/api-renderer.md)
+  y [candidatos GPU](https://github.com/ChanseyIsTheBest/sa2-nx/blob/main/docs/gpu-optimisation-candidates.md).
+* [Futari, notas](https://github.com/ChanseyIsTheBest/futari-nx/blob/main/docs/futari-notes.md),
+  especialmente el coste de logs en SD, las cargas de memoria y el audio.
+
+Estos ports usan PowerPC y D3D del XDK. Reutilizamos el metodo de medida y
+validacion; sus direcciones, registros, shaders Xenos y reglas de eDRAM no
+describen el ejecutable x86 de FNV PC. Los wrappers Android del mismo autor
+parten de bibliotecas ARM ya existentes; tampoco reemplazan esta recompilacion.
+
+## Interfaz grafica
+
+El punto de entrada PC sera la API D3D9: Direct3DCreate9 y las interfaces
+COM del dispositivo, recursos y swapchain. Las operaciones se traduciran a
+estado host y recursos host. Esta es una adaptacion de la estrategia de API
+nativa descrita por SA2/Peggle, no una reutilizacion de sus offsets XDK.
+
+No introducir un procesador de comandos Xenos o eDRAM virtual en esta ruta:
+el programa PC no los requiere. Los render targets seran imagenes host con
+identidad, subrecursos y dependencias conocidas. Clears, StretchRect, resolves
+de MSAA y lecturas CPU conservaran su semantica D3D9.
+
+Mantener el backend separado de esa API. NVK es una primera opcion por la
+infraestructura Switch conservada; deko3d sigue siendo una opcion de backend.
+La seleccion definitiva requiere los mismos draws, shaders y escena visibles
+en ambos y medidas de CPU/GPU. No atribuir el coste de la antigua emulacion
+Xenos al coste de Vulkan del futuro renderer PC.
+
+La instalacion Steam revisada contiene 16 archivos `Data/Shaders/shaderpackage*.sdp`.
+Son candidatos para el inventario offline de shaders PC; aun no se ha validado
+su parser ni se ha traducido su contenido. La ruta de shaders XenosRecomp de
+los ports Xbox no convierte automaticamente estos shaders D3D9.
+
+## Medidas desde el primer frame
+
+Registrar por ventana, con contadores en memoria y escritura agrupada:
+
+| Componente | Datos requeridos |
+| --- | --- |
+| CPU | ms activos por hilo y por frame; espera, bloqueo, trabajo; nucleos autorizados y afinidad efectiva |
+| GPU | timestamps no bloqueantes por pase, draws, clears, copias, resolves, barreras y volumen transferido |
+| Presentacion | tiempo de Present, submit, fence, intervalo elegido y frames en vuelo |
+| Recursos | memoria reservada/comprometida, picos, texturas/buffers, reasignaciones y datos subidos |
+| SD | latencia y bytes por lectura, tiempo de descompresion por separado, misses de cache y coste del log |
+| Audio | ocupacion del buffer, underruns, tiempo de mezcla/decodificacion y esperas |
+
+Los timestamps se recuperan cuando la submission correspondiente termina;
+no esperar la GPU solo para medirla. Identificar version/hash del driver
+enlazado, ajustes efectivos, escena, guardado y relojes de la consola.
+
+## Orden de optimizacion
+
+1. Imagen correcta: profundidad, stencil, alpha, clipping y render targets;
+   las escenas de primera persona, tercera persona y Pip-Boy deben compararse.
+2. Estado y datos: rangos sucios de constantes, estado redundante, arenas
+   reutilizables de vertices/indices/constantes con vida protegida por fences.
+3. Pasadas: agrupar clears/copias compatibles y mantener el pase abierto
+   cuando sea legal; eliminar trabajo solo si se demuestra que no se consume.
+4. Sincronizacion: esperas por eventos con reevaluacion de la condicion;
+   sincronizacion de productor/consumidor y coherencia de cache explicitas.
+   No sustituir una espera de GPU real por un aviso falso de finalizacion.
+5. Driver: barreras con dependencias correctas, caches de pipelines invalidadas
+   por identidad de driver/shader/configuracion y vinculo a la libreria exacta.
+6. CPU: perfilar el ARM64, optimizar grupos calientes y verificar registros,
+   flags y memoria. LTO/PGO solo despues de disponer de ejecuciones representativas.
+7. Resolucion dinamica: solo con tiempo GPU de escena separado del trabajo
+   fijo; ajustar recursos de escena y conservar la UI legible, con limites e
+   histeresis. No esperar que bajar pixeles resuelva una espera CPU.
+
+Los perfiles de Peggle y SA2 ayudan a elegir que medir; sus costes y FPS no
+son predicciones para FNV. En particular, la proporcion de tiempo dedicada a
+resolves/eDRAM de SA2 no se extrapola a una escena PC de Gamebryo.
+
+## Validacion
+
+Cada cambio tendra un ajuste INI cuando pueda conmutarse sin romper recursos.
+Agrupar cambios independientes en una compilacion, pero medirlos por separado
+en el mismo guardado y recorrido. Comparar frames alineados y estado/logica,
+con excepciones delimitadas para animaciones dependientes del reloj; no declarar
+identidad por una media que oculta caras, HUD o transparencias incorrectas.
+
+Conservar eventos/atomicos y cargas de polling necesarias. La opcion de hacer
+registros locales requiere auditar callbacks, fragmentos y excepciones; los
+ajustes PowerPC de LR/CR/XER no se aplican al x86 sin traducir su significado.
+No activar fast-math, flush de denormales o vsync relajado como arreglos genericos.
+El reloj de la logica, el de presentacion y el del audio necesitan pruebas propias.
+
+Las notas de Peggle documentan una mala compilacion de ciertos permutes NEON
+con early-ra de GCC 16.1.0. Es una alerta para pruebas de SIMD y ensamblado,
+no una explicacion comprobada de las texturas de FNV. Las comprobaciones ARM64
+de esta etapa usan `-mearly-ra=none`, `-fno-strict-aliasing` y `-ffp-contract=off`;
+los flags finales se verificaran en los comandos reales de todos los targets.

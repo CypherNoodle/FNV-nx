@@ -62,6 +62,11 @@ Las rutas de guardados y cache nativos se definiran al integrar esos servicios.
 
 ## Proxima integracion
 
+Se esta preparando la generacion amplia con el pipeline x86 de SH3:
+[herramientas AOT, identidad de entradas y control de fallos](docs/native-aot.md).
+La captura y el EXE Steam empaquetado son entradas diferentes; los resultados
+del analisis no se presentan como un arranque desde disco.
+
 Primero se necesita un perfil verificable del ejecutable y una generacion
 AOT que cubra el arranque original, callbacks y entradas indirectas. Cada
 import requiere su ABI x86, retorno, efectos sobre memoria y comportamiento
@@ -73,6 +78,11 @@ Los servicios abarcan Windows/CRT, D3D9/D3DX, input, sonido y video. Se
 pueden reutilizar los conocimientos y componentes host ya probados para
 Switch; los shaders, las llamadas D3D9 y el motor PC aun requieren adaptacion.
 El renderer de Xbox no es un reemplazo directo del renderer PC.
+
+Las decisiones de GPU, sincronizacion, memoria, SD y perfilado se recogen en
+[la estrategia para Switch](docs/switch-renderer-strategy.md), contrastada con
+los documentos de Peggle 2, SA2 y Futari. Son objetivos de implementacion y
+medida; todavia no son optimizaciones integradas en un renderer PC funcional.
 
 La siguiente prueba de consola del motor requiere una entrada ARM64 real
 que alcance inicializacion del juego con esos servicios. Una lectura PE
