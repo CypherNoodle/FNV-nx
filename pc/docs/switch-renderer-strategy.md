@@ -46,7 +46,7 @@ los ports Xbox no convierte automaticamente estos shaders D3D9.
 La capa COM propia ya conecta shaders/constantes y
 [vertex/index buffers con bindings](native-d3d9-buffers.md). Usa un arena CPU
 preasignado y reciclable; el proveedor recibe subidas acotadas. Falta conectar
-el proveedor Switch y sus versiones/fences, las declaraciones, texturas y
+el proveedor Switch y sus versiones/fences, los formatos GPU, texturas y
 estados necesarios para dibujar. La validacion NULLREF comprueba API y bytes,
 no coste GPU ni calidad de imagen.
 

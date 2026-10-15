@@ -4,13 +4,14 @@
 #include "host_mutex.h"
 #include <stdlib.h>
 
-enum { DEVICE_SLOTS=119,METHODS=36,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4 };
+enum { DEVICE_SLOTS=119,METHODS=40,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4 };
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct resource {
     uintptr_t handle;uint32_t references,pins;struct code *code;enum fnv_d3d9_resource_kind kind;
     uint32_t data,size,usage,format,fvf,pool,locked,lock_offset,lock_bytes,lock_flags;
     uint64_t version;
+    unsigned char *elements;uint32_t element_count;
 };
 struct span {uint32_t offset,bytes;};
 struct stream {int index;uint32_t offset,stride,frequency;};
@@ -22,7 +23,7 @@ struct fnv_d3d9_com {
     struct resource *resources;
     unsigned char *objects;
     unsigned char *buffer_memory;struct span *free_spans;uint32_t free_count;
-    int shaders[2],indices;struct stream streams[16];
+    int shaders[2],indices,declaration;struct stream streams[16];
     uint32_t tokens[METHODS],used,device_references;
     fnv_host_mutex guard;
 };
@@ -31,6 +32,7 @@ static const unsigned char iid_unknown[16]={0,0,0,0,0,0,0,0,0xC0,0,0,0,0,0,0,0x4
 static const unsigned char iid_device[16]={0x96,0x3B,0x22,0xD0,0x7A,0xBF,0xFD,0x43,0x92,0xBD,0xA4,0x3B,0x0D,0x82,0xB9,0xEB};
 static const unsigned char iid_vertex[16]={0x7E,0x55,0xC5,0xEF,0x65,0x62,0x13,0x46,0x8A,0x94,0x43,0x85,0x78,0x89,0xEB,0x36};
 static const unsigned char iid_pixel[16]={0xDC,0xDB,0x3B,0x6D,0x02,0x5B,0x15,0x44,0xB8,0x52,0xCE,0x5E,0x8B,0xCC,0xB2,0x89};
+static const unsigned char iid_declaration[16]={0x9C,0xC5,0x13,0xDD,0xFA,0x36,0x98,0x40,0xA8,0xFB,0xC7,0xED,0x39,0xDC,0x85,0x46};
 static const unsigned char iid_resource[16]={0x5D,0xC0,0xEE,0x05,0x7D,0x8F,0x62,0x43,0xB9,0x99,0xD1,0xBA,0xF3,0x57,0xC7,0x04};
 static const unsigned char iid_vertex_buffer[16]={0xB5,0xB1,0x4B,0xB6,0x70,0xFD,0xF6,0x4D,0xBF,0x91,0x19,0xD0,0xA1,0x24,0x55,0xE3};
 static const unsigned char iid_index_buffer[16]={0x5E,0xD6,0x9D,0x7C,0xF7,0xD3,0x29,0x45,0xAC,0xEE,0x78,0x58,0x30,0xAC,0xDE,0x35};
@@ -59,7 +61,7 @@ static int object(struct fnv_d3d9_com *c,uint32_t at,int device_only) {
     if(!device_only && at>=resource_address(c,0) && !((at-resource_address(c,0))&3)) {
         uint32_t index=(at-resource_address(c,0))/4;
         if(index<c->used && c->resources[index].references &&
-           read32(c->objects+OBJECT_OFFSET+index*4)==c->config.objects_address+(c->resources[index].kind<2?DEVICE_SLOTS*4:BUFFER_VTABLE))return (int)index;
+           read32(c->objects+OBJECT_OFFSET+index*4)==c->config.objects_address+(c->resources[index].kind<2?DEVICE_SLOTS*4:c->resources[index].kind==FNV_D3D9_DECL?DECL_VTABLE:BUFFER_VTABLE))return (int)index;
     }
     fnv_host_mutex_unlock(&c->guard);invalid("D3D9 invalid/stale this pointer",at);
 }
@@ -75,7 +77,7 @@ static uint32_t allocate_shadow(struct fnv_d3d9_com *c,uint32_t bytes) {
 }
 static void retire(struct fnv_d3d9_com *c,int index) {
     struct resource *r=c->resources+index;if(r->references || r->pins)return;
-    r->handle=0;
+    r->handle=0;free(r->elements);r->elements=NULL;r->element_count=0;
     if(r->data) {
         struct span s={r->data-c->config.buffer_address,(r->size+15u)&~15u};uint32_t i=0;
         while(i<c->free_count && c->free_spans[i].offset<s.offset)i++;
@@ -88,7 +90,7 @@ static void retire(struct fnv_d3d9_com *c,int index) {
     }
 }
 static void clear_bindings(struct fnv_d3d9_com *c) {
-    c->shaders[0]=c->shaders[1]=c->indices=-1;
+    c->shaders[0]=c->shaders[1]=c->indices=c->declaration=-1;
     for(unsigned i=0;i<16;i++)c->streams[i].index=-1;
     for(uint32_t i=0;i<c->used;i++){c->resources[i].pins=0;retire(c,(int)i);}
 }
@@ -110,10 +112,11 @@ static void api_query(void) {
     unsigned char requested[16];memcpy(requested,iid,16);
     fnv_host_mutex_lock(&c->guard);int index=object(c,self,0);
     const unsigned char *supported=index<0?iid_device:c->resources[index].kind==FNV_D3D9_VS?iid_vertex:
-        c->resources[index].kind==FNV_D3D9_PS?iid_pixel:c->resources[index].kind==FNV_D3D9_VB?iid_vertex_buffer:iid_index_buffer;
+        c->resources[index].kind==FNV_D3D9_PS?iid_pixel:c->resources[index].kind==FNV_D3D9_VB?iid_vertex_buffer:
+        c->resources[index].kind==FNV_D3D9_IB?iid_index_buffer:iid_declaration;
     uint32_t result=E_NOINTERFACE_VALUE;write32(out,0);
     if(!memcmp(requested,iid_unknown,16) || !memcmp(requested,supported,16) ||
-       (index>=0 && c->resources[index].kind>=2 && !memcmp(requested,iid_resource,16))) {
+       (index>=0 && (c->resources[index].kind==FNV_D3D9_VB || c->resources[index].kind==FNV_D3D9_IB) && !memcmp(requested,iid_resource,16))) {
         uint32_t refs=index<0?c->device_references:c->resources[index].references;
         if(refs==UINT32_MAX){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 reference overflow",self);}
         increment(c,index);write32(out,self);result=0;
@@ -257,7 +260,7 @@ static void api_create_vb(void){create_buffer(FNV_D3D9_VB);}
 static void api_create_ib(void){create_buffer(FNV_D3D9_IB);}
 static int buffer_object(struct fnv_d3d9_com *c,uint32_t self) {
     int index=object(c,self,0);
-    if(index<0 || c->resources[index].kind<2){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 buffer method requires buffer",self);}
+    if(index<0 || (c->resources[index].kind!=FNV_D3D9_VB && c->resources[index].kind!=FNV_D3D9_IB)){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 buffer method requires buffer",self);}
     return index;
 }
 static void api_buffer_type(void) {
@@ -338,6 +341,77 @@ static void frequency(int get) {
 }
 static void api_set_frequency(void){frequency(0);}
 static void api_get_frequency(void){frequency(1);}
+static void api_create_declaration(void) {
+    uint32_t self=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),out_at=fnv_cpu_argument_u32(2);
+    struct fnv_d3d9_com *c=module();unsigned char *out=range(c,out_at,4,1),elements[65*8];uint32_t count=0;
+    if(!out || !at){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,12);return;}
+    if(!c->config.backend.create_declaration)invalid("D3D9 declaration provider pending",self);
+    /* Bounded copy, no unbounded END scan or host pointer in guest memory. */
+    for(unsigned i=0;i<65;i++) {
+        uint64_t address=(uint64_t)at+i*8;void *p=address<=UINT32_MAX?range(c,(uint32_t)address,8,0):NULL;
+        if(!p)break;
+        memcpy(elements+i*8,p,8);
+        if(elements[i*8]==0xFF && elements[i*8+1]==0){count=i+1;break;}
+    }
+    if(!count){write32(out,0);fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,12);return;}
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);write32(out,0);
+    uintptr_t handle=0;uint32_t result=c->config.backend.create_declaration(c->config.backend.context,elements,count,&handle);
+    if(!result && !handle){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 backend returned no declaration",at);}
+    if(!result) {
+        uint32_t index;
+        for(index=0;index<c->used;index++)if(c->resources[index].handle==handle)break;
+        if(index<c->used && (c->resources[index].kind!=FNV_D3D9_DECL || c->resources[index].element_count!=count ||
+            memcmp(c->resources[index].elements,elements,count*8))) {
+            c->config.backend.release(c->config.backend.context,handle);fnv_host_mutex_unlock(&c->guard);
+            invalid("D3D9 backend reused a different declaration identity",at);
+        }
+        if(index==c->used) {
+            for(index=0;index<c->used;index++)if(!c->resources[index].handle)break;
+            if(index==c->config.resource_capacity || c->device_references==UINT32_MAX)result=FNV_D3D9_OUTOFMEMORY;
+            else {
+                unsigned char *copy=malloc(count*8);
+                if(!copy)result=FNV_D3D9_OUTOFMEMORY;
+                else {memcpy(copy,elements,count*8);c->resources[index]=(struct resource){.handle=handle,.kind=FNV_D3D9_DECL,.elements=copy,.element_count=count};
+                    if(index==c->used)c->used++;
+                    write32(c->objects+OBJECT_OFFSET+index*4,c->config.objects_address+DECL_VTABLE);}
+            }
+        }
+        if(!result) {
+            struct resource *r=c->resources+index;
+            if(r->references==UINT32_MAX || (!r->references && c->device_references==UINT32_MAX))result=FNV_D3D9_OUTOFMEMORY;
+            else {if(!r->references)c->device_references++;r->references++;write32(out,resource_address(c,index));}
+        }
+        if(result)c->config.backend.release(c->config.backend.context,handle);
+    }
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,12);
+}
+static void declaration_binding(int get) {
+    uint32_t self=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1);struct fnv_d3d9_com *c=module();
+    unsigned char *out=get?range(c,at,4,1):NULL;
+    if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,8);return;}
+    if(!get && !c->config.backend.bind_declaration)invalid("D3D9 declaration binding provider pending",self);
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
+    if(get)get_binding(c,c->declaration,out);
+    else {int index=at?resource_kind(c,at,FNV_D3D9_DECL):-1;
+        if(at && index<0)result=FNV_D3D9_INVALIDCALL;
+        else {result=c->config.backend.bind_declaration(c->config.backend.context,index<0?0:c->resources[index].handle);
+            if(!result)change_binding(c,&c->declaration,index);}}
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,8);
+}
+static void api_set_declaration(void){declaration_binding(0);}
+static void api_get_declaration(void){declaration_binding(1);}
+static void api_declaration_elements(void) {
+    uint32_t self=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),count_at=fnv_cpu_argument_u32(2);
+    struct fnv_d3d9_com *c=module();unsigned char *count=range(c,count_at,4,1);
+    if(!count){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,12);return;}
+    fnv_host_mutex_lock(&c->guard);int index=object(c,self,0);
+    if(index<0 || c->resources[index].kind!=FNV_D3D9_DECL){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 GetDeclaration requires declaration",self);}
+    struct resource *r=c->resources+index;void *out=at?range(c,at,r->element_count*8,1):NULL;
+    uint32_t result=0;
+    if(at && !out)result=FNV_D3D9_INVALIDCALL;
+    else {if(out)memcpy(out,r->elements,r->element_count*8);write32(count,r->element_count);}
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,12);
+}
 static void constant(enum fnv_d3d9_stage stage,enum fnv_d3d9_constant_kind kind,int get) {
     uint32_t self=fnv_cpu_argument_u32(0),first=fnv_cpu_argument_u32(1),at=fnv_cpu_argument_u32(2),count=fnv_cpu_argument_u32(3);
     struct fnv_d3d9_com *c=module();uint32_t width=kind==FNV_D3D9_BOOLEAN?4:16;
@@ -363,7 +437,8 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     pixel_sf,pixel_gf,pixel_si,pixel_gi,pixel_sb,pixel_gb,unsupported,
     api_set_vs,api_get_vs,api_set_ps,api_get_ps,api_create_vb,api_create_ib,
     api_buffer_type,api_buffer_lock,api_buffer_unlock,api_buffer_desc,api_set_stream,api_get_stream,
-    api_set_indices,api_get_indices,api_set_frequency,api_get_frequency};
+    api_set_indices,api_get_indices,api_set_frequency,api_get_frequency,
+    api_create_declaration,api_set_declaration,api_get_declaration,api_declaration_elements};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
@@ -391,7 +466,7 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     c->config=*cfg;c->cpu=cpu;c->objects=objects;c->buffer_memory=buffer_memory;
     c->free_spans=calloc((size_t)cfg->resource_capacity+2,sizeof(*c->free_spans));
     if(cfg->buffer_bytes && c->free_spans){c->free_spans[0]=(struct span){0,cfg->buffer_bytes};c->free_count=1;}
-    c->shaders[0]=c->shaders[1]=c->indices=-1;for(unsigned i=0;i<16;i++)c->streams[i]=(struct stream){-1,0,0,1};
+    c->shaders[0]=c->shaders[1]=c->indices=c->declaration=-1;for(unsigned i=0;i<16;i++)c->streams[i]=(struct stream){-1,0,0,1};
     c->catalog=calloc(cfg->catalog_count?cfg->catalog_count:1,sizeof(*c->catalog));
     c->resources=calloc(cfg->resource_capacity,sizeof(*c->resources));
     if(!c->catalog || !c->resources || !c->free_spans || fnv_d3d9_constants_create(cfg->vertex_floats,cfg->pixel_floats,&c->constants)) {dispose(c);return FNV_CPU_NO_MEMORY;}
@@ -422,6 +497,9 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     write32(c->objects+100*4,c->tokens[30]);write32(c->objects+101*4,c->tokens[31]);
     write32(c->objects+104*4,c->tokens[32]);write32(c->objects+105*4,c->tokens[33]);
     write32(c->objects+102*4,c->tokens[34]);write32(c->objects+103*4,c->tokens[35]);
+    for(unsigned i=0;i<4;i++)write32(c->objects+DECL_VTABLE+i*4,c->tokens[i]);
+    write32(c->objects+DECL_VTABLE+16,c->tokens[39]);
+    write32(c->objects+86*4,c->tokens[36]);write32(c->objects+87*4,c->tokens[37]);write32(c->objects+88*4,c->tokens[38]);
     write32(c->objects+OBJECT_OFFSET-4,cfg->objects_address);c->device_references=1;active_com=c;*out=c;return FNV_CPU_OK;
 }
 uint32_t fnv_d3d9_com_device(const struct fnv_d3d9_com *c){return c?device_address(c):0;}

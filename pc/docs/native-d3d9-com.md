@@ -4,7 +4,7 @@ El registro CPU y `native/d3d9_com.c/.h` permiten llamadas a vtables guest32
 desde rutinas traducidas por el SDK real. La primera cobertura comprende
 constantes, creacion de vertex/pixel shaders y sus interfaces de consulta.
 La extension de [bindings y buffers](native-d3d9-buffers.md) agrega streams,
-indices y Lock/Unlock; el registro completo tiene ahora 36 tokens.
+indices, Lock/Unlock y declaraciones; el registro completo tiene ahora 40 tokens.
 No hay todavia un backend grafico de Switch conectado a estos metodos.
 
 ## Registro CPU y ABI
@@ -41,10 +41,11 @@ setup/teardown frente a attach y conserva vivos los rangos dedicados.
 
 | Interfaz | Metodos conectados |
 | --- | --- |
-| Dispositivo preparado | QueryInterface, AddRef, Release; CreateVertexShader/CreatePixelShader; los doce Set/Get constantes F/I/B de VS y PS; Set/GetShader, CreateVB/IB, streams, indices y frecuencias. |
+| Dispositivo preparado | QueryInterface, AddRef, Release; CreateVertexShader/CreatePixelShader; los doce Set/Get constantes F/I/B de VS y PS; Set/GetShader, CreateVB/IB, streams, indices, frecuencias y Create/Set/GetVertexDeclaration. |
 | Vertex/pixel shader | QueryInterface, AddRef, Release, GetDevice y GetFunction. |
 | Vertex/index buffer | QueryInterface, AddRef, Release, GetDevice, GetType, GetDesc, Lock y Unlock. |
-| Resto de la vtable Device9 | Handler estricto de metodo pendiente; nunca devuelve exito. Incluye texturas, declaraciones, draws y Present. |
+| Declaracion de vertices | QueryInterface, AddRef, Release, GetDevice y GetDeclaration. |
+| Resto de la vtable Device9 | Handler estricto de metodo pendiente; nunca devuelve exito. Incluye FVF, texturas, draws y Present. |
 
 Se crea una vtable Device9 de 119 posiciones, una de shader de cinco y otra
 de buffer de catorce.
@@ -135,7 +136,7 @@ python pc/tools/build_d3d9_com.py \
   --output /privado/com-switch
 ```
 
-El siguiente paso grafico es conectar declaraciones, texturas y targets,
+El siguiente paso grafico es conectar formatos host, texturas y targets,
 con su traduccion de shaders y un draw completo. Heap, sincronizacion, DLL y
 el punto de entrada original siguen pendientes para arrancar el motor.
 

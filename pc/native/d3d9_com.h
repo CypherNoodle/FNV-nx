@@ -4,10 +4,10 @@
 #include "d3d9_constants.h"
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
-enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB };
+enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL };
 struct fnv_d3d9_shader_code { const void *bytes;uint32_t size; };
 /* Provider owns a real prepared device, initially with one transferred
- * reference, null shader/stream/index bindings and stream frequencies 1.
+ * reference, null shader/stream/index/declaration bindings and stream frequencies 1.
  * A resource returned successfully has one public reference and retains
  * its parent device. Its final public release drops that parent reference.
  * Callbacks run under the module lock: no reentry, exceptions or longjmp.
@@ -32,6 +32,10 @@ struct fnv_d3d9_shader_backend {
     uint32_t (*bind_stream)(void *,uint32_t stream,uintptr_t,uint32_t offset,uint32_t stride);
     uint32_t (*bind_indices)(void *,uintptr_t);
     uint32_t (*stream_frequency)(void *,uint32_t stream,uint32_t setting);
+    /* Packed D3DVERTEXELEMENT9 bytes, eight per element, including END.
+     * Provider validates types/caps and copies the declaration before return. */
+    uint32_t (*create_declaration)(void *,const void *elements,uint32_t count,uintptr_t *);
+    uint32_t (*bind_declaration)(void *,uintptr_t);
 };
 struct fnv_d3d9_com_config {
     uint32_t objects_address,objects_bytes,resource_capacity;

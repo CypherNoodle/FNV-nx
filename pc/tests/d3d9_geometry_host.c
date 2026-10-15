@@ -3,16 +3,29 @@
 #include "d3d9_com_host.c"
 #undef main
 enum { SET_VS=19,GET_VS=20,SET_PS=21,GET_PS=22,CREATE_VB=23,CREATE_IB=24,LOCK_BUFFER=25,UNLOCK_BUFFER=26,
-    GET_DESC=27,GET_TYPE=28,SET_STREAM=29,GET_STREAM=30,SET_INDICES=31,GET_INDICES=32,SET_FREQUENCY=33,GET_FREQUENCY=34,DRAW_PENDING=35 };
+    GET_DESC=27,GET_TYPE=28,SET_STREAM=29,GET_STREAM=30,SET_INDICES=31,GET_INDICES=32,SET_FREQUENCY=33,GET_FREQUENCY=34,DRAW_PENDING=35,CREATE_DECL=36,SET_DECL=37,GET_DECL=38,GET_ELEMENTS=39 };
 _Static_assert(offsetof(IDirect3DDevice9Vtbl,CreateVertexBuffer)==26*sizeof(void*),"VB slot");
 _Static_assert(offsetof(IDirect3DDevice9Vtbl,SetStreamSource)==100*sizeof(void*),"stream slot");
 _Static_assert(offsetof(IDirect3DDevice9Vtbl,SetIndices)==104*sizeof(void*),"index slot");
 _Static_assert(offsetof(IDirect3DVertexBuffer9Vtbl,Lock)==11*sizeof(void*),"lock slot");
 _Static_assert(sizeof(D3DVERTEXBUFFER_DESC)==24 && sizeof(D3DINDEXBUFFER_DESC)==20,"guest descriptor sizes");
 static unsigned buffer_creates,updates,binds,fail_buffer,fail_update,fail_bind;
-static uintptr_t last_buffer;
+static uintptr_t last_buffer,last_declaration;
+static unsigned declaration_creates,declaration_roundtrips;
 static uint32_t shadow_base;
 static const uint32_t shadow_bytes=4u<<20;
+static uint32_t create_native_declaration(void *ctx,const void *elements,uint32_t count,uintptr_t *out) {
+    (void)ctx;assert(count && count<=65);if(fail_buffer)return 0x80004005;
+    IDirect3DVertexDeclaration9 *decl=NULL;
+    HRESULT h=IDirect3DDevice9_CreateVertexDeclaration(device,elements,&decl);
+    if(SUCCEEDED(h)){declaration_creates++;last_declaration=*out=(uintptr_t)decl;}return (uint32_t)h;
+}
+static uint32_t set_declaration(void *ctx,uintptr_t decl) {
+    (void)ctx;if(fail_bind)return 0x80004005;
+    return (uint32_t)IDirect3DDevice9_SetVertexDeclaration(device,(IDirect3DVertexDeclaration9*)decl);
+}
+_Static_assert(offsetof(IDirect3DDevice9Vtbl,CreateVertexDeclaration)==86*sizeof(void*),"declaration slot");
+_Static_assert(sizeof(D3DVERTEXELEMENT9)==8 && MAXD3DDECLLENGTH==64,"packed declaration ABI");
 static uint32_t set_shader(void *ctx,enum fnv_d3d9_stage stage,uintptr_t handle) {
     (void)ctx;if(fail_bind)return 0x80004005;binds++;
     return stage?IDirect3DDevice9_SetPixelShader(device,(IDirect3DPixelShader9*)handle):IDirect3DDevice9_SetVertexShader(device,(IDirect3DVertexShader9*)handle);
@@ -101,6 +114,47 @@ static void shadow_recycling(void) {
     fail_buffer=1;args[1]=64;assert(call(CREATE_VB,7,args)==0x80004005 && !get(GUEST_OUT));fail_buffer=0;
     uint32_t whole=buffer(0,shadow_bytes,0,D3DPOOL_SYSTEMMEM);assert(!release(whole));
 }
+static void declaration_checks(uint32_t wrong_kind) {
+    for(unsigned type=0;type<17;type++) {
+        D3DVERTEXELEMENT9 elements[]={{0,0,D3DDECLTYPE_FLOAT3,0,D3DDECLUSAGE_POSITION,0},
+            {1,4,(BYTE)type,0,D3DDECLUSAGE_TEXCOORD,0},D3DDECL_END()};
+        IDirect3DVertexDeclaration9 *oracle=NULL;HRESULT expected=IDirect3DDevice9_CreateVertexDeclaration(device,elements,&oracle);
+        memcpy(ptr(DATA),elements,sizeof(elements));uint32_t args[]={device_at,DATA,GUEST_OUT};
+        uint32_t result=call(CREATE_DECL,3,args);assert(result==(uint32_t)expected);
+        if(FAILED(expected))continue;
+        uint32_t decl=get(GUEST_OUT);uintptr_t native=last_declaration;
+        D3DVERTEXELEMENT9 readback[65];memset(readback,0xAB,sizeof(readback));UINT count=0;
+        assert(SUCCEEDED(IDirect3DVertexDeclaration9_GetDeclaration(oracle,readback,&count)) && count==3);
+        memset(ptr(DATA),0xAB,sizeof(readback));put(GUEST_OUT,0);uint32_t query[]={decl,DATA,GUEST_OUT};
+        assert(!call(GET_ELEMENTS,3,query) && get(GUEST_OUT)==count && !memcmp(ptr(DATA),readback,sizeof(readback)));
+        query[1]=0;put(GUEST_OUT,123);assert(!call(GET_ELEMENTS,3,query) && get(GUEST_OUT)==count);
+        memcpy(ptr(DATA),&IID_IDirect3DVertexDeclaration9,16);uint32_t qi[]={decl,DATA,GUEST_OUT};assert(!call(QUERY,3,qi) && get(GUEST_OUT)==decl);assert(release(decl)==1);
+        memcpy(ptr(DATA),&IID_IDirect3DResource9,16);assert(call(QUERY,3,qi)==(uint32_t)E_NOINTERFACE && !get(GUEST_OUT));
+        uint32_t parent[]={decl,GUEST_OUT};assert(!call(GET_DEVICE,2,parent) && get(GUEST_OUT)==device_at);release(device_at);
+        uint32_t binding[]={device_at,decl};assert(!call(SET_DECL,2,binding));assert(!release(decl));
+        IDirect3DVertexDeclaration9 *bound=NULL;assert(SUCCEEDED(IDirect3DDevice9_GetVertexDeclaration(device,&bound)) && (uintptr_t)bound==native);IDirect3DVertexDeclaration9_Release(bound);
+        binding[1]=GUEST_OUT;assert(!call(GET_DECL,2,binding) && get(GUEST_OUT)==decl);assert(!release(decl));
+        binding[1]=0;fail_bind=1;assert(call(SET_DECL,2,binding)==0x80004005);fail_bind=0;
+        binding[1]=GUEST_OUT;assert(!call(GET_DECL,2,binding) && get(GUEST_OUT)==decl);assert(!release(decl));
+        binding[1]=wrong_kind;assert(call(SET_DECL,2,binding)==FNV_D3D9_INVALIDCALL);
+        binding[1]=0;assert(!call(SET_DECL,2,binding));binding[1]=GUEST_OUT;assert(!call(GET_DECL,2,binding) && !get(GUEST_OUT));
+        IDirect3DVertexDeclaration9_Release(oracle);declaration_roundtrips++;
+    }
+    assert(declaration_roundtrips);
+    D3DVERTEXELEMENT9 elements[]={{0,0,D3DDECLTYPE_FLOAT3,0,D3DDECLUSAGE_POSITION,0},
+        {0,12,D3DDECLTYPE_FLOAT2,0,D3DDECLUSAGE_TEXCOORD,0},D3DDECL_END()};
+    uint32_t args[]={device_at,DATA,GUEST_OUT};memcpy(ptr(DATA),elements,sizeof(elements));
+    fail_buffer=1;assert(call(CREATE_DECL,3,args)==0x80004005 && !get(GUEST_OUT));fail_buffer=0;
+    for(unsigned i=0;i<256;i++) {
+        memcpy(ptr(DATA),elements,sizeof(elements));assert(!call(CREATE_DECL,3,args));uint32_t first=get(GUEST_OUT);
+        assert(!call(CREATE_DECL,3,args));uint32_t second=get(GUEST_OUT);
+        if(first==second)assert(release(second)==1);else assert(!release(second));
+        assert(!release(first));
+    }
+    unsigned before=declaration_creates;memset(ptr(DATA),0,65*8);
+    assert(call(CREATE_DECL,3,args)==FNV_D3D9_INVALIDCALL && !get(GUEST_OUT) && declaration_creates==before);
+    args[1]=BASE+ARENA-4;assert(call(CREATE_DECL,3,args)==FNV_D3D9_INVALIDCALL && declaration_creates==before);
+}
 static unsigned char *read_bytes(const char *path,uint32_t *size) {
     FILE *f=fopen(path,"rb");assert(f);assert(!fseek(f,0,SEEK_END));long n=ftell(f);assert(n>0 && n<1048576);rewind(f);
     unsigned char *bytes=malloc((size_t)n);assert(bytes && fread(bytes,1,(size_t)n,f)==(size_t)n);fclose(f);*size=(uint32_t)n;return bytes;
@@ -118,18 +172,23 @@ static HWND setup_geometry(char **argv) {
     D3DPRESENT_PARAMETERS p={0};p.Windowed=TRUE;p.SwapEffect=D3DSWAPEFFECT_DISCARD;p.hDeviceWindow=window;assert(SUCCEEDED(IDirect3D9_CreateDevice(api,0,D3DDEVTYPE_NULLREF,window,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&p,&device)));
     struct fnv_d3d9_com_config cc={.objects_address=objects,.objects_bytes=65536,.resource_capacity=4096,.vertex_floats=256,.pixel_floats=224,.catalog=catalog,.catalog_count=catalog_count,
         .backend={.create=backend_create,.addref=backend_addref,.release=backend_release,.device_addref=device_addref,.device_release=device_release,.bind_shader=set_shader,
-        .create_buffer=create_native_buffer,.update_buffer=update_native_buffer,.bind_stream=set_stream,.bind_indices=set_indices,.stream_frequency=set_frequency},
+        .create_buffer=create_native_buffer,.update_buffer=update_native_buffer,.bind_stream=set_stream,.bind_indices=set_indices,.stream_frequency=set_frequency,.create_declaration=create_native_declaration,.bind_declaration=set_declaration},
         .memory=vm,.buffer_address=shadow_base,.buffer_bytes=shadow_bytes};
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);struct fnv_cpu_state s;fnv_cpu_state_init(&s,BASE+ARENA-4096,0);assert(fnv_cpu_attach(cpu,&s)==FNV_CPU_OK);return window;
 }
 int main(int argc,char **argv) {
     assert(argc==6);
-    if(strcmp(argv[3],"normal") && strcmp(argv[3],"nested") && strcmp(argv[3],"bound_parent"))return baseline_main(4,argv);
+    if(strcmp(argv[3],"normal") && strcmp(argv[3],"nested") && strcmp(argv[3],"bound_parent") && strcmp(argv[3],"decl_parent"))return baseline_main(4,argv);
     HWND window=setup_geometry(argv);uint32_t vb_size,ib_size;unsigned char *vb_data=read_bytes(argv[4],&vb_size),*ib_data=read_bytes(argv[5],&ib_size);
     uint32_t vb=buffer(0,vb_size,D3DUSAGE_DYNAMIC,D3DPOOL_DEFAULT);uintptr_t native_vb=last_buffer;
     uint32_t ib=buffer(1,ib_size,D3DUSAGE_DYNAMIC,D3DPOOL_DEFAULT);uintptr_t native_ib=last_buffer;
     if(!strcmp(argv[3],"nested")){uint32_t at=lock_buffer(vb,0,0,0);(void)at;uint32_t args[]={vb,0,0,GUEST_OUT,0};struct fnv_cpu_fault fault;
         assert(invoke(LOCK_BUFFER,5,args,NULL,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED);}
+    else if(!strcmp(argv[3],"decl_parent")) {
+        D3DVERTEXELEMENT9 elements[]={{0,0,D3DDECLTYPE_FLOAT3,0,D3DDECLUSAGE_POSITION,0},D3DDECL_END()};
+        memcpy(ptr(DATA),elements,sizeof(elements));uint32_t args[]={device_at,DATA,GUEST_OUT};assert(!call(CREATE_DECL,3,args));uint32_t decl=get(GUEST_OUT);
+        uint32_t binding[]={device_at,decl};assert(!call(SET_DECL,2,binding));assert(!release(decl));assert(!release(vb) && !release(ib));assert(!release(device_at));
+    }
     else if(!strcmp(argv[3],"bound_parent")){uint32_t args[]={device_at,0,vb,0,20};assert(!call(SET_STREAM,5,args));assert(!release(vb) && !release(ib));assert(!release(device_at));}
     else {
         descriptions(vb,native_vb,0);descriptions(ib,native_ib,1);
@@ -138,11 +197,11 @@ int main(int argc,char **argv) {
         unsigned before=updates;mapped=lock_buffer(vb,0,0,D3DLOCK_READONLY);assert(!memcmp(ptr(mapped),vb_data,vb_size));unlock_buffer(vb);assert(updates==before);
         mapped=lock_buffer(vb,0,16,D3DLOCK_NOOVERWRITE);memset(ptr(mapped),0x37,16);memset(vb_data,0x37,16);fail_update=1;assert(call(UNLOCK_BUFFER,1,&vb)==0x80004005);fail_update=0;unlock_buffer(vb);check_bytes(native_vb,vb_data,vb_size);
         uint32_t invalid_lock[]={vb,vb_size,1,GUEST_OUT,0};assert(call(LOCK_BUFFER,5,invalid_lock)==FNV_D3D9_INVALIDCALL);
-        shader_bindings();buffer_bindings(vb,ib,native_vb,native_ib);shadow_recycling();
+        declaration_checks(vb);shader_bindings();buffer_bindings(vb,ib,native_vb,native_ib);shadow_recycling();
         uint32_t draw[]={device_at,D3DPT_TRIANGLELIST,0,0,4,0,2};struct fnv_cpu_fault fault;assert(invoke(DRAW_PENDING,7,draw,NULL,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED);
     }
     assert(fnv_cpu_detach()==FNV_CPU_OK);assert(fnv_d3d9_com_destroy(com)==FNV_CPU_OK);assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(!fnv_vm_destroy(vm).error);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);free(vb_data);free(ib_data);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":36,\"buffer_creates\":%u,\"buffer_updates\":%u,\"bind_calls\":%u,\"captured_vertex_bytes\":%u,\"captured_index_bytes\":%u,\"gpu_rendered\":false}\n",buffer_creates,updates,binds,vb_size,ib_size);return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":40,\"buffer_creates\":%u,\"buffer_updates\":%u,\"bind_calls\":%u,\"captured_vertex_bytes\":%u,\"captured_index_bytes\":%u,\"declaration_creates\":%u,\"declaration_roundtrips\":%u,\"gpu_rendered\":false}\n",buffer_creates,updates,binds,vb_size,ib_size,declaration_creates,declaration_roundtrips);return 0;
 }

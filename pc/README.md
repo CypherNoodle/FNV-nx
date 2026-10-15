@@ -103,10 +103,11 @@ desde x86 traducido los metodos de constantes y creacion/consulta de shaders,
 con referencias y proveedor real requerido. Pasaron 1.809 recorridos de
 shaders, 240 de constantes y 400 entre hilos mediante vtables guest32.
 La extension de [bindings y buffers](docs/native-d3d9-buffers.md) conecta
-Set/GetShader, vertex/index buffers, streams y Lock/Unlock con un arena
-reciclable. Pasaron 36 callers traducidos, 263 creaciones de buffers y la
+Set/GetShader, vertex/index buffers, streams, declaraciones y Lock/Unlock con
+un arena reciclable. Pasaron 40 callers traducidos, 263 creaciones de buffers y la
 comparacion de bytes de geometria capturada con buffers D3D9 nativos.
-El enlace parcial actualizado suma 354 unidades. Declaraciones, texturas,
+La extension verifica 17 tipos de atributo y 529 creaciones de declaraciones
+contra Windows. El enlace parcial actualizado suma 354 unidades. Texturas,
 draws y presentacion siguen pendientes; no se ha renderizado con esta ruta
 ni probado traduccion GPU en Switch.
 
