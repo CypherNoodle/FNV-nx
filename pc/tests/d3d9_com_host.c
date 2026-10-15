@@ -173,8 +173,10 @@ int main(int argc,char **argv) {
     HWND window=CreateWindowExA(0,"STATIC","FNV COM oracle",WS_POPUP,0,0,64,64,NULL,NULL,GetModuleHandleA(NULL),NULL);assert(window);
     api=Direct3DCreate9(D3D_SDK_VERSION);assert(api);D3DPRESENT_PARAMETERS p={0};p.Windowed=TRUE;p.SwapEffect=D3DSWAPEFFECT_DISCARD;p.hDeviceWindow=window;
     assert(SUCCEEDED(IDirect3D9_CreateDevice(api,0,D3DDEVTYPE_NULLREF,window,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&p,&device)));
-    struct fnv_d3d9_com_config cc={objects,65536,4096,256,224,catalog,catalog_count,{NULL,backend_create,backend_addref,backend_release,device_addref,device_release},vm};
-    if(!strcmp(argv[3],"capacity"))cc.shader_capacity=1;
+    struct fnv_d3d9_com_config cc={.objects_address=objects,.objects_bytes=65536,.resource_capacity=4096,.vertex_floats=256,.pixel_floats=224,
+        .catalog=catalog,.catalog_count=catalog_count,.backend={.context=NULL,.create=backend_create,.addref=backend_addref,.release=backend_release,
+        .device_addref=device_addref,.device_release=device_release},.memory=vm};
+    if(!strcmp(argv[3],"capacity"))cc.resource_capacity=1;
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);
     struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(fnv_cpu_attach(cpu,&initial)==FNV_CPU_OK);
     fnv_cpu_function good=dummy;uint32_t untouched=123;assert(fnv_cpu_register_native(cpu,&good,1,&untouched)==FNV_CPU_BUSY && untouched==123);
@@ -202,5 +204,5 @@ int main(int argc,char **argv) {
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(!fnv_vm_destroy(vm).error);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);
-    printf("{\"status\":\"PASS\",\"shader_roundtrips\":%u,\"constant_roundtrips\":%u,\"backend_creates\":%u,\"backend_deleted\":%u,\"prepared_methods\":20,\"concurrent_constant_roundtrips\":%u}\n",shader_calls,constant_calls,created,deleted,!strcmp(argv[3],"normal")?400:0);return 0;
+    printf("{\"status\":\"PASS\",\"shader_roundtrips\":%u,\"constant_roundtrips\":%u,\"backend_creates\":%u,\"backend_deleted\":%u,\"prepared_methods\":36,\"concurrent_constant_roundtrips\":%u}\n",shader_calls,constant_calls,created,deleted,!strcmp(argv[3],"normal")?400:0);return 0;
 }

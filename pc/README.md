@@ -102,9 +102,13 @@ unidades en esa etapa. Ahora el [modulo COM](docs/native-d3d9-com.md) conecta
 desde x86 traducido los metodos de constantes y creacion/consulta de shaders,
 con referencias y proveedor real requerido. Pasaron 1.809 recorridos de
 shaders, 240 de constantes y 400 entre hilos mediante vtables guest32.
-El enlace parcial actualizado suma 354 unidades. Set/GetShader, recursos,
-draws y presentacion aun detienen la ejecucion con diagnostico de pendiente;
-no se ha renderizado con esta ruta ni probado traduccion GPU en Switch.
+La extension de [bindings y buffers](docs/native-d3d9-buffers.md) conecta
+Set/GetShader, vertex/index buffers, streams y Lock/Unlock con un arena
+reciclable. Pasaron 36 callers traducidos, 263 creaciones de buffers y la
+comparacion de bytes de geometria capturada con buffers D3D9 nativos.
+El enlace parcial actualizado suma 354 unidades. Declaraciones, texturas,
+draws y presentacion siguen pendientes; no se ha renderizado con esta ruta
+ni probado traduccion GPU en Switch.
 
 ## Carpeta de instalacion objetivo
 

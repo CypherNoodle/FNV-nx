@@ -43,6 +43,13 @@ distintos, con creacion/GetFunction comprobados en D3D9 NULLREF de Windows.
 No se ha validado su traduccion en el nuevo backend. La ruta de shaders XenosRecomp de
 los ports Xbox no convierte automaticamente estos shaders D3D9.
 
+La capa COM propia ya conecta shaders/constantes y
+[vertex/index buffers con bindings](native-d3d9-buffers.md). Usa un arena CPU
+preasignado y reciclable; el proveedor recibe subidas acotadas. Falta conectar
+el proveedor Switch y sus versiones/fences, las declaraciones, texturas y
+estados necesarios para dibujar. La validacion NULLREF comprueba API y bytes,
+no coste GPU ni calidad de imagen.
+
 ## Peggle: que se puede trasladar a D3D9 PC
 
 Se revisaron tambien las fuentes del mismo commit: [draws de API](https://github.com/ChanseyIsTheBest/peggle2-nx/blob/a6fb9374c90a8ac2ef7bc5e92cccfa2c20e5eb40/app/src/me/peggle2_api_draw.cpp),

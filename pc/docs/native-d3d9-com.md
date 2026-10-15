@@ -3,6 +3,8 @@
 El registro CPU y `native/d3d9_com.c/.h` permiten llamadas a vtables guest32
 desde rutinas traducidas por el SDK real. La primera cobertura comprende
 constantes, creacion de vertex/pixel shaders y sus interfaces de consulta.
+La extension de [bindings y buffers](native-d3d9-buffers.md) agrega streams,
+indices y Lock/Unlock; el registro completo tiene ahora 36 tokens.
 No hay todavia un backend grafico de Switch conectado a estos metodos.
 
 ## Registro CPU y ABI
@@ -39,20 +41,24 @@ setup/teardown frente a attach y conserva vivos los rangos dedicados.
 
 | Interfaz | Metodos conectados |
 | --- | --- |
-| Dispositivo preparado | QueryInterface, AddRef, Release; CreateVertexShader/CreatePixelShader; los doce Set/Get constantes F/I/B de VS y PS. |
+| Dispositivo preparado | QueryInterface, AddRef, Release; CreateVertexShader/CreatePixelShader; los doce Set/Get constantes F/I/B de VS y PS; Set/GetShader, CreateVB/IB, streams, indices y frecuencias. |
 | Vertex/pixel shader | QueryInterface, AddRef, Release, GetDevice y GetFunction. |
-| Resto de la vtable Device9 | Handler estricto de metodo pendiente; nunca devuelve exito. Incluye por ahora Set/GetShader, recursos, draws y Present. |
+| Vertex/index buffer | QueryInterface, AddRef, Release, GetDevice, GetType, GetDesc, Lock y Unlock. |
+| Resto de la vtable Device9 | Handler estricto de metodo pendiente; nunca devuelve exito. Incluye texturas, declaraciones, draws y Present. |
 
-Se crea una vtable Device9 de 119 posiciones y una de shader de cinco.
+Se crea una vtable Device9 de 119 posiciones, una de shader de cinco y otra
+de buffer de catorce.
 QueryInterface admite IUnknown y la interfaz concreta; conserva identidad,
 incrementa la referencia al acertar y devuelve NULL/E_NOINTERFACE al fallar.
-Un shader mantiene vivo a su dispositivo. Los objetos liberados se reciclan
+Un recurso con referencias publicas mantiene vivo a su dispositivo. Los
+bindings internos tienen un contador separado, descrito en la extension.
+Los objetos liberados se reciclan
 y el limite se aplica a objetos vivos; un uso de puntero liberado es invalido,
 incluido cuando su celda ya fue reutilizada para otro objeto.
 
 Los setters/getters usan el banco probado de constantes; el renderer host
-puede consumir sus rangos mediante flush. Esto no presenta frames, enlaza
-shaders ni implementa state blocks, Reset o D3DCREATE_MULTITHREADED completo.
+puede consumir sus rangos mediante flush. Esto no presenta frames ni
+implementa state blocks, Reset o D3DCREATE_MULTITHREADED completo.
 
 ## Shaders y proveedor
 
@@ -70,7 +76,8 @@ otro bytecode. Fallos y agotamiento de capacidad dejan la salida NULL y
 liberan los recursos temporales. Los handles host no se escriben al guest.
 
 El proveedor recibe una referencia inicial transferida al dispositivo.
-Cada shader suyo retiene al padre y lo libera al morir. AddRef/Release y
+Cada recurso suyo retiene al padre mientras tenga referencias publicas.
+Los bindings prolongan su vida sin mantener vivo al dispositivo. AddRef/Release y
 GetDevice mantienen referencias coherentes entre ambas capas. Los callbacks
 se ejecutan bajo el mutex del modulo, sin reentrar, excepciones o longjmp.
 El backend de prueba es D3D9 NULLREF de Windows; un backend Switch tendra
@@ -128,7 +135,7 @@ python pc/tools/build_d3d9_com.py \
   --output /privado/com-switch
 ```
 
-El siguiente paso grafico es conectar bindings, buffers, texturas y targets,
+El siguiente paso grafico es conectar declaraciones, texturas y targets,
 con su traduccion de shaders y un draw completo. Heap, sincronizacion, DLL y
 el punto de entrada original siguen pendientes para arrancar el motor.
 

@@ -82,7 +82,7 @@ def build(a):
     run([a.ld.resolve(),'-r','-o',linked,'@'+str(response)],out/'link.log')
     text=run([a.nm.resolve(),'--undefined-only','--format=posix','--no-demangle',linked],out/'undefined-symbols.log')
     undefined=sorted({line.split()[0] for line in text.splitlines() if line.strip()})
-    unexpected=sorted(set(undefined)-(PLATFORM_SYMBOLS|{'malloc','memcmp','mutexLock','mutexUnlock','svcSetMemoryPermission'}))
+    unexpected=sorted(set(undefined)-(PLATFORM_SYMBOLS|{'malloc','memcmp','memmove','mutexLock','mutexUnlock','svcSetMemoryPermission'}))
     definitions={name:[] for name in undefined}
     for index,name in enumerate(proof['libraries']):
         text=run([a.nm.resolve(),'--defined-only','--extern-only','--format=posix','--no-demangle',Path(name)],out/f'platform-{index}.log')
