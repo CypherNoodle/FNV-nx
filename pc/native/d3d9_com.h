@@ -4,11 +4,13 @@
 #include "d3d9_constants.h"
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
-enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D };
+enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE };
 enum fnv_d3d9_state_kind { FNV_D3D9_RENDER_STATE,FNV_D3D9_SAMPLER_STATE,FNV_D3D9_VIEWPORT,FNV_D3D9_SCISSOR };
 struct fnv_d3d9_shader_code { const void *bytes;uint32_t size; };
 /* Provider owns a real prepared device, initially with one transferred
- * reference, all supported bindings null and stream frequencies 1.
+ * reference, shader/stream/index/declaration/texture bindings null and stream
+ * frequencies 1. Initial color/depth targets belong to the provider; getters
+ * acquire their public references on demand, including implicit backbuffers.
  * A resource returned successfully has one public reference and retains
  * its parent device. Its final public release drops that parent reference.
  * Callbacks run under the module lock: no reentry, exceptions or longjmp.
@@ -50,6 +52,17 @@ struct fnv_d3d9_shader_backend {
      * retention. Failed setters preserve state; failed getters write no guest
      * data. Unsupported state must return an error, never claim fake success. */
     uint32_t (*state)(void *,enum fnv_d3d9_state_kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get);
+    /* Standalone surfaces: flag is Lockable for color, Discard for depth.
+     * get_target returns an OWNED public reference, including implicit surfaces.
+     * Descriptors are eight packed D3DSURFACE_DESC DWORDs, no host pointers. */
+    uint32_t (*create_surface)(void *,int depth,uint32_t width,uint32_t height,uint32_t format,uint32_t multisample,uint32_t quality,uint32_t flag,uintptr_t *);
+    uint32_t (*surface_desc)(void *,uintptr_t,uint32_t values[8]);
+    uint32_t (*set_target)(void *,int depth,uint32_t index,uintptr_t);
+    uint32_t (*get_target)(void *,int depth,uint32_t index,uintptr_t *);
+    /* SetRenderTarget must apply D3D9's implicit viewport reset too. Clear
+     * receives bounded copied D3DRECT DWORDs; Z is raw float bits. Copy any
+     * command data before return and retain resources through GPU completion. */
+    uint32_t (*clear)(void *,uint32_t count,const uint32_t *rects,uint32_t flags,uint32_t color,uint32_t z_bits,uint32_t stencil);
 };
 struct fnv_d3d9_com_config {
     uint32_t objects_address,objects_bytes,resource_capacity;

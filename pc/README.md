@@ -114,12 +114,14 @@ La extension verifica 17 tipos de atributo y 529 creaciones de declaraciones
 contra Windows. La capa de [texturas 2D](docs/native-d3d9-textures.md) agrega
 LockRect/UnlockRect, mips, formatos DXT y Set/GetTexture. Diez formatos y
 cuarenta mips pasan comparacion de bytes contra Windows, con 139 creaciones
-y 51 subidas. El enlace parcial actualizado suma 354 unidades. Targets,
-draws y presentacion siguen pendientes. Los [bridges de estados](docs/native-d3d9-states.md)
+y 51 subidas. El enlace parcial actualizado suma 354 unidades. Draws y presentacion
+siguen pendientes. Los [bridges de estados](docs/native-d3d9-states.md)
 ya transportan render/sampler y viewport/scissor con defaults del proveedor;
 461 comprobaciones escalares y 128 espaciales pasan contra Windows.
-Todavia no se ha renderizado con esta ruta
-ni probado traduccion GPU en Switch.
+La extension de [superficies y targets](docs/native-d3d9-targets.md) ya conecta
+color/depth y Clear. Dos Clear desde callers traducidos pasan comparacion de
+2.048 pixeles en un dispositivo HAL de Windows. Esto no acredita un draw,
+un frame del juego ni renderizado PC en Switch.
 
 ## Carpeta de instalacion objetivo
 

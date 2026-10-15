@@ -132,5 +132,5 @@ int main(int argc,char **argv) {
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK && !fnv_vm_destroy(vm).error);
     assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":55,\"texture_creates\":%u,\"texture_updates\":%u,\"texture_roundtrips\":%u,\"mip_roundtrips\":%u}\n",texture_creates,texture_updates,texture_roundtrips,mip_roundtrips);return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":63,\"texture_creates\":%u,\"texture_updates\":%u,\"texture_roundtrips\":%u,\"mip_roundtrips\":%u}\n",texture_creates,texture_updates,texture_roundtrips,mip_roundtrips);return 0;
 }

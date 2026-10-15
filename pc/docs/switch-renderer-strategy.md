@@ -47,7 +47,8 @@ La capa COM propia ya conecta shaders/constantes y
 [vertex/index buffers con bindings](native-d3d9-buffers.md). Usa un arena CPU
 preasignado y reciclable; el proveedor recibe subidas acotadas. Falta conectar
 el proveedor Switch y sus versiones/fences, los formatos GPU y
-targets y draws. Los [bridges de estado](native-d3d9-states.md) ya transportan
+draws. Los [bridges de targets](native-d3d9-targets.md) ya conectan superficies
+color/depth y Clear, con pixeles comprobados en Windows HAL. Los [bridges de estado](native-d3d9-states.md) ya transportan
 render/sampler/viewport/scissor hacia el proveedor, sin afirmar aplicacion GPU.
 La capa [Texture2D](native-d3d9-textures.md)
 ya conserva mips, LockRect y regiones de upload, validados contra Windows. La validacion NULLREF comprueba API y bytes,

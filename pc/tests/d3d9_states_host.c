@@ -89,5 +89,5 @@ int main(int argc,char **argv) {
     }
     assert(fnv_cpu_detach()==FNV_CPU_OK && fnv_d3d9_com_destroy(com)==FNV_CPU_OK);
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":55,\"scalar_state_checks\":%u,\"spatial_checks\":%u,\"provider_calls\":%u}\n",scalar_checks,struct_checks,provider_calls);return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":63,\"scalar_state_checks\":%u,\"spatial_checks\":%u,\"provider_calls\":%u}\n",scalar_checks,struct_checks,provider_calls);return 0;
 }
