@@ -8,12 +8,27 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from audit_aot_gaps import Intervals, audit, classify, sections_from_container, sha
+from audit_aot_gaps import Intervals, audit, classify, sections_from_container, sha, source_references
 from prepare_aot_image import prepare
 from pe_fixture import write_pe
 
 
 def test(temp_dir, deps):
+    synthetic = '''/* sub_00401002();\nsub_00401002(); */
+void sub_00401000(void)
+{
+loc_00401000: ;
+  log("sub_00401002(); \\\" still a string"); // sub_00401002();
+  if (x) { sub_00401002(); return; }
+  RECOMP_ABI_CALL(0x00401002u, sub_00401002);
+  sub_00401002(); return;
+}
+'''
+    uses = source_references(synthetic, {0x401002})
+    assert [r['kind'] for r in uses] == ['conditional-transfer', 'abi-call', 'tail-transfer']
+    assert [r['line'] for r in uses] == [7, 8, 9]
+    assert all(r['function'] == 'sub_00401000' and r['block'] == '0x00401000' for r in uses)
+    assert source_references('sub_/* not one identifier */00401002();', {0x401002}) == []
     rng = random.Random(1719)
     pairs = sorted({(a, a+rng.randrange(1, 80)) for a in
                     (rng.randrange(0x1000, 0x2000) for _ in range(300))})
@@ -61,6 +76,10 @@ def test(temp_dir, deps):
         report = dict(input_profile_sha256=sha((analysis/'input-profile.json').read_bytes()),
                       sdk_sha256=scan['sdk_sha256'], index_wrapper_sha256=scan['index_wrapper_sha256'],
                       output_files={stub.name: sha(stubs)}, gaps=dict(unresolved_call_targets=len(targets)))
+        chunk = generated/'recomp_0000.c'
+        chunk.write_text('void sub_00401000(void)\n{\nloc_00401000: ;\n'
+                         'RECOMP_ABI_CALL(0x00401002u, sub_00401002);\n}\n')
+        report['output_files'][chunk.name] = sha(chunk.read_bytes())
         (analysis/'generation-report.json').write_text(json.dumps(report))
         before = {p: sha(p.read_bytes()) for p in analysis.rglob('*') if p.is_file()}
         output = root/'audit.json'
@@ -91,10 +110,15 @@ def test(temp_dir, deps):
         assert result['targets_without_scan_xrefs'] == 1
         assert all(sha(p.read_bytes()) == digest for p, digest in before.items())
         assert not result['native_engine_started'] and not result['cold_boot_supported']
+        traced = audit(analysis, root/'traced.json', deps, with_generated=True)
+        assert traced['generated_provenance']['chunks_verified'] == 1
+        assert traced['generated_provenance']['total_symbol_uses'] == 1
+        assert traced['generated_provenance']['targets_without_symbol_use'] == 4
+        assert traced['targets'][1]['generated_references'][0]['line'] == 4
         # Refuse stale/tampered sources, as well as overwriting a previous audit.
-        def rejected(out):
+        def rejected(out, trace=False):
             try:
-                audit(analysis, out, deps)
+                audit(analysis, out, deps, with_generated=trace)
             except ValueError:
                 return
             raise AssertionError('Invalid/overwriting audit accepted')
@@ -105,6 +129,11 @@ def test(temp_dir, deps):
             rejected(root/'must-not-exist.json')
             assert not (root/'must-not-exist.json').exists()
             file.write_bytes(original)
+        original = chunk.read_bytes()
+        chunk.write_bytes(original+b' ')
+        rejected(root/'must-not-exist.json', trace=True)
+        assert not (root/'must-not-exist.json').exists()
+        chunk.write_bytes(original)
         # Classify non-code and holes separately, and use exclusive section ends.
         memory = dict(image_base=0x1000, image_bytes=0x3000)
         sections = [dict(start=0x1100, end=0x1200, executable=False)]

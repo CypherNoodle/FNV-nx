@@ -38,6 +38,15 @@ sesion PC y no es una recompilacion completa ni un arranque desde el EXE
 original. No hay un perfil AOT del motor listo, un launcher nativo del juego
 ni un NRO nuevo para probarlo todavia.
 
+El analisis AOT amplio conserva 85.927 cuerpos C generados a partir de esa
+captura. La extension SIMD del 15 de octubre resolvio 419 apariciones de
+instrucciones pendientes; quedan 1.569 y 664 destinos por revisar. Pasaron
+11.920 comparaciones diferenciales x86/ARM64 y la compilacion de los ocho
+chunks afectados; el resto de archivos generados y el dispatch se conservaron.
+Eso no acredita un motor enlazado ni arranque desde disco. Ver
+[analisis y validacion](docs/native-aot.md) e
+[inventario de herramientas reutilizables](tools/README.md).
+
 La version Steam examinada coincide con SteamStub 2.1 y depende tambien de
 Steamworks. Su entrada original esta en `.bind`. El archivo permanece
 intacto y no se sustituye su autenticacion. Consultar

@@ -134,3 +134,28 @@ aproximado. Esas concesiones visuales y sus hooks son especificos de Prototype;
 no copiar sus valores ni atribuir todo el resultado a la API grafica. FSR se
 evalua despues de medir la escena de FNV y separar su UI; no soluciona un
 cuello de botella CPU. No se ha integrado codigo de ese renderer en PC.
+
+## ByroRedux como referencia de contenido
+
+Revision del commit `f44dacbdad0d88f4b6e56e3e64ed8fa63efcdf2d`:
+[README](https://github.com/matiaszanolli/ByroRedux/blob/f44dacbdad0d88f4b6e56e3e64ed8fa63efcdf2d/README.md),
+secciones de su [matriz](https://github.com/matiaszanolli/ByroRedux/blob/f44dacbdad0d88f4b6e56e3e64ed8fa63efcdf2d/docs/feature-matrix.md),
+NIFAL y las interfaces de BSA/NIF/materiales. Es una reimplementacion en Rust
+que consume datos Bethesda; no es un traductor x86, bridge Win32 o backend
+D3D9 disponible para enchufar al ejecutable. No se ha compilado ni medido aqui.
+
+Su lector BSA contempla v104 de FO3/FNV; las interfaces NIF y la traduccion de
+materiales sirven como referencias offline para diagnosticar estructuras,
+paletas de huesos, flags y canales de texturas. El renderer PC de esta ruta
+recibe los recursos y estados D3D9 del motor original: no necesita reemplazar
+su lector NIF para arrancar. Una herramienta basada en esos parsers seria
+una validacion independiente del contenido, no una sustitucion del juego.
+
+Su renderer anunciado usa Vulkan 1.3 y ray queries. Eso exige otro estudio
+de capacidades/coste para Switch; no copiar su renderer de escritorio ni sus
+cifras de una RTX como prediccion de Maxwell. La matriz distingue lectura de
+SCPT de ejecucion de scripts y conserva gaps de gameplay. Que cargue una celda
+de New Vegas no demuestra que reemplace fielmente toda su campana. Tampoco
+intercambiar FNV ObScript con Papyrus de juegos posteriores.
+
+No se importaron fuentes ni se cambio la arquitectura activa por este repo.

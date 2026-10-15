@@ -131,3 +131,68 @@ contiene bytes, instrucciones, propietarios y llamadores; no subirlo al repo.
 La prueba incluye 2004 consultas comparadas con un oraculo de intervalos,
 propietarios solapados, direccion interior a una instruccion x86, perfiles
 anteriores y actuales, rechazo de entradas alteradas y ausencia de mutaciones.
+
+`--trace-generated` agrega procedencia de simbolos del C, verificando primero
+el hash de cada chunk. Ignora comentarios y literales y conserva archivo,
+linea, funcion y etiqueta de bloque; esta ultima no se anuncia como direccion
+exacta de la instruccion guest. En el baseline se verificaron los 344 chunks:
+los 664 destinos tienen usos reales en C (1109 usos). Los 139 sin xrefs del
+scan se dividen en 102 destinos de transferencias condicionales, 10 de colas
+y 27 de llamadas ABI; algunos tienen mas de un uso. Eso no prueba por si solo
+que las instrucciones que originaron esos usos sean codigo ejecutable real.
+
+## Extension SIMD de bits y copias
+
+`aot_simd_bits.py` agrega explicitamente trece instrucciones SSE2 legacy:
+MOVLPD, MOVDQU, ANDPD, ANDNPD, ORPD, PSHUFD, SHUFPD, UNPCKLPD, UNPCKHPD,
+PSLLD, PSRLD, PSLLQ y PSRLQ. El overlay actua solo sobre formas x86-32 validas
+que reconoce; otras instrucciones/formas conservan la ruta del SDK. No se
+modifican fuentes del SDK. Los helpers estan en `native/fnv_simd_bits.h`.
+
+Son operaciones sobre bits: conservan payloads NaN y no cambian EFLAGS ni
+MXCSR. MOVLPD conserva la mitad alta al cargar y escribe solo ocho bytes al
+guardar. MOVLPD/MOVDQU usan accesos de byte para evitar el comportamiento
+indefinido de punteros C desalineados del SDK. Los desplazamientos usan el
+contador completo de 64 bits de la forma variable; no lo reducen modulo32/64.
+Contadores mayores o iguales al ancho producen cero sin un shift C indefinido.
+
+Las formas legacy m128 que exigen alineamiento fallan con diagnostico y abort
+si no lo cumplen. Todavia no entregan #GP/SEH al guest. MOVDQA, operaciones FP,
+SET O/productores de OF y control MXCSR siguen fuera de este cambio. Tampoco
+se afirma fidelidad completa de page faults, atomicidad o memoria no mapeada.
+Referencia de semantica: [Intel SDM, volumen 2](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html).
+
+La prueba compila el C emitido a ARM64 con devkitA64 GCC16.1.0 y compara su
+ejecucion en Unicorn ARM64 contra las instrucciones originales en Unicorn
+x86. Pasaron 2384 formas y 11920 casos con GPR/XMM/memoria/EFLAGS/MXCSR,
+todos los inmediatos de shuffle/shift, alias de registros, cuentas grandes,
+payloads de bits y las copias desalineadas permitidas. Otros 138 casos
+verificaron el fail-stop de alineamiento sin escrituras de resultado.
+Esto es validacion diferencial emulada, no una prueba del juego en consola.
+
+```sh
+python pc/tests/test_aot_simd_bits.py --sdk /ruta/xboxrecomp --python-deps /ruta/dependencias --cc /ruta/aarch64-none-elf-gcc.exe --output /ruta/privada/prueba-simd
+python pc/tools/run_aot_analysis.py --analysis /ruta/privada/aot --sdk /ruta/xboxrecomp --python-deps /ruta/dependencias --stage generate --generation-name simd-bits01 --simd-bits
+python pc/tools/verify_aot_simd.py --analysis /ruta/privada/aot --generation-name simd-bits01 --sdk /ruta/xboxrecomp --cc /ruta/aarch64-none-elf-gcc.exe --output /ruta/privada/objetos-simd --jobs 2
+```
+
+Una generacion con nombre separa C, ABI, clasificaciones, logs e informe; no
+reescribe el baseline. Los scans nuevos conservan su wrapper exacto. Al
+reutilizar un scan antiguo cuyo wrapper difiere del actual, el runner exige
+que `aot-index-used.py` coincida con el hash original; solo lo lee como prueba
+de identidad, nunca lo ejecuta. No se vuelve a etiquetar un scan v1 como v2.
+
+El verificador exige la misma entrada/SDK/seleccion completa, conserva el
+dispatch publico y compara firmas de las funciones de los chunks cambiados.
+Comprueba cada hash generado y compila todos esos chunks a objetos ARM64;
+no enlaza el motor. Para compilarlos se necesita incluir `pc/native` junto
+al runtime del SDK. El informe diferencia la cobertura de instrucciones,
+los destinos aun pendientes y la ausencia de arranque desde el archivo.
+
+Resultado del lote completo `simd-bits01` (15 de octubre): 85.927 cuerpos C,
+cero fallos de generacion; las 419 apariciones de las trece instrucciones
+quedaron traducidas y el resto de pendientes paso de 1.988 a 1.569. Los 664
+destinos siguen sin resolver. Compilaron los ocho chunks modificados a ARM64
+con los flags indicados; 339 archivos generados conservaron sus hashes y el
+dispatch permanecio identico. La diferencia adicional es el include del
+header SIMD en las declaraciones compartidas. No se enlazo ni ejecuto el motor.

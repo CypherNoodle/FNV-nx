@@ -17,6 +17,7 @@ anterior llega a parte de la inicializacion CRT con codigo capturado, antes
 del motor, y no acredita un arranque desde el EXE original.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
+Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
 Los builds PC01–PC03 con Wine se conservan como
 [experimento anterior](pc/docs/wine-experiment.md), fuera de la ruta activa.
 No deben confundirse con el futuro port nativo.

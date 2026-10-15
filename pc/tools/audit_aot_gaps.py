@@ -145,7 +145,62 @@ def boundary_group(record):
     return 'decode-inconclusive'
 
 
-def audit(analysis, output, deps=None):
+def strip_c_noncode(text):
+    """Remove generated C comments/literals while preserving line numbers."""
+    token = r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+    # C replaces comments with whitespace; deleting them can join two tokens
+    # and invent a symbol that never existed in the compiled source.
+    return re.sub(token, lambda match: ' '+'\n'*match[0].count('\n')+' ', text, flags=re.S)
+
+
+def source_references(text, targets):
+    """Locate actual symbol uses in the SDK's split-C output dialect."""
+    function = None
+    block = None
+    records = []
+    for number, line in enumerate(strip_c_noncode(text).splitlines(), 1):
+        definition = re.match(r'\s*void\s+(\w+)\(void\)\s*$', line)
+        if definition:
+            function = definition[1]
+            block = None
+            continue
+        label = re.match(r'loc_([0-9A-Fa-f]{8}):', line)
+        if label:
+            block = int(label[1], 16)
+        for match in re.finditer(r'\bsub_([0-9A-Fa-f]{8})\b', line):
+            target = int(match[1], 16)
+            if target not in targets:
+                continue
+            if 'RECOMP_ABI_CALL(' in line:
+                kind = 'abi-call'
+            elif re.search(r'\bif\s*\(', line):
+                kind = 'conditional-transfer'
+            elif re.search(r'\breturn\s*;', line):
+                kind = 'tail-transfer'
+            else:
+                kind = 'other-symbol-use'
+            records.append(dict(target=target, function=function,
+                                block=f'0x{block:08X}' if block is not None else None,
+                                line=number, kind=kind))
+    return records
+
+
+def trace_generated(analysis, report, targets):
+    references = defaultdict(list)
+    names = sorted(name for name in report['output_files'] if re.fullmatch(r'recomp_\d{4}\.c', name))
+    if not names:
+        raise ValueError('No recorded generated C chunks for provenance')
+    for name in names:
+        data = (analysis/'generated'/name).read_bytes()
+        if sha(data) != report['output_files'][name]:
+            raise ValueError('Modified generated source: '+name)
+        for ref in source_references(data.decode('utf-8'), targets):
+            target = ref.pop('target')
+            references[target].append(dict(file=name, **ref))
+    return references, len(names)
+
+
+def audit(analysis, output, deps=None, with_generated=False):
     if deps:
         sys.path.insert(0, str(deps.resolve()))
     import capstone
@@ -178,6 +233,7 @@ def audit(analysis, output, deps=None):
     targets = {int(v, 16) for v in matches}
     if len(matches) != len(targets) or len(targets) != report['gaps']['unresolved_call_targets']:
         raise ValueError('Unresolved target count mismatch')
+    provenance, chunk_count = trace_generated(analysis, report, targets) if with_generated else ({}, 0)
     functions = json.loads(files['functions.json'])
     ranges = Intervals(functions)
     sections = sections_from_container(raw, profile)
@@ -197,10 +253,13 @@ def audit(analysis, output, deps=None):
                     section=section['name'] if section else None,
                     owners=[dict(start=f'0x{start:08X}', end=f'0x{end:08X}') for start, end in owners],
                     xrefs=callers, xref_counts=dict(Counter(r['type'] for r in callers)))
+        if with_generated:
+            item['generated_references'] = provenance.get(target, [])
         if section:
             item.update(context(raw, section, target, owners, decoder))
         records.append(item)
     result = dict(status='AUDIT_ONLY_NO_ENTRIES_REGISTERED',
+        audit_tool_sha256=sha(Path(__file__).read_bytes()),
         input_profile_sha256=sha(profile_bytes), scan_identity_sha256=sha(scan_bytes),
         unresolved_stub_sha256=sha(stubs), decoder_version=capstone.__version__,
         unresolved_targets=len(targets),
@@ -213,6 +272,13 @@ def audit(analysis, output, deps=None):
                 'Detected function intervals are heuristic and may overlap',
                 'No entry is accepted from alignment, prologue or successful decode alone',
                 'Audit report includes game bytes; keep private'])
+    if with_generated:
+        result['generated_provenance'] = dict(chunks_verified=chunk_count,
+            total_symbol_uses=sum(len(v) for v in provenance.values()),
+            targets_without_symbol_use=sum(not provenance.get(t) for t in targets),
+            missing_scan_xref_use_kinds=dict(Counter(ref['kind'] for record in records
+                if not record['xrefs'] for ref in record['generated_references'])),
+            limits='C block labels are not exact guest instruction addresses; conditional-transfer includes guarded paths')
     # Do not replace any accepted analysis input or generated source with a report.
     output = output.resolve()
     if output.exists():
@@ -227,6 +293,7 @@ if __name__ == '__main__':
     parser.add_argument('--analysis', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--python-deps', type=Path)
+    parser.add_argument('--trace-generated', action='store_true', help='Hash and trace all recorded C chunks (private output)')
     args = parser.parse_args()
-    result = audit(args.analysis, args.output, args.python_deps)
+    result = audit(args.analysis, args.output, args.python_deps, args.trace_generated)
     print(json.dumps({key: value for key, value in result.items() if key != 'targets'}, indent=2))

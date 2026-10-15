@@ -10,7 +10,7 @@ from pe_fixture import write_pe
 pc=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(pc/'tools'))
 from prepare_aot_image import prepare
-from run_aot_analysis import generation_gaps
+from run_aot_analysis import generation_gaps, generation_paths, verified_scan_wrapper, run
 
 def test(temp_dir=None):
     with tempfile.TemporaryDirectory(prefix='fnv-aot-input-',dir=temp_dir) as tmp:
@@ -68,6 +68,31 @@ def test(temp_dir=None):
         assert gaps['failed_functions']==1 and gaps['unresolved_call_targets']==2
         assert gaps['unsupported_instructions']=={'daa':3}
         assert list(gaps['code_markers'].values())==[1,1,1]
+        # Each named generation must isolate every artifact, not only C files.
+        baseline=generation_paths(root)
+        variant=generation_paths(root,'bits01')
+        assert all(variant[k]!=baseline[k] and variant[k].parent==root for k in baseline)
+        for name in ('../escape','Bits','a/b','a\\b','','a'*49):
+            try: generation_paths(root,name)
+            except ValueError: pass
+            else: raise AssertionError('Unsafe generation name accepted')
+        wrapper=root/'current-index.py'; wrapper.write_text('version=2\n')
+        archived=root/'aot-index-used.py'
+        archived.write_text('raise RuntimeError("identity evidence must never execute")\n')
+        fingerprint=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+        assert verified_scan_wrapper(root,{'index_wrapper_sha256':fingerprint(wrapper)},wrapper)==wrapper
+        archived_sha=fingerprint(archived)
+        assert verified_scan_wrapper(root,{'index_wrapper_sha256':archived_sha},wrapper)==archived
+        archived.write_text('altered archive\n')
+        try: verified_scan_wrapper(root,{'index_wrapper_sha256':archived_sha},wrapper)
+        except ValueError: pass
+        else: raise AssertionError('Changed archived wrapper accepted')
+        # Fail before running any SDK stage or reading a missing input profile.
+        accepted=generated/'chunk.c'; accepted_bytes=accepted.read_bytes()
+        try: run(root,root/'missing-sdk',stage='all')
+        except ValueError as e: assert 'Generation output already exists' in str(e)
+        else: raise AssertionError('Existing output accepted')
+        assert accepted.read_bytes()==accepted_bytes
         print('PASS: eight-section container, TLS metadata, exact code identity, unchanged EXE, packed-entry rejection, codegen gaps; no guest execution')
 
 if __name__=='__main__':
