@@ -4,7 +4,7 @@ El registro CPU y `native/d3d9_com.c/.h` permiten llamadas a vtables guest32
 desde rutinas traducidas por el SDK real. La primera cobertura comprende
 constantes, creacion de vertex/pixel shaders y sus interfaces de consulta.
 La extension de [bindings y buffers](native-d3d9-buffers.md) agrega streams,
-indices, Lock/Unlock y declaraciones; el registro completo tiene ahora 47 tokens tras agregar
+indices, Lock/Unlock y declaraciones; el registro completo tiene ahora 55 tokens tras agregar estados y
 [texturas 2D](native-d3d9-textures.md).
 No hay todavia un backend grafico de Switch conectado a estos metodos.
 
@@ -42,12 +42,12 @@ setup/teardown frente a attach y conserva vivos los rangos dedicados.
 
 | Interfaz | Metodos conectados |
 | --- | --- |
-| Dispositivo preparado | QueryInterface, AddRef, Release; CreateVertexShader/CreatePixelShader; los doce Set/Get constantes F/I/B de VS y PS; Set/GetShader, CreateVB/IB, streams, indices, frecuencias y Create/Set/GetVertexDeclaration; CreateTexture y Set/GetTexture. |
+| Dispositivo preparado | QueryInterface, AddRef, Release; CreateVertexShader/CreatePixelShader; los doce Set/Get constantes F/I/B de VS y PS; Set/GetShader, CreateVB/IB, streams, indices, frecuencias y Create/Set/GetVertexDeclaration; CreateTexture y Set/GetTexture; Set/GetRenderState, SamplerState, Viewport y ScissorRect. |
 | Vertex/pixel shader | QueryInterface, AddRef, Release, GetDevice y GetFunction. |
 | Vertex/index buffer | QueryInterface, AddRef, Release, GetDevice, GetType, GetDesc, Lock y Unlock. |
 | Declaracion de vertices | QueryInterface, AddRef, Release, GetDevice y GetDeclaration. |
 | Texture2D | QueryInterface, AddRef, Release, GetDevice, GetType, GetLevelCount, GetLevelDesc, LockRect/UnlockRect. |
-| Resto de la vtable Device9 | Handler estricto de metodo pendiente; nunca devuelve exito. Incluye FVF, surfaces/targets, samplers, draws y Present. |
+| Resto de la vtable Device9 | Handler estricto de metodo pendiente; nunca devuelve exito. Incluye FVF, surfaces/targets, draws y Present. |
 
 Se crea una vtable Device9 de 119 posiciones, una de shader de cinco y otra
 de buffer de catorce.
@@ -138,7 +138,7 @@ python pc/tools/build_d3d9_com.py \
   --output /privado/com-switch
 ```
 
-El siguiente paso grafico es conectar formatos host, estados y targets,
+El siguiente paso grafico es conectar formatos host y targets,
 con su traduccion de shaders y un draw completo. Heap, sincronizacion, DLL y
 el punto de entrada original siguen pendientes para arrancar el motor.
 

@@ -204,5 +204,5 @@ int main(int argc,char **argv) {
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(!fnv_vm_destroy(vm).error);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);
-    printf("{\"status\":\"PASS\",\"shader_roundtrips\":%u,\"constant_roundtrips\":%u,\"backend_creates\":%u,\"backend_deleted\":%u,\"prepared_methods\":47,\"concurrent_constant_roundtrips\":%u}\n",shader_calls,constant_calls,created,deleted,!strcmp(argv[3],"normal")?400:0);return 0;
+    printf("{\"status\":\"PASS\",\"shader_roundtrips\":%u,\"constant_roundtrips\":%u,\"backend_creates\":%u,\"backend_deleted\":%u,\"prepared_methods\":55,\"concurrent_constant_roundtrips\":%u}\n",shader_calls,constant_calls,created,deleted,!strcmp(argv[3],"normal")?400:0);return 0;
 }

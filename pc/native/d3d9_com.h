@@ -5,6 +5,7 @@
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
 enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D };
+enum fnv_d3d9_state_kind { FNV_D3D9_RENDER_STATE,FNV_D3D9_SAMPLER_STATE,FNV_D3D9_VIEWPORT,FNV_D3D9_SCISSOR };
 struct fnv_d3d9_shader_code { const void *bytes;uint32_t size; };
 /* Provider owns a real prepared device, initially with one transferred
  * reference, all supported bindings null and stream frequencies 1.
@@ -43,6 +44,12 @@ struct fnv_d3d9_shader_backend {
      * GPU storage/version lifetime must be protected by real completion fences. */
     uint32_t (*upload_texture)(void *,uintptr_t,uint32_t level,uint32_t left,uint32_t top,uint32_t width,uint32_t height,uint32_t flags,uint32_t pitch,const void *);
     uint32_t (*bind_texture)(void *,uint32_t sampler,uintptr_t);
+    /* Provider owns authoritative state including D3D9 defaults. Values are
+     * raw DWORDs: one for render/sampler, six for viewport, four for scissor.
+     * Float/signed fields retain exact bits. Copy before return; no pointer
+     * retention. Failed setters preserve state; failed getters write no guest
+     * data. Unsupported state must return an error, never claim fake success. */
+    uint32_t (*state)(void *,enum fnv_d3d9_state_kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get);
 };
 struct fnv_d3d9_com_config {
     uint32_t objects_address,objects_bytes,resource_capacity;

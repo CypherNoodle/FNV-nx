@@ -30,7 +30,9 @@ La prueba host compara el mapeo completo y los imports con un parser
 independiente. Paso con fixtures y con el EXE Steam examinado: 280 slots,
 17 DLL. La biblioteca tambien compilo como objeto ARM64 con devkitA64.
 Los tokens del test son sinteticos; no implementan funciones Windows.
-No se ejecuto codigo del juego ni se verifico este cargador en consola.
+El primer NRO de diagnostico ya verifico este cargador en Switch: dos
+ejecuciones con cero fallos, carga PE de 203/207 ms y salida normal.
+No se ejecuto codigo del juego.
 
 El laboratorio nativo previo conserva 412 constructores CRT observados y
 una frontera en `0x44F770`, antes del motor. Usa codigo capturado de una
@@ -113,7 +115,10 @@ contra Windows. La capa de [texturas 2D](docs/native-d3d9-textures.md) agrega
 LockRect/UnlockRect, mips, formatos DXT y Set/GetTexture. Diez formatos y
 cuarenta mips pasan comparacion de bytes contra Windows, con 139 creaciones
 y 51 subidas. El enlace parcial actualizado suma 354 unidades. Targets,
-estados, draws y presentacion siguen pendientes; no se ha renderizado con esta ruta
+draws y presentacion siguen pendientes. Los [bridges de estados](docs/native-d3d9-states.md)
+ya transportan render/sampler y viewport/scissor con defaults del proveedor;
+461 comprobaciones escalares y 128 espaciales pasan contra Windows.
+Todavia no se ha renderizado con esta ruta
 ni probado traduccion GPU en Switch.
 
 ## Carpeta de instalacion objetivo

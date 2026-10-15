@@ -68,5 +68,9 @@ conservados. El script verifica sus hashes antes y despues del build,
 compila la entrada, enlaza usando switch.specs y las bibliotecas devkitPro,
 y comprueba ELF AArch64/DYN, ausencia de externos fuertes pendientes y
 segmentos NRO con cabecera de assets. Guarda comandos de salida y hashes.
-La compilacion aprobada requiere aun la prueba fisica para validar arranque,
-pantalla, acceso SD y permisos efectivos del proceso.
+La prueba fisica recibida el 15 de octubre de 2026 completo dos ejecuciones
+con cero fallos y salida normal. Coincidio el EXE Steam examinado, se recogieron
+280 imports y la carga PE tardo 203/207 ms. Pasaron las pruebas de memoria,
+bridge stdcall y TEB/TLS. Este resultado valida el diagnostico; el motor no
+se ejecuto. Los manifiestos originales de compilacion conservan el valor
+hardware_tested=false historico; la evidencia de hardware se guarda aparte.

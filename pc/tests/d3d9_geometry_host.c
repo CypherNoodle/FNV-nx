@@ -203,5 +203,5 @@ int main(int argc,char **argv) {
     assert(fnv_cpu_detach()==FNV_CPU_OK);assert(fnv_d3d9_com_destroy(com)==FNV_CPU_OK);assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(!fnv_vm_destroy(vm).error);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);free(vb_data);free(ib_data);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":47,\"buffer_creates\":%u,\"buffer_updates\":%u,\"bind_calls\":%u,\"captured_vertex_bytes\":%u,\"captured_index_bytes\":%u,\"declaration_creates\":%u,\"declaration_roundtrips\":%u,\"gpu_rendered\":false}\n",buffer_creates,updates,binds,vb_size,ib_size,declaration_creates,declaration_roundtrips);return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":55,\"buffer_creates\":%u,\"buffer_updates\":%u,\"bind_calls\":%u,\"captured_vertex_bytes\":%u,\"captured_index_bytes\":%u,\"declaration_creates\":%u,\"declaration_roundtrips\":%u,\"gpu_rendered\":false}\n",buffer_creates,updates,binds,vb_size,ib_size,declaration_creates,declaration_roundtrips);return 0;
 }

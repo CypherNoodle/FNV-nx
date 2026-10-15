@@ -4,7 +4,7 @@
 #include "host_mutex.h"
 #include <stdlib.h>
 
-enum { DEVICE_SLOTS=119,METHODS=47,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4 };
+enum { DEVICE_SLOTS=119,METHODS=55,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4 };
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
@@ -537,6 +537,34 @@ static void texture_binding(int get) {
 }
 static void api_set_texture(void){texture_binding(0);}
 static void api_get_texture(void){texture_binding(1);}
+static void device_state(enum fnv_d3d9_state_kind kind,int get) {
+    uint32_t self=fnv_cpu_argument_u32(0),sampler=0,name=0,values[6]={0},out_at=0,argc=2,words=1;
+    struct fnv_d3d9_com *c=module();unsigned char *data=NULL;
+    if(kind==FNV_D3D9_RENDER_STATE || kind==FNV_D3D9_SAMPLER_STATE) {
+        argc=kind==FNV_D3D9_SAMPLER_STATE?4:3;
+        if(kind==FNV_D3D9_SAMPLER_STATE)sampler=fnv_cpu_argument_u32(1);
+        name=fnv_cpu_argument_u32(argc-2);out_at=fnv_cpu_argument_u32(argc-1);
+        if(!get)values[0]=out_at;
+    } else {words=kind==FNV_D3D9_VIEWPORT?6:4;out_at=fnv_cpu_argument_u32(1);}
+    if(get || kind==FNV_D3D9_VIEWPORT || kind==FNV_D3D9_SCISSOR) {
+        data=range(c,out_at,words*4,get);
+        if(!data){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,argc*4);return;}
+        if(!get)for(uint32_t i=0;i<words;i++)values[i]=read32(data+i*4);
+    }
+    if(!c->config.backend.state)invalid("D3D9 device state provider pending",self);
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);
+    uint32_t result=c->config.backend.state(c->config.backend.context,kind,sampler,name,values,get);
+    if(!result && get)for(uint32_t i=0;i<words;i++)write32(data+i*4,values[i]);
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,argc*4);
+}
+static void api_set_render_state(void){device_state(FNV_D3D9_RENDER_STATE,0);}
+static void api_get_render_state(void){device_state(FNV_D3D9_RENDER_STATE,1);}
+static void api_set_sampler_state(void){device_state(FNV_D3D9_SAMPLER_STATE,0);}
+static void api_get_sampler_state(void){device_state(FNV_D3D9_SAMPLER_STATE,1);}
+static void api_set_viewport(void){device_state(FNV_D3D9_VIEWPORT,0);}
+static void api_get_viewport(void){device_state(FNV_D3D9_VIEWPORT,1);}
+static void api_set_scissor(void){device_state(FNV_D3D9_SCISSOR,0);}
+static void api_get_scissor(void){device_state(FNV_D3D9_SCISSOR,1);}
 static void constant(enum fnv_d3d9_stage stage,enum fnv_d3d9_constant_kind kind,int get) {
     uint32_t self=fnv_cpu_argument_u32(0),first=fnv_cpu_argument_u32(1),at=fnv_cpu_argument_u32(2),count=fnv_cpu_argument_u32(3);
     struct fnv_d3d9_com *c=module();uint32_t width=kind==FNV_D3D9_BOOLEAN?4:16;
@@ -564,7 +592,9 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_buffer_type,api_buffer_lock,api_buffer_unlock,api_buffer_desc,api_set_stream,api_get_stream,
     api_set_indices,api_get_indices,api_set_frequency,api_get_frequency,
     api_create_declaration,api_set_declaration,api_get_declaration,api_declaration_elements,
-    api_create_texture,api_texture_levels,api_texture_desc,api_texture_lock,api_texture_unlock,api_set_texture,api_get_texture};
+    api_create_texture,api_texture_levels,api_texture_desc,api_texture_lock,api_texture_unlock,api_set_texture,api_get_texture,
+    api_set_render_state,api_get_render_state,api_set_sampler_state,api_get_sampler_state,
+    api_set_viewport,api_get_viewport,api_set_scissor,api_get_scissor};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
@@ -632,6 +662,8 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     write32(c->objects+TEXTURE_VTABLE+17*4,c->tokens[42]);write32(c->objects+TEXTURE_VTABLE+19*4,c->tokens[43]);
     write32(c->objects+TEXTURE_VTABLE+20*4,c->tokens[44]);
     write32(c->objects+23*4,c->tokens[40]);write32(c->objects+65*4,c->tokens[45]);write32(c->objects+64*4,c->tokens[46]);
+    const unsigned state_slots[8]={57,58,69,68,47,48,75,76};
+    for(unsigned i=0;i<8;i++)write32(c->objects+state_slots[i]*4,c->tokens[47+i]);
     write32(c->objects+OBJECT_OFFSET-4,cfg->objects_address);c->device_references=1;active_com=c;*out=c;return FNV_CPU_OK;
 }
 uint32_t fnv_d3d9_com_device(const struct fnv_d3d9_com *c){return c?device_address(c):0;}
