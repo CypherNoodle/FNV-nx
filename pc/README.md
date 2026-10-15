@@ -36,7 +36,9 @@ El laboratorio nativo previo conserva 412 constructores CRT observados y
 una frontera en `0x44F770`, antes del motor. Usa codigo capturado de una
 sesion PC y no es una recompilacion completa ni un arranque desde el EXE
 original. No hay un perfil AOT listo para arrancar el motor, un launcher nativo del juego
-ni un NRO nuevo para probarlo todavia.
+ni un NRO que ejecute el motor. Existe un primer
+[NRO de diagnostico](docs/switch-diagnostic.md) que inspecciona el EXE y
+comprueba el runtime, TEB y permisos de memoria en la consola.
 
 El analisis AOT amplio conserva 85.885 cuerpos C generados a partir de esa
 captura. La extension SIMD resolvio 419 apariciones de instrucciones y el

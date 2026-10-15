@@ -17,6 +17,9 @@ Todavia faltan las API que necesita el juego. El laboratorio
 anterior llega a parte de la inicializacion CRT con codigo capturado, antes
 del motor, y no acredita un arranque desde el EXE original.
 
+Ya existe un [NRO de diagnostico PC](pc/docs/switch-diagnostic.md) para
+comprobar lectura del EXE y runtime en Switch. No ejecuta la entrada del motor.
+
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
 Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-runtime.md).
