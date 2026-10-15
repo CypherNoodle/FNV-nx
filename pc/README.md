@@ -109,8 +109,11 @@ Set/GetShader, vertex/index buffers, streams, declaraciones y Lock/Unlock con
 un arena reciclable. Pasaron 40 callers traducidos, 263 creaciones de buffers y la
 comparacion de bytes de geometria capturada con buffers D3D9 nativos.
 La extension verifica 17 tipos de atributo y 529 creaciones de declaraciones
-contra Windows. El enlace parcial actualizado suma 354 unidades. Texturas,
-draws y presentacion siguen pendientes; no se ha renderizado con esta ruta
+contra Windows. La capa de [texturas 2D](docs/native-d3d9-textures.md) agrega
+LockRect/UnlockRect, mips, formatos DXT y Set/GetTexture. Diez formatos y
+cuarenta mips pasan comparacion de bytes contra Windows, con 139 creaciones
+y 51 subidas. El enlace parcial actualizado suma 354 unidades. Targets,
+estados, draws y presentacion siguen pendientes; no se ha renderizado con esta ruta
 ni probado traduccion GPU en Switch.
 
 ## Carpeta de instalacion objetivo

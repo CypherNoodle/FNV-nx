@@ -46,8 +46,9 @@ los ports Xbox no convierte automaticamente estos shaders D3D9.
 La capa COM propia ya conecta shaders/constantes y
 [vertex/index buffers con bindings](native-d3d9-buffers.md). Usa un arena CPU
 preasignado y reciclable; el proveedor recibe subidas acotadas. Falta conectar
-el proveedor Switch y sus versiones/fences, los formatos GPU, texturas y
-estados necesarios para dibujar. La validacion NULLREF comprueba API y bytes,
+el proveedor Switch y sus versiones/fences, los formatos GPU y
+estados necesarios para dibujar. La capa [Texture2D](native-d3d9-textures.md)
+ya conserva mips, LockRect y regiones de upload, validados contra Windows. La validacion NULLREF comprueba API y bytes,
 no coste GPU ni calidad de imagen.
 
 ## Peggle: que se puede trasladar a D3D9 PC
