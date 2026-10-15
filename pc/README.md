@@ -61,15 +61,23 @@ enlazado ni arranque desde disco. Ver
 La siguiente integracion agrega un runtime con registros y traza por hilo,
 resolucion IAT por tokens de 32 bits y parada con diagnostico ante codigo
 pendiente. Pasaron 1.000 llamadas concurrentes entre dos hilos y doce casos
-de fallo sobre rutinas sinteticas traducidas por el SDK. No implementa aun
-las API Windows del juego. El
+de fallo sobre rutinas sinteticas traducidas por el SDK. El runtime CPU
+base requiere las API Windows en modulos adicionales. El
 [contrato del runtime CPU](docs/native-cpu-runtime.md) documenta sus limites,
 el wrapper obligatorio y el ABI TLS especifico de Switch, que requiere
 recompilar todos los objetos en vez de reutilizar el lote ARM64 generico.
 Con esa configuracion compilaron 348 unidades y paso el enlace parcial con
 el runtime: ya no quedan simbolos propios de CPU sin resolver; los 30
 externos restantes pertenecen a las bibliotecas de plataforma. Esto sigue
-sin implementar las llamadas Windows ni enlazar un ejecutable del motor.
+sin enlazar un ejecutable del motor.
+
+El primer [modulo Windows por hilo](docs/native-windows-thread.md) implementa
+ocho imports Kernel32: TLS, LastError e IDs guest, con campos TEB coherentes
+con los accesos FS traducidos. Pasaron los 1.088 slots, 2.000 rondas entre
+dos hilos, once comparaciones con Windows y los casos de memoria/conflicto.
+Se integro con el lote anterior (349 unidades en total); otros 272 slots
+normales del EXE examinado siguen pendientes. No implementa CreateThread,
+heap guest, excepciones o arranque original.
 
 La version Steam examinada coincide con SteamStub 2.1 y depende tambien de
 Steamworks. Su entrada original esta en `.bind`. El archivo permanece

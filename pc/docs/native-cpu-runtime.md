@@ -12,6 +12,8 @@ Cada hilo host que ejecuta codigo guest debe llamar a `fnv_cpu_attach` con
 sus registros, pila y direccion FS; al terminar debe hacer `fnv_cpu_detach`.
 El llamador prepara el frame x86, incluida su direccion de retorno. El
 runtime no inventa un punto de entrada ni construye un TIB Windows.
+Al usar el modulo Windows adicional, utilizar su ciclo thread_attach/detach
+para preparar tambien el TEB, en lugar de mezclar ambos ciclos directamente.
 
 GPR, FS, estado x87 del SDK, XMM, MMX y traza de llamadas son TLS host.
 La imagen y su traduccion de direcciones son compartidas e inmutables
@@ -45,8 +47,10 @@ no suministra servicios Xbox.
 
 `fnv_cpu_argument_u32` y `fnv_cpu_return_u32` ayudan a implementar argumentos
 y limpieza de pila cdecl/stdcall. No deducen firmas ni efectos de las API.
-El registro de pruebas contiene solo servicios sinteticos; los 280 slots
-del ejecutable Steam examinado siguen sin implementaciones Windows.
+La prueba del runtime CPU utiliza servicios sinteticos. El modulo adicional
+[Windows por hilo](native-windows-thread.md) aporta ahora ocho bridges reales
+de TLS/LastError/IDs; los otros 272 slots normales del PE examinado siguen
+pendientes. No hay todavia una IAT completa para arrancar el juego.
 
 ## Fallos y proveedores
 

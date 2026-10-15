@@ -15,12 +15,14 @@ no forman parte del codigo fuente de las herramientas.
 | `aot_code_data.py` | Audita switches MSVC de dos niveles con limite explicito y crea una seleccion derivada separada; solo aparta seeds `gap_prologue` sin referencias contradictorias confinados a tablas/padding. |
 | `../native/pe_image.c/.h` | Carga de datos PE32/i386 y enlace IAT mediante un resolver del llamador. No ejecuta x86 ni implementa Windows. |
 | `../native/cpu_runtime.c/.h` + `fnv_sdk_runtime.h` | Estado CPU y traza por hilo, resolucion de imports PC por tokens y parada con diagnostico; requiere el SDK x86 externo y funciones guest ya traducidas. |
+| `../native/windows_thread.c/.h` | Ocho imports Kernel32, TEB32, TLS dinamico y LastError en memoria guest; no implementa el directorio TLS PE ni CreateThread. |
 | `prepare_aot_image.py` | Valida identidad y empaqueta secciones PE en el contenedor x86 que espera el SDK; permite una captura de texto declarada. |
 | `run_aot_analysis.py` | Orquesta scan/ABI/codegen con hashes y variantes separadas; no aplica firmas XDK al programa Windows. |
 | `audit_aot_gaps.py` | Clasifica destinos pendientes, todos sus propietarios solapados y procedencia en C generado. Solo lectura. |
 | `verify_aot_simd.py` | Compara baseline/variante SIMD o multiplicacion, comprueba dispatch y compila a ARM64 todos los chunks cambiados. No enlaza el juego. |
 | `verify_aot_code_data.py` | Reproduce el filtro desde el analisis padre, comprueba los cuerpos retenidos y compila todos los C. Puede enlazar los objetos con `--ld` e inventariar dependencias con `--nm`. |
 | `build_cpu_runtime.py` | Recompila todo el C con TLS de Switch y el adaptador de traza, enlaza runtime/PE e inventaria externos permitidos. Genera objetos privados, no NRO. |
+| `build_windows_thread.py` | Verifica y reutiliza el lote CPU completo sin cambios, compila el modulo Windows y enlaza el conjunto con ABI Switch. |
 | `audit_native_imports.py` | Inventario de imports que necesita el futuro runtime nativo. Un inventario no significa que existan sus bridges. |
 | `audit_install.py` | Inspeccion PE y comprobaciones de la instalacion FNV; contiene reglas especificas de esta edicion. |
 
@@ -79,3 +81,5 @@ Para estado por hilo, imports, fallos y las opciones TLS obligatorias de
 Switch, ver [el contrato del runtime CPU](../docs/native-cpu-runtime.md).
 `test_cpu_runtime.py` prueba concurrencia e imports con codigo sintetico
 traducido por el SDK; las instrucciones anteriores conservan su cobertura.
+`test_windows_thread.py` agrega TLS/TEB, conflictos y comparaciones con las
+API del host Windows. Ver [contrato y comandos](../docs/native-windows-thread.md).
