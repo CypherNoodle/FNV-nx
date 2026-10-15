@@ -164,7 +164,7 @@ static HWND setup_geometry(char **argv) {
     catalog=calloc(catalog_count,sizeof(*catalog));assert(catalog);
     for(unsigned i=0;i<catalog_count;i++){uint32_t stage=read_file32(f),size=read_file32(f);assert(stage<2 && size>=8 && size<=1048576);void *bytes=malloc(size);assert(bytes && fread(bytes,1,size,f)==size);catalog[i]=(struct fnv_d3d9_shader_code){bytes,size};}assert(fgetc(f)==EOF);fclose(f);
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,ARENA,&image)==FNV_NATIVE_OK);
-    struct fnv_cpu_config cfg={0};cfg.memory=arena;cfg.guest_base=BASE;cfg.memory_bytes=ARENA;cfg.code_low=BASE+0x1000;cfg.code_high=BASE+0x2000;assert(fnv_cpu_create(&cfg,&cpu)==FNV_CPU_OK);registry_checks();
+    struct fnv_cpu_config cfg={0};cfg.memory=arena;cfg.guest_base=BASE;cfg.memory_bytes=ARENA;cfg.code_low=BASE+0x1000;cfg.code_high=BASE+0x3000;assert(fnv_cpu_create(&cfg,&cpu)==FNV_CPU_OK);registry_checks();
     struct fnv_vm_config mc={ptr(POOL),POOL,8u<<20,8u<<20,&permissions,fnv_vm_eager_apply};assert(!fnv_vm_create(&mc,&vm).error);
     uint32_t objects=fnv_vm_allocate(vm,0,65536,FNV_VM_RESERVE|FNV_VM_COMMIT,4).value;assert(objects);code_at=fnv_vm_allocate(vm,0,1048576,FNV_VM_RESERVE|FNV_VM_COMMIT,4).value;assert(code_at);
     shadow_base=fnv_vm_allocate(vm,0,shadow_bytes,FNV_VM_RESERVE|FNV_VM_COMMIT,4).value;assert(shadow_base);
@@ -203,5 +203,5 @@ int main(int argc,char **argv) {
     assert(fnv_cpu_detach()==FNV_CPU_OK);assert(fnv_d3d9_com_destroy(com)==FNV_CPU_OK);assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(!fnv_vm_destroy(vm).error);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);free(vb_data);free(ib_data);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":63,\"buffer_creates\":%u,\"buffer_updates\":%u,\"bind_calls\":%u,\"captured_vertex_bytes\":%u,\"captured_index_bytes\":%u,\"declaration_creates\":%u,\"declaration_roundtrips\":%u,\"gpu_rendered\":false}\n",buffer_creates,updates,binds,vb_size,ib_size,declaration_creates,declaration_roundtrips);return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":67,\"buffer_creates\":%u,\"buffer_updates\":%u,\"bind_calls\":%u,\"captured_vertex_bytes\":%u,\"captured_index_bytes\":%u,\"declaration_creates\":%u,\"declaration_roundtrips\":%u,\"gpu_rendered\":false}\n",buffer_creates,updates,binds,vb_size,ib_size,declaration_creates,declaration_roundtrips);return 0;
 }

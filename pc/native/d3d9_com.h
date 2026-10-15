@@ -63,6 +63,14 @@ struct fnv_d3d9_shader_backend {
      * receives bounded copied D3DRECT DWORDs; Z is raw float bits. Copy any
      * command data before return and retain resources through GPU completion. */
     uint32_t (*clear)(void *,uint32_t count,const uint32_t *rects,uint32_t flags,uint32_t color,uint32_t z_bits,uint32_t stencil);
+    /* Device is initially outside a scene. Queue work without pretending
+     * EndScene is a GPU fence. Dirty constants are uploaded before each draw;
+     * a failed upload suppresses the draw and remains retryable. */
+    uint32_t (*scene)(void *,int begin);
+    fnv_d3d9_constants_upload upload_constants;
+    /* BaseVertexIndex is transported as raw signed-32 bits. Backend validates
+     * primitive/caps/ranges and owns all consumed state and resource versions. */
+    uint32_t (*draw)(void *,int indexed,uint32_t primitive,uint32_t base_bits,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives);
 };
 struct fnv_d3d9_com_config {
     uint32_t objects_address,objects_bytes,resource_capacity;

@@ -41,12 +41,13 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
         for key in sorted(unique):
             r=unique[key];f.write(struct.pack('<2I',int(r['stage']=='pixel'),r['bytes'])+r['code'])
     fixture=out/'fixture.exe';write_pe(fixture);raw=bytearray(fixture.read_bytes())
-    # Fill the complete 4 KiB text page; the generic PE fixture has only 0xE00
-    # raw bytes. Forty COM callers must not spill past that original extent.
-    if len(slots)>44:raise ValueError('Callers exceed the fixture text page')
-    raw.extend(bytes(0x1200-len(raw)))
-    struct.pack_into('<I',raw,0x98+224+8,0x1000)
-    struct.pack_into('<I',raw,0x98+224+16,0x1000)
+    # Two complete text pages allow a full pipeline fixture without overlapping
+    # data or depending on bytes beyond the declared PE section.
+    if len(slots)>108:raise ValueError('Callers exceed the fixture text pages')
+    raw.extend(bytes(0x2200-len(raw)))
+    struct.pack_into('<I',raw,0x98+56,0x3000)
+    struct.pack_into('<I',raw,0x98+224+8,0x2000)
+    struct.pack_into('<I',raw,0x98+224+16,0x2000)
     struct.pack_into('<I',raw,0x98+224+36,0x60000020);functions={}
     for index,(slot,argc) in enumerate(slots):
         # COM stdcall: explicit this on stack, not ECX. Re-push caller args.

@@ -41,7 +41,7 @@ static uint32_t state(void *ctx,enum fnv_d3d9_state_kind kind,uint32_t sampler,u
 }
 static HWND setup_target(const char *fixture,int provider) {
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);struct fnv_native_image image;assert(fnv_native_load_image(fixture,arena,ARENA,&image)==FNV_NATIVE_OK);
-    struct fnv_cpu_config cfg={0};cfg.memory=arena;cfg.guest_base=BASE;cfg.memory_bytes=ARENA;cfg.code_low=BASE+0x1000;cfg.code_high=BASE+0x2000;assert(fnv_cpu_create(&cfg,&cpu)==FNV_CPU_OK);registry_checks();
+    struct fnv_cpu_config cfg={0};cfg.memory=arena;cfg.guest_base=BASE;cfg.memory_bytes=ARENA;cfg.code_low=BASE+0x1000;cfg.code_high=BASE+0x3000;assert(fnv_cpu_create(&cfg,&cpu)==FNV_CPU_OK);registry_checks();
     HWND w=CreateWindowExA(0,"STATIC","FNV target HAL oracle",WS_POPUP,0,0,64,64,NULL,NULL,GetModuleHandleA(NULL),NULL);assert(w);api=Direct3DCreate9(D3D_SDK_VERSION);assert(api);
     D3DPRESENT_PARAMETERS p={0};p.Windowed=TRUE;p.SwapEffect=D3DSWAPEFFECT_DISCARD;p.hDeviceWindow=w;
     assert(SUCCEEDED(IDirect3D9_CreateDevice(api,0,D3DDEVTYPE_HAL,w,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&p,&device)));
@@ -102,5 +102,5 @@ int main(int argc,char **argv) {
     }
     assert(fnv_cpu_detach()==FNV_CPU_OK && fnv_d3d9_com_destroy(com)==FNV_CPU_OK && !last_device_release);assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(w);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":63,\"surface_creates\":%u,\"clear_calls\":%u,\"pixel_checks\":%u,\"desktop_hal_clear_verified\":%s,\"gpu_rendered\":%s,\"gpu_draw_executed\":false,\"game_frame_rendered\":false}\n",surface_creates,clear_calls,pixel_checks,clear_calls==2?"true":"false",clear_calls?"true":"false");return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":67,\"surface_creates\":%u,\"clear_calls\":%u,\"pixel_checks\":%u,\"desktop_hal_clear_verified\":%s,\"gpu_rendered\":%s,\"gpu_draw_executed\":false,\"game_frame_rendered\":false}\n",surface_creates,clear_calls,pixel_checks,clear_calls==2?"true":"false",clear_calls?"true":"false");return 0;
 }

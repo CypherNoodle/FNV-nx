@@ -22,7 +22,7 @@ no forman parte del codigo fuente de las herramientas.
 | `../native/d3d9_constants.c/.h` | Bancos VS/PS float4, int4 y BOOL, con agrupacion de cambios, mutex y reintento de subidas; independiente del backend y consumido por el modulo COM. |
 | `shader_packages.py` | Inventario acotado de SDP y exportacion privada opcional por hash; no traduce ni valida semantica de shaders. |
 | `build_d3d9_constants.py` | Agrega el banco de constantes al conjunto CPU/Windows/VM verificado, con flags Switch y auditoria de externos. No construye renderer ni NRO. |
-| `../native/d3d9_com.c/.h` | Bridges COM stdcall con vtables guest32, shaders de catalogo y proveedor real obligatorio; referencias, shaders/constantes, vertex/index buffers, declaraciones, texturas 2D, bindings y estados de render/sampler/viewport/scissor. Targets y Clear conectados; draws pendientes. |
+| `../native/d3d9_com.c/.h` | Bridges COM stdcall con vtables guest32, shaders de catalogo y proveedor real obligatorio; referencias, shaders/constantes, vertex/index buffers, declaraciones, texturas 2D, bindings y estados de render/sampler/viewport/scissor. Targets/Clear y escenas/draws conectados; proveedor Switch pendiente. |
 | `build_switch_diagnostic.py` + `../switch/diagnostic.c` | Enlaza el conjunto ARM64 privado aceptado como NRO de diagnostico: lectura PE, inventario IAT y pruebas de runtime/TEB/permisos Horizon. No ejecuta el motor. |
 | `build_d3d9_com.py` | Sustituye CPU conservando su version anterior verificada, comprueba dependencias de includes y reutiliza los C generados inmutables; compila los modulos propios y audita TLS/externos. |
 | `prepare_aot_image.py` | Valida identidad y empaqueta secciones PE en el contenedor x86 que espera el SDK; permite una captura de texto declarada. |
@@ -108,3 +108,5 @@ D3D9 NULLREF. Ver [texturas y limites](../docs/native-d3d9-textures.md).
 fallos sin modificar salidas. Ver [contrato de estados](../docs/native-d3d9-states.md).
 `test_d3d9_targets.py` usa un D3D9 HAL propio para comprobar superficies,
 backbuffer implicito, viewport y pixeles de Clear. Ver [targets y limites](../docs/native-d3d9-targets.md).
+`test_d3d9_draw.py` verifica un pipeline propio texturizado con indices,
+constantes, depth y pixels en D3D9 HAL. Ver [draws y limites](../docs/native-d3d9-draw.md).

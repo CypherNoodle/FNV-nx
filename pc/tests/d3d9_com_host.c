@@ -165,7 +165,7 @@ int main(int argc,char **argv) {
     assert(fgetc(f)==EOF);fclose(f);
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,ARENA,&image)==FNV_NATIVE_OK);
-    struct fnv_cpu_config config={0};config.memory=arena;config.guest_base=BASE;config.memory_bytes=ARENA;config.code_low=BASE+0x1000;config.code_high=BASE+0x2000;
+    struct fnv_cpu_config config={0};config.memory=arena;config.guest_base=BASE;config.memory_bytes=ARENA;config.code_low=BASE+0x1000;config.code_high=BASE+0x3000;
     assert(fnv_cpu_create(&config,&cpu)==FNV_CPU_OK);registry_checks();
     struct fnv_vm_config mc={ptr(POOL),POOL,8u<<20,8u<<20,&permissions,fnv_vm_eager_apply};assert(!fnv_vm_create(&mc,&vm).error);
     uint32_t objects=fnv_vm_allocate(vm,0,65536,FNV_VM_RESERVE|FNV_VM_COMMIT,4).value;assert(objects);
@@ -204,5 +204,5 @@ int main(int argc,char **argv) {
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(!fnv_vm_destroy(vm).error);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);
-    printf("{\"status\":\"PASS\",\"shader_roundtrips\":%u,\"constant_roundtrips\":%u,\"backend_creates\":%u,\"backend_deleted\":%u,\"prepared_methods\":63,\"concurrent_constant_roundtrips\":%u}\n",shader_calls,constant_calls,created,deleted,!strcmp(argv[3],"normal")?400:0);return 0;
+    printf("{\"status\":\"PASS\",\"shader_roundtrips\":%u,\"constant_roundtrips\":%u,\"backend_creates\":%u,\"backend_deleted\":%u,\"prepared_methods\":67,\"concurrent_constant_roundtrips\":%u}\n",shader_calls,constant_calls,created,deleted,!strcmp(argv[3],"normal")?400:0);return 0;
 }

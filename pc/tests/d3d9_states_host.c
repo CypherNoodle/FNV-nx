@@ -25,7 +25,7 @@ static uint32_t backend_state(void *ctx,enum fnv_d3d9_state_kind kind,uint32_t s
 }
 static HWND setup_state(int provider) {
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
-    struct fnv_cpu_config cfg={0};cfg.memory=arena;cfg.guest_base=BASE;cfg.memory_bytes=ARENA;cfg.code_low=BASE+0x1000;cfg.code_high=BASE+0x2000;
+    struct fnv_cpu_config cfg={0};cfg.memory=arena;cfg.guest_base=BASE;cfg.memory_bytes=ARENA;cfg.code_low=BASE+0x1000;cfg.code_high=BASE+0x3000;
     assert(fnv_cpu_create(&cfg,&cpu)==FNV_CPU_OK);registry_checks();
     HWND window=CreateWindowExA(0,"STATIC","FNV state oracle",WS_POPUP,0,0,64,64,NULL,NULL,GetModuleHandleA(NULL),NULL);assert(window);api=Direct3DCreate9(D3D_SDK_VERSION);assert(api);
     D3DPRESENT_PARAMETERS p={0};p.Windowed=TRUE;p.SwapEffect=D3DSWAPEFFECT_DISCARD;p.hDeviceWindow=window;
@@ -89,5 +89,5 @@ int main(int argc,char **argv) {
     }
     assert(fnv_cpu_detach()==FNV_CPU_OK && fnv_d3d9_com_destroy(com)==FNV_CPU_OK);
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":63,\"scalar_state_checks\":%u,\"spatial_checks\":%u,\"provider_calls\":%u}\n",scalar_checks,struct_checks,provider_calls);return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":67,\"scalar_state_checks\":%u,\"spatial_checks\":%u,\"provider_calls\":%u}\n",scalar_checks,struct_checks,provider_calls);return 0;
 }

@@ -51,7 +51,8 @@ estrictos anteriores. La regresion de texturas sigue pasando: 139 creaciones,
 verifican aparte. Estos contadores no acreditan renderizado en la GPU.
 
 Las [superficies/targets y Clear](native-d3d9-targets.md) ya estan conectados.
-Todavia faltan escenas, Draw, Present y la traduccion
+El [pipeline propio de escenas/draws](native-d3d9-draw.md) ya pasa en HAL.
+Todavia faltan Present y la traduccion
 de shaders/formatos hacia un proveedor Switch. El callback de Windows demuestra
 el transporte de estado; no implementa por si mismo las dependencias de
 profundidad, mezcla o muestreo en NVK/deko3d. Los state blocks, Reset y las

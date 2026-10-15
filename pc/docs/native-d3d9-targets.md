@@ -73,7 +73,8 @@ El NRO pc-diag01 de hardware permanece intacto y no necesita repetirse.
 
 GetSurfaceLevel de texturas, GetContainer, surfaces offscreen, LockRect/DC,
 StretchRect, GetRenderTargetData guest, resolve de MSAA y texturas RT/depth
-siguen pendientes. Tambien escenas, Draw, Present, Reset y el backend Switch.
+siguen pendientes. Present, Reset y el backend Switch siguen pendientes. Las
+[escenas y draws](native-d3d9-draw.md) ya tienen su pipeline propio probado.
 Crear una superficie Lockable no implica que su LockRect guest este conectado;
 ese metodo conserva un diagnostico estricto de pendiente.
 

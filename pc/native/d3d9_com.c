@@ -4,7 +4,7 @@
 #include "host_mutex.h"
 #include <stdlib.h>
 
-enum { DEVICE_SLOTS=119,METHODS=63,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4 };
+enum { DEVICE_SLOTS=119,METHODS=67,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4 };
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
@@ -27,7 +27,7 @@ struct fnv_d3d9_com {
     unsigned char *objects;
     unsigned char *buffer_memory;struct span *free_spans;uint32_t free_count;
     int shaders[2],indices,declaration,textures[16],targets[4],depth_target;struct stream streams[16];
-    uint32_t tokens[METHODS],used,device_references;
+    uint32_t tokens[METHODS],used,device_references;int in_scene;
     fnv_host_mutex guard;
 };
 static struct fnv_d3d9_com *active_com;
@@ -652,6 +652,33 @@ static void api_clear(void) {
     uint32_t result=c->config.backend.clear(c->config.backend.context,count,rects,flags,color,z,stencil);
     fnv_host_mutex_unlock(&c->guard);free(rects);fnv_cpu_return_u32(result,28);
 }
+static void scene(int begin) {
+    uint32_t self=fnv_cpu_argument_u32(0);struct fnv_d3d9_com *c=module();
+    if(!c->config.backend.scene)invalid("D3D9 scene provider pending",self);
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=FNV_D3D9_INVALIDCALL;
+    if(c->in_scene!=begin){result=c->config.backend.scene(c->config.backend.context,begin);if(!result)c->in_scene=begin;}
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,4);
+}
+static void api_begin_scene(void){scene(1);}
+static void api_end_scene(void){scene(0);}
+static void draw(int indexed) {
+    uint32_t self=fnv_cpu_argument_u32(0),primitive=fnv_cpu_argument_u32(1),base=0,min_vertex=0,vertices=0,start,primitives;
+    if(indexed){base=fnv_cpu_argument_u32(2);min_vertex=fnv_cpu_argument_u32(3);vertices=fnv_cpu_argument_u32(4);start=fnv_cpu_argument_u32(5);primitives=fnv_cpu_argument_u32(6);}
+    else {start=fnv_cpu_argument_u32(2);primitives=fnv_cpu_argument_u32(3);}
+    struct fnv_d3d9_com *c=module();
+    if(!c->config.backend.draw || !c->config.backend.upload_constants)invalid("D3D9 draw/constants provider pending",self);
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);int locked=0;
+    for(unsigned i=0;i<16;i++)if(c->streams[i].index>=0 && c->resources[c->streams[i].index].locked)locked=1;
+    for(unsigned i=0;i<16;i++)if(c->textures[i]>=0){struct resource *r=c->resources+c->textures[i];
+        for(uint32_t level=0;level<r->levels;level++)if(r->mips[level].locked)locked=1;}
+    if(indexed && c->indices>=0 && c->resources[c->indices].locked)locked=1;
+    uint32_t result=FNV_D3D9_INVALIDCALL;
+    if(c->in_scene && !locked){result=fnv_d3d9_constants_flush(c->constants,c->config.backend.upload_constants,c->config.backend.context);
+        if(!result)result=c->config.backend.draw(c->config.backend.context,indexed,primitive,base,min_vertex,vertices,start,primitives);}
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,indexed?28:16);
+}
+static void api_draw_primitive(void){draw(0);}
+static void api_draw_indexed(void){draw(1);}
 static void constant(enum fnv_d3d9_stage stage,enum fnv_d3d9_constant_kind kind,int get) {
     uint32_t self=fnv_cpu_argument_u32(0),first=fnv_cpu_argument_u32(1),at=fnv_cpu_argument_u32(2),count=fnv_cpu_argument_u32(3);
     struct fnv_d3d9_com *c=module();uint32_t width=kind==FNV_D3D9_BOOLEAN?4:16;
@@ -683,7 +710,8 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_set_render_state,api_get_render_state,api_set_sampler_state,api_get_sampler_state,
     api_set_viewport,api_get_viewport,api_set_scissor,api_get_scissor,
     api_create_color_surface,api_create_depth_surface,api_surface_desc,api_set_render_target,api_get_render_target,
-    api_set_depth_target,api_get_depth_target,api_clear};
+    api_set_depth_target,api_get_depth_target,api_clear,
+    api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
@@ -759,10 +787,16 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     write32(c->objects+SURFACE_VTABLE+10*4,c->tokens[26]);write32(c->objects+SURFACE_VTABLE+12*4,c->tokens[57]);
     const unsigned surface_slots[8]={28,29,0,37,38,39,40,43};
     for(unsigned i=0;i<8;i++)if(i!=2)write32(c->objects+surface_slots[i]*4,c->tokens[55+i]);
+    const unsigned draw_slots[4]={41,42,81,82};
+    for(unsigned i=0;i<4;i++)write32(c->objects+draw_slots[i]*4,c->tokens[63+i]);
     write32(c->objects+OBJECT_OFFSET-4,cfg->objects_address);c->device_references=1;active_com=c;*out=c;return FNV_CPU_OK;
 }
 uint32_t fnv_d3d9_com_device(const struct fnv_d3d9_com *c){return c?device_address(c):0;}
-uint32_t fnv_d3d9_com_flush(struct fnv_d3d9_com *c,fnv_d3d9_constants_upload upload,void *ctx){return c?fnv_d3d9_constants_flush(c->constants,upload,ctx):FNV_D3D9_INVALIDCALL;}
+uint32_t fnv_d3d9_com_flush(struct fnv_d3d9_com *c,fnv_d3d9_constants_upload upload,void *ctx){
+    if(!c)return FNV_D3D9_INVALIDCALL;
+    fnv_host_mutex_lock(&c->guard);uint32_t result=fnv_d3d9_constants_flush(c->constants,upload,ctx);
+    fnv_host_mutex_unlock(&c->guard);return result;
+}
 enum fnv_cpu_result fnv_d3d9_com_destroy(struct fnv_d3d9_com *c) {
     if(!c || c!=active_com)return FNV_CPU_INVALID;
     enum fnv_cpu_result r=fnv_cpu_unregister_native(c->cpu,c->tokens[0],METHODS);if(r)return r;
