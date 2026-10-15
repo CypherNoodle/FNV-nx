@@ -24,6 +24,9 @@ struct fnv_windows_thread_config {
  * template/callback loading, Windows SEH, VirtualAlloc or CreateThread here. */
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *, struct fnv_windows_process **);
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *);
+/* Borrowed host view for preparing native modules before attach. The process
+ * owns it; keep using Windows attach/detach, and destroy modules first. */
+struct fnv_cpu_runtime *fnv_windows_runtime(struct fnv_windows_process *);
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *,
     struct fnv_native_image *, struct fnv_native_import *, size_t capacity,
     const struct fnv_cpu_export *additional, size_t additional_count, size_t *count);

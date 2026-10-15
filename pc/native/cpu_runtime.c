@@ -22,8 +22,10 @@ RECOMP_TLS volatile uint64_t fnv_cpu_icall_count;
 struct fnv_cpu_runtime {
     struct fnv_cpu_config config;
     fnv_cpu_function imports[FNV_NATIVE_MAX_IMPORTS], staging[FNV_NATIVE_MAX_IMPORTS];
+    fnv_cpu_function methods[FNV_CPU_MAX_NATIVE_METHODS];
+    size_t methods_count;
     size_t imports_count, users;
-    int bound;
+    int bound,started;
     atomic_int faulted;
 };
 static struct fnv_cpu_runtime *active;
@@ -97,8 +99,35 @@ enum fnv_cpu_result fnv_cpu_create(const struct fnv_cpu_config *c,struct fnv_cpu
 enum fnv_cpu_result fnv_cpu_destroy(struct fnv_cpu_runtime *r) {
     lock();if(!r || active!=r){unlock();return FNV_CPU_INVALID;}
     if(r->users){unlock();return FNV_CPU_BUSY;}
+    for(size_t i=0;i<r->methods_count;i++)if(r->methods[i]){unlock();return FNV_CPU_BUSY;}
     active=NULL;g_xbox_mem_offset=0;g_xbox_code_lo=g_xbox_code_hi=0;unlock();free(r);return FNV_CPU_OK;
 }
+enum fnv_cpu_result fnv_cpu_register_native(struct fnv_cpu_runtime *r,const fnv_cpu_function *functions,size_t count,uint32_t *tokens) {
+    if(!r || !functions || !tokens || !count || count>FNV_CPU_MAX_NATIVE_METHODS)return FNV_CPU_INVALID;
+    for(size_t i=0;i<count;i++)if(!functions[i])return FNV_CPU_INVALID;
+    lock();if(active!=r){unlock();return FNV_CPU_INVALID;}
+    if(r->users || r->started){unlock();return FNV_CPU_BUSY;}
+    if(count>FNV_CPU_MAX_NATIVE_METHODS-r->methods_count){unlock();return FNV_CPU_NO_MEMORY;}
+    size_t first=r->methods_count;memcpy(r->methods+first,functions,count*sizeof(*functions));r->methods_count+=count;
+    for(size_t i=0;i<count;i++)tokens[i]=FNV_CPU_NATIVE_METHOD_BASE+(uint32_t)(first+i)*4;
+    unlock();return FNV_CPU_OK;
+}
+enum fnv_cpu_result fnv_cpu_unregister_native(struct fnv_cpu_runtime *r,uint32_t first,size_t count) {
+    if(!r || first<FNV_CPU_NATIVE_METHOD_BASE || ((first-FNV_CPU_NATIVE_METHOD_BASE)&3) || !count)return FNV_CPU_INVALID;
+    size_t index=(first-FNV_CPU_NATIVE_METHOD_BASE)/4;
+    lock();if(active!=r){unlock();return FNV_CPU_INVALID;}
+    if(r->users){unlock();return FNV_CPU_BUSY;}
+    if(index>r->methods_count || count>r->methods_count-index){unlock();return FNV_CPU_INVALID;}
+    for(size_t i=0;i<count;i++)if(!r->methods[index+i]){unlock();return FNV_CPU_INVALID;}
+    memset(r->methods+index,0,count*sizeof(r->methods[0]));unlock();return FNV_CPU_OK;
+}
+enum fnv_cpu_result fnv_cpu_prepare_memory(struct fnv_cpu_runtime *r,uint32_t at,size_t bytes,void **out) {
+    if(!out)return FNV_CPU_INVALID;
+    *out=NULL;lock();if(!r || active!=r || !within(r,at,bytes)){unlock();return FNV_CPU_INVALID;}
+    if(r->users || r->started){unlock();return FNV_CPU_BUSY;}
+    *out=r->config.memory+(at-r->config.guest_base);unlock();return FNV_CPU_OK;
+}
+struct fnv_cpu_runtime *fnv_cpu_current(void) {return thread_runtime;}
 static int dll_equal(const char *a,const char *b) {
     while(*a && *b){unsigned x=(unsigned char)*a++,y=(unsigned char)*b++;
         if(x>='A' && x<='Z')x+='a'-'A';
@@ -147,7 +176,7 @@ enum fnv_cpu_result fnv_cpu_attach(struct fnv_cpu_runtime *r,const struct fnv_cp
     if(thread_runtime)return FNV_CPU_BUSY;
     lock();if(!r || active!=r || !valid_state(r,s)){unlock();return FNV_CPU_INVALID;}
     if(atomic_load_explicit(&r->faulted,memory_order_acquire)){unlock();return FNV_CPU_FAULTED;}
-    r->users++;thread_runtime=r;unlock();restore_state(s);has_timestamp=0;last_timestamp=0;
+    r->users++;r->started=1;thread_runtime=r;unlock();restore_state(s);has_timestamp=0;last_timestamp=0;
     memset(&thread_fault,0,sizeof(thread_fault));fnv_cpu_icall_trace_idx=0;fnv_cpu_icall_count=0;
     for(unsigned i=0;i<16;i++)fnv_cpu_icall_trace[i]=0;
     return FNV_CPU_OK;
@@ -172,6 +201,8 @@ enum fnv_cpu_result fnv_cpu_set_state(const struct fnv_cpu_state *s) {
 recomp_func_t recomp_lookup_manual(uint32_t va) { (void)va;return NULL; /* No overrides are configured. */ }
 recomp_func_t recomp_lookup_kernel(uint32_t va) {
     if(!thread_runtime || va<0xFE000000u || ((va-0xFE000000u)&3u))return NULL;
+    if(va>=FNV_CPU_NATIVE_METHOD_BASE){uint32_t slot=(va-FNV_CPU_NATIVE_METHOD_BASE)/4;
+        return slot<thread_runtime->methods_count?thread_runtime->methods[slot]:NULL;}
     uint32_t index=(va-0xFE000000u)/4u;
     return index<thread_runtime->imports_count?thread_runtime->imports[index]:NULL;
 }
@@ -210,9 +241,13 @@ enum fnv_cpu_result fnv_cpu_execute(uint32_t entry,struct fnv_cpu_fault *out) {
     }
     fault_boundary=NULL;if(out)*out=thread_fault;return FNV_CPU_GUEST_FAULT;
 }
+void *fnv_cpu_try_memory(uint32_t address_value,size_t bytes) {
+    return thread_runtime && within(thread_runtime,address_value,bytes)?thread_runtime->config.memory+(address_value-thread_runtime->config.guest_base):NULL;
+}
 void *fnv_cpu_memory(uint32_t address_value,size_t bytes) {
-    if(!thread_runtime || !within(thread_runtime,address_value,bytes))fail(FNV_CPU_BAD_MEMORY,address_value,0,"guest argument outside flat arena");
-    return thread_runtime->config.memory+(address_value-thread_runtime->config.guest_base);
+    void *p=fnv_cpu_try_memory(address_value,bytes);
+    if(!p)fail(FNV_CPU_BAD_MEMORY,address_value,0,"guest argument outside flat arena");
+    return p;
 }
 uint32_t fnv_cpu_argument_u32(unsigned index) {
     uint64_t at=(uint64_t)g_esp+4u+(uint64_t)index*4u;

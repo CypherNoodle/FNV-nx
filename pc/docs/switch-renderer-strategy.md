@@ -72,9 +72,10 @@ Pip-Boy. Un replay correcto acredita esa secuencia, no un arranque del motor.
 Las operaciones pendientes deben detenerse con diagnostico, sin devolver
 objetos o resultados de exito ficticios.
 
-Esta tabla es un plan verificable: estos objetos COM y el renderer D3D9 PC
-todavia no estan implementados. El [banco de constantes](native-d3d9-constants.md)
-es el primer componente probado; aun no recibe llamadas del motor. No se han trasladado codigo ni cifras de
+Esta tabla es un plan verificable. El [modulo COM](native-d3d9-com.md) ya
+conecta constantes y creacion/consulta de shaders desde callers x86 traducidos,
+con un proveedor real de prueba. Faltan recursos, bindings y renderer D3D9 PC;
+aun no recibe llamadas del motor completo. No se han trasladado codigo ni cifras de
 rendimiento de Peggle a FNV.
 
 ## Medidas desde el primer frame

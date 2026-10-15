@@ -64,6 +64,10 @@ hasta destruirse; su backing debe coincidir exactamente con el offset del
 arena CPU y no solaparse con imagen, PEB ni reservas de los hilos. NULL
 mantiene disponible el modulo TLS sin habilitar las API Virtual*.
 
+El accessor prestado `fnv_windows_runtime` permite preparar modulos COM
+antes del attach; no transfiere propiedad ni reemplaza ese ciclo de vida.
+El proceso no puede destruirse hasta retirar los metodos nativos del CPU.
+
 Cada hilo host usa `fnv_windows_thread_attach` con estado CPU, ID, TEB,
 expansion y pila propios. El vector TLS estatico opcional declara tambien
 su tamano completo. Se rechazan rangos fuera del arena, solapamientos con

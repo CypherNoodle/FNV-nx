@@ -22,6 +22,8 @@ no forman parte del codigo fuente de las herramientas.
 | `../native/d3d9_constants.c/.h` | Bancos VS/PS float4, int4 y BOOL, con agrupacion de cambios, mutex y reintento de subidas; independiente del backend, aun sin dispatch COM. |
 | `shader_packages.py` | Inventario acotado de SDP y exportacion privada opcional por hash; no traduce ni valida semantica de shaders. |
 | `build_d3d9_constants.py` | Agrega el banco de constantes al conjunto CPU/Windows/VM verificado, con flags Switch y auditoria de externos. No construye renderer ni NRO. |
+| `../native/d3d9_com.c/.h` | Bridges COM stdcall con vtables guest32, shaders de catalogo y proveedor real obligatorio; referencias, GetDevice/GetFunction y constantes. Recursos/draws pendientes. |
+| `build_d3d9_com.py` | Sustituye CPU conservando su version anterior verificada, comprueba dependencias de includes y reutiliza los C generados inmutables; compila los modulos propios y audita TLS/externos. |
 | `prepare_aot_image.py` | Valida identidad y empaqueta secciones PE en el contenedor x86 que espera el SDK; permite una captura de texto declarada. |
 | `run_aot_analysis.py` | Orquesta scan/ABI/codegen con hashes y variantes separadas; no aplica firmas XDK al programa Windows. |
 | `audit_aot_gaps.py` | Clasifica destinos pendientes, todos sus propietarios solapados y procedencia en C generado. Solo lectura. |
@@ -95,3 +97,5 @@ traducidos. Ver [memoria y limites](../docs/native-windows-memory.md).
 `test_shader_packages.py` comprueba entradas malformadas; `test_d3d9_constants.py`
 compara los bancos con D3D9 NULLREF de Windows, procesa setters conservados y
 comprueba CreateShader/GetFunction del catalogo. Ver [contrato D3D9](../docs/native-d3d9-constants.md).
+`test_d3d9_com.py` traduce callers de vtable y verifica bridges/referencias,
+shaders y constantes con D3D9 NULLREF. Ver [ABI COM y comandos](../docs/native-d3d9-com.md).

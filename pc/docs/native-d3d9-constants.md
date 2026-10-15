@@ -100,10 +100,11 @@ conversiones masivas son antecedentes, no prueba del nuevo renderer.
 
 ## Siguiente integracion
 
-Implementar registro de metodos nativos/vtables guest32 para los objetos
-COM y conectar setters/getters a este banco. El registro IAT actual del CPU
-solo contempla imports estaticos; no ofrece aun ese dispatch COM dinamico.
-Despues conectar shaders, recursos y un draw completo al backend, compararlo
+El [modulo COM](native-d3d9-com.md) ya conecta setters/getters a este banco
+y crea/consulta shaders mediante un proveedor preparado. El registro CPU
+tiene ahora metodos nativos separados de la IAT, preparados antes del attach;
+todavia no implementa carga dinamica guest de DLL.
+Falta conectar bindings, recursos y un draw completo al backend, compararlo
 con el original y ampliar cobertura. Heap, sincronizacion, DLL y cold-entry
 siguen siendo requisitos independientes del arranque. No hay un NRO nuevo
 del motor PC ni una prueba HW necesaria para este componente aislado.

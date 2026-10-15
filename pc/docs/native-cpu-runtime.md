@@ -70,6 +70,13 @@ Esta frontera no captura fallos del SO host ni implementa SEH guest.
 
 ## Compilar para Switch
 
+El [registro de metodos nativos para COM](native-d3d9-com.md) agrega tokens
+desde 0xFE010000, independientes de los imports. Se prepara antes del primer
+attach, conserva indices sin reutilizarlos y solo permite retirar handlers
+cuando no quedan hilos adjuntos. Destroy exige retirarlos primero. No cambia
+el ABI de registros o los macros del SDK. Hay helpers de preparacion de
+rangos y comprobacion no faulting, sin acreditar permisos ni SEH.
+
 ARM64 generico no basta para TLS de Horizon. Seguir las opciones de la
 plataforma NintendoSwitch de devkitPro:
 

@@ -98,8 +98,13 @@ El primer [componente D3D9](docs/native-d3d9-constants.md) ya conserva los
 bancos VS/PS de constantes y agrupa cambios para el backend. Paso el oraculo
 Windows, reintentos y concurrencia; los 1.809 shaders distintos tambien
 pasaron creacion/GetFunction en NULLREF. El enlace parcial suma ahora 353
-unidades. No se ha conectado el dispatch COM ni renderizado un draw con esta
-ruta; la creacion de objetos Windows no prueba traduccion o ejecucion en Switch.
+unidades en esa etapa. Ahora el [modulo COM](docs/native-d3d9-com.md) conecta
+desde x86 traducido los metodos de constantes y creacion/consulta de shaders,
+con referencias y proveedor real requerido. Pasaron 1.809 recorridos de
+shaders, 240 de constantes y 400 entre hilos mediante vtables guest32.
+El enlace parcial actualizado suma 354 unidades. Set/GetShader, recursos,
+draws y presentacion aun detienen la ejecucion con diagnostico de pendiente;
+no se ha renderizado con esta ruta ni probado traduccion GPU en Switch.
 
 ## Carpeta de instalacion objetivo
 

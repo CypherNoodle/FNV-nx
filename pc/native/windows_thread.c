@@ -167,6 +167,7 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
     unlock(p);if(result==FNV_CPU_OK){fnv_vm_release_reference(p->config.memory);free(p);}return result;
 }
+struct fnv_cpu_runtime *fnv_windows_runtime(struct fnv_windows_process *p){return p?p->cpu:NULL;}
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *p,
     struct fnv_native_image *image,struct fnv_native_import *scratch,size_t capacity,
     const struct fnv_cpu_export *extra,size_t n,size_t *count) {

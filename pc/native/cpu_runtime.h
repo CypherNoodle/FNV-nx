@@ -3,6 +3,8 @@
 #include "pe_image.h"
 
 typedef void (*fnv_cpu_function)(void);
+#define FNV_CPU_MAX_NATIVE_METHODS 1024u
+#define FNV_CPU_NATIVE_METHOD_BASE 0xFE010000u
 struct fnv_cpu_runtime;
 enum fnv_cpu_result {
     FNV_CPU_OK, FNV_CPU_INVALID, FNV_CPU_BUSY, FNV_CPU_NO_MEMORY,
@@ -53,6 +55,13 @@ struct fnv_cpu_export {
  * guest execution is not. Destroy only after all guest threads detach. */
 enum fnv_cpu_result fnv_cpu_create(const struct fnv_cpu_config *, struct fnv_cpu_runtime **);
 enum fnv_cpu_result fnv_cpu_destroy(struct fnv_cpu_runtime *);
+/* Prepared native methods, separate from the IAT. Atomic registration before
+ * the first attach; no hot replacement or token reuse. Unregister only after
+ * all threads detach. Caller serializes module setup/teardown with attach. */
+enum fnv_cpu_result fnv_cpu_register_native(struct fnv_cpu_runtime *,const fnv_cpu_function *,size_t count,uint32_t *tokens);
+enum fnv_cpu_result fnv_cpu_unregister_native(struct fnv_cpu_runtime *,uint32_t first_token,size_t count);
+enum fnv_cpu_result fnv_cpu_prepare_memory(struct fnv_cpu_runtime *,uint32_t address,size_t bytes,void **);
+struct fnv_cpu_runtime *fnv_cpu_current(void);
 /* One successful static-IAT bind before attaching threads. Failure preserves
  * IAT and active registry. No DLL loading or implicit API implementation. */
 enum fnv_native_result fnv_cpu_bind_imports(struct fnv_cpu_runtime *,
@@ -72,6 +81,9 @@ enum fnv_cpu_result fnv_cpu_execute(uint32_t entry, struct fnv_cpu_fault *);
 /* Bounded flat-arena helpers for future import handlers. Generated MEM macros
  * remain unchecked: these helpers are not a guest VirtualAlloc/SEH subsystem. */
 void *fnv_cpu_memory(uint32_t address, size_t bytes);
+/* Bounds-only nonfaulting probe for bridges that return an HRESULT. Page
+ * permissions and the lifetime of a region still require a VM/provider. */
+void *fnv_cpu_try_memory(uint32_t address,size_t bytes);
 uint32_t fnv_cpu_argument_u32(unsigned index);
 void fnv_cpu_return_u32(uint32_t value, uint32_t argument_bytes);
 #endif
