@@ -25,6 +25,7 @@ static void draw_pixels(unsigned channel,const unsigned char gray[4],int patch){
         draw_pixel_checks++;}
 }
 #include "vk_backend_render_states_fixture.h"
+#include "vk_backend_bc_fixture.h"
 static void exercise_draws(void){
     unsigned stage_index[2]={0};for(unsigned i=0;i<catalog_count;++i)stage_index[((const uint32_t*)catalog[i].bytes)[0]>>16==0xffff]=i;
     struct fnv_vk_vertex_input map[2]={{0,0,0},{5,0,1}};
@@ -71,6 +72,7 @@ static void exercise_draws(void){
     render[1]=174;render[2]=1;assert(!call(SET_RENDER,3,render));draw_constants(0,.5f);
     assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(0,second,1);
     exercise_render_states(vb,ib,texture,second);
+    exercise_bc_draws(vb,ib,texture);
     /* Nonindexed triangle list consumes six vertices without an index binding. */
     render[2]=0;assert(!call(SET_RENDER,3,render));float vertices[24]={-1,1,1,0,1,1,2,0,1,-1,2,1,-1,1,1,0,1,-1,2,1,-1,-1,1,1};upload_buffer(vb,0,96,0,vertices);
     stream[3]=0;assert(!call(B_STREAM,5,stream));index[1]=0;assert(!call(B_INDICES,2,index));draw_constants(2,.5f);

@@ -56,6 +56,10 @@ sano de tamano fijo, conserva recursos MANAGED y limpia constantes y bindings.
 Pasa pruebas Vulkan de escritorio y compila para ARM64; faltan recuperacion
 de superficie perdida, cambio de resolucion y su validacion en consola.
 
+Las [texturas DXT1/3/5](pc/docs/native-vulkan-bc.md) ya se suben comprimidas
+como BC1/2/3 y se muestrean en Vulkan. Pasan pruebas GPU de escritorio de
+color, alpha, mipmaps y parches; falta comprobar esta ampliacion en Switch.
+
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
 Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-runtime.md).

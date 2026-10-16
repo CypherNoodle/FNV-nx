@@ -81,6 +81,8 @@ uint32_t fnv_vk_backend_read_color(struct fnv_vk_backend *,uintptr_t,void *,size
 uint32_t fnv_vk_backend_read_buffer(struct fnv_vk_backend *,uintptr_t,uint32_t offset,uint32_t bytes,void *,size_t,uint64_t timeout_ns);
 /* Diagnostic tightly packed RGBA8 readback of an uploaded mip. No sampling.
  * Uninitialized textures reject; output unchanged on error/timeout. */
+/* Diagnostic readback: RGBA8 for converted textures, tightly packed BC blocks
+ * for DXT1/3/5. This is not a D3D9 application method or decoder. */
 uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *,uintptr_t,uint32_t level,void *,size_t,uint64_t timeout_ns);
 /* Trusted host-side offline catalog: copy exact D3D9 tokens, prevalidated and
  * linked SPIR-V with entry main, and its reflected uniform plan. No runtime

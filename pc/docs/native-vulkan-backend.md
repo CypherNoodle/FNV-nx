@@ -38,7 +38,8 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
 - Texturas 2D con mipmaps y 16 bindings de pixel sampler. ARGB8/XRGB8,
   RGB565, A8 y L8 convertidos a RGBA8; imagenes Vulkan OPTIMAL con uso sampled
   y transfer. Pools Default/Managed, DYNAMIC solo Default. RT/depth/autogen,
-  texturas comprimidas, superficies de textura y vertex samplers pendientes.
+  superficies de textura y vertex samplers pendientes. [DXT1/3/5](native-vulkan-bc.md)
+  ya usan imagenes BC1/2/3 comprimidas si el dispositivo habilita BC.
 - Cada UnlockRect convierte el parche sobre un shadow propio y sube todos los
   mips a una imagen nueva usando staging HOST_VISIBLE. Barreras explicitas y
   flush si no coherente. No retiene punteros guest ni modifica la imagen previa.
@@ -48,7 +49,8 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
   implicitas, devuelve BUSY si no hay slot. El caller debe poll/wait para retirar
   completados. En fallo de grabacion/envio se invalida el backend y conserva
   recursos hasta cierre seguro. No reusa comandos con completitud desconocida.
-- Readback RGBA8 de mip mediante copia GPU, con salida intacta en fallo/timeout.
+- Readback de mip mediante copia GPU: RGBA8 o bloques BC compactos, con salida
+  intacta en fallo/timeout.
   Textura recien creada tiene contenido indefinido; readback se rechaza hasta
   primer upload. Esa subida inicializa tambien los otros mips con el shadow propio.
 - Catalogo host propio: tokens DX9 exactos, SPIR-V prevalidado offline y plan
@@ -217,13 +219,13 @@ privados de desarrollo no son carpetas requeridas en la SD.
 
 La [fabrica preparada](native-d3d9-factory.md) ya enlaza Direct3DCreate9 por IAT
 y publica una vez el device real tras validar CreateDevice. Es un adaptador
-virtual de tamano fijo; faltan caps completas, Reset y recreacion.
+virtual de tamano fijo; faltan caps completas y recreacion de superficie perdida.
 La [ruta WSI host](native-vulkan-presentation.md) ya presenta por Vulkan Windows
-y compila el enlace NWindow; no ha ejecutado esta ruta en NVK/Switch.
+y compila el enlace NWindow; su subconjunto sintetico hw01 ya paso en Switch.
 Permanecen pendientes catalogo/interfaz de shaders del juego, mas topologias,
-lineas/puntos, stencil y otros estados, formatos comprimidos, superficies de textura,
+lineas/puntos, stencil y otros estados, DXT2/4, superficies de textura,
 cache de pipelines y Reset con NVK. Present COM ya usa la ruta WSI; falta su
-validacion en consola mediante el probe propio. Las pruebas graficas
+validacion ampliada de Reset/DXT en consola. Las pruebas graficas
 anteriores se conservan como pruebas separadas; este runner usa el proveedor
 propio para las operaciones descritas.
 El arranque del motor desde EXE y sus servicios Windows permanecen independientes.

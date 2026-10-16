@@ -1,5 +1,9 @@
 # FNV-nx: recompilacion estatica PC
 
+El proveedor ya admite [DXT1/3/5 como BC1/2/3](docs/native-vulkan-bc.md), con
+mipmaps y parches comprimidos comprobados mediante lecturas y draws GPU.
+La verificacion de esta ampliacion en NVK/Switch sigue pendiente.
+
 Estado posterior: [Reset del dispositivo sano y tamano fijo](docs/native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.
 
 Esta rama trabaja en un port nativo de la version PC. Xbox permanece pausado.

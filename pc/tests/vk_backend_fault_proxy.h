@@ -2,6 +2,10 @@
  * API failures verify rollback and lifetime without requiring driver faults. */
 static PFN_vkGetInstanceProcAddr original_gpa;
 static PFN_vkGetDeviceProcAddr original_gdpa;
+static unsigned hide_bc,force_bc_opaque;
+static PFN_vkGetPhysicalDeviceFeatures original_features;
+static VKAPI_ATTR void VKAPI_CALL proxy_features(VkPhysicalDevice d,VkPhysicalDeviceFeatures *out){original_features(d,out);if(hide_bc)out->textureCompressionBC=VK_FALSE;}
+
 static unsigned fail_memory,fail_map,fail_flush,timeout_fence,fail_submit,fail_idle,invalidations,flushes;
 static unsigned fail_pipeline,live_Pipeline,fail_descriptors,force_clamp,force_wrong_cull,force_wrong_blend;
 static PFN_vkCreateGraphicsPipelines original_pipelines;
@@ -48,6 +52,10 @@ static VKAPI_ATTR void VKAPI_CALL proxy_destroy_##n(VkDevice d,Vk##n h,const VkA
     if(h){assert(live_##n);live_##n--;}original_destroy_##n(d,h,a);}
 OBJECTS(OBJECT)
 #undef OBJECT
+static VKAPI_ATTR VkResult VKAPI_CALL proxy_imageview_override(VkDevice d,const VkImageViewCreateInfo *info,const VkAllocationCallbacks *a,VkImageView *out){
+    VkImageViewCreateInfo next=*info;if(force_bc_opaque && next.format==VK_FORMAT_BC1_RGBA_UNORM_BLOCK)next.components.a=VK_COMPONENT_SWIZZLE_ONE;
+    return proxy_create_ImageView(d,&next,a,out);
+}
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_sampler_override(VkDevice d,const VkSamplerCreateInfo *info,const VkAllocationCallbacks *a,VkSampler *out){
     VkSamplerCreateInfo next=*info;if(force_clamp)next.addressModeU=next.addressModeV=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     return proxy_create_Sampler(d,&next,a,out);
@@ -97,6 +105,7 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gdpa(VkDevice d,const char
     if(!strcmp(name,"vkCreate" #n)){original_create_##n=(PFN_vkCreate##n)p;return (PFN_vkVoidFunction)proxy_create_##n;} \
     if(!strcmp(name,"vkDestroy" #n)){original_destroy_##n=(PFN_vkDestroy##n)p;return (PFN_vkVoidFunction)proxy_destroy_##n;}
     if(!strcmp(name,"vkCreateSampler")){original_create_Sampler=(PFN_vkCreateSampler)p;return (PFN_vkVoidFunction)proxy_sampler_override;}
+    if(!strcmp(name,"vkCreateImageView")){original_create_ImageView=(PFN_vkCreateImageView)p;return (PFN_vkVoidFunction)proxy_imageview_override;}
     OBJECTS(LOAD_OBJECT)
 #undef LOAD_OBJECT
 #define HOOK(vk,slot,fn) if(!strcmp(name,"vk" #vk)){slot=(PFN_vk##vk)p;return (PFN_vkVoidFunction)fn;}
@@ -118,6 +127,7 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gdpa(VkDevice d,const char
 }
 static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gpa(VkInstance instance,const char *name){
     PFN_vkVoidFunction p=original_gpa(instance,name);
+    if(!strcmp(name,"vkGetPhysicalDeviceFeatures")){original_features=(PFN_vkGetPhysicalDeviceFeatures)p;return (PFN_vkVoidFunction)proxy_features;}
     if(!strcmp(name,"vkGetDeviceProcAddr")){original_gdpa=(PFN_vkGetDeviceProcAddr)p;return (PFN_vkVoidFunction)proxy_gdpa;}
     if(!strcmp(name,"vkGetPhysicalDeviceFormatProperties")){original_format_properties=(PFN_vkGetPhysicalDeviceFormatProperties)p;return (PFN_vkVoidFunction)proxy_format_properties;}
     if(!strcmp(name,"vkGetPhysicalDeviceMemoryProperties")){original_memory_properties=(PFN_vkGetPhysicalDeviceMemoryProperties)p;return (PFN_vkVoidFunction)proxy_memory_properties;}

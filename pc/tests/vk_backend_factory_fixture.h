@@ -16,7 +16,7 @@ static void exercise_factory(void){
     memset(ptr(DATA),0xa5,16);mode[3]=1;assert(call(F_ENUM,5,mode)==FNV_VK_INVALID);for(unsigned i=0;i<4;++i)assert(get(DATA+i*4)==0xa5a5a5a5);factory_checks+=2;
     uint32_t display[]={factory,0,DATA};assert(!call(F_DISPLAY,3,display) && get(DATA)==32);
     uint32_t type[]={factory,0,1,21,21,1};assert(!call(F_TYPE,6,type));type[2]=2;assert(call(F_TYPE,6,type)==0x8876086au);factory_checks+=3;
-    uint32_t format[]={factory,0,1,21,0,3,21};assert(!call(F_FORMAT,7,format));format[6]=0x31545844;assert(call(F_FORMAT,7,format)==0x8876086au);
+    uint32_t format[]={factory,0,1,21,0,3,21};assert(!call(F_FORMAT,7,format));format[6]=0x31545844;assert(!call(F_FORMAT,7,format));
     format[4]=1;format[5]=1;format[6]=21;assert(!call(F_FORMAT,7,format));format[4]=2;format[6]=75;assert(!call(F_FORMAT,7,format));factory_checks+=4;
     memset(ptr(DATA),0xa5,320);uint32_t caps[]={factory,0,1,DATA};assert(call(F_CAPS,4,caps)==0x8876086au);
     for(unsigned i=0;i<320;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;

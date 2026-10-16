@@ -39,7 +39,7 @@ static void exercise_textures(void){
     }
     uint32_t t=make_texture(4,4,0,512,21,0);uintptr_t id=texture_id;unsigned pitch;
     uintptr_t rejected=0x1234;struct fnv_vk_stats before=stats();
-    assert(provider.create_texture(gpu,4,4,1,0,0x31545844,1,&rejected)==FNV_VK_INVALID && rejected==0x1234);
+    assert(provider.create_texture(gpu,4,4,1,0,0x32545844,1,&rejected)==FNV_VK_INVALID && rejected==0x1234);
     assert(provider.create_texture(gpu,4,4,1,1,21,0,&rejected)==FNV_VK_INVALID);
     assert(provider.create_texture(gpu,4,4,1,0,21,2,&rejected)==FNV_VK_INVALID);
     unsigned char zero[64]={0};

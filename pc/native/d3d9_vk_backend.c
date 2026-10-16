@@ -9,7 +9,7 @@
 #define WSI_INSTANCE(X) X(DestroySurfaceKHR) X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR) X(GetPhysicalDeviceSurfaceFormatsKHR) X(GetPhysicalDeviceSurfacePresentModesKHR) X(GetPhysicalDeviceFeatures2)
 #define WSI_DEVICE(X) X(CreateSwapchainKHR) X(DestroySwapchainKHR) X(GetSwapchainImagesKHR) X(AcquireNextImageKHR) X(QueuePresentKHR) X(CreateSemaphore) X(DestroySemaphore) X(CmdCopyImage)
 #define INSTANCE(X) X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) \
- X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceImageFormatProperties) X(GetPhysicalDeviceFormatProperties) X(CreateDevice) X(GetDeviceProcAddr)
+ X(GetPhysicalDeviceFeatures) X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceImageFormatProperties) X(GetPhysicalDeviceFormatProperties) X(CreateDevice) X(GetDeviceProcAddr)
 #define DEVICE(X) X(DestroyDevice) X(DeviceWaitIdle) X(GetDeviceQueue) X(CreateImage) X(DestroyImage) \
  X(GetImageMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindImageMemory) X(CreateImageView) X(DestroyImageView) \
  X(CreateCommandPool) X(DestroyCommandPool) X(ResetCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer) \
@@ -68,7 +68,7 @@ struct fnv_vk_backend {
     fnv_host_mutex guard;struct dispatch v;struct fnv_vk_config config;
     VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;struct wsi_state wsi;
     VkPhysicalDeviceProperties properties;VkPhysicalDeviceMemoryProperties memory;
-    uint32_t family;struct surface *surfaces;struct frame frames[3];
+    uint32_t bc;uint32_t family;struct surface *surfaces;struct frame frames[3];
     struct buffer_resource *buffer_resources;struct stream_binding streams[16];uintptr_t indices;
     struct program_entry *programs;uint32_t program_count;uint64_t draws,resets;
     struct fnv_d3d9_blend blend_state;struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
@@ -491,10 +491,10 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     if(!d || !output)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);uint32_t level=offset;
     unsigned char *copy=NULL;struct frame *f=NULL;int held=0;
-    if(buffer_read==2){if(!t || level>=t->levels || !t->version->initialized || (size_t)mip_size(t->width,level)*mip_size(t->height,level)*4>output_bytes)goto done;}
+    if(buffer_read==2){if(!t || level>=t->levels || !t->version->initialized || texture_level_bytes(t,level)>output_bytes)goto done;}
     else if(buffer_read){if(!b || !requested || offset>b->bytes || requested>b->bytes-offset || requested>output_bytes)goto done;}
     else if(!s || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
-    size_t bytes=buffer_read==2?(size_t)mip_size(t->width,level)*mip_size(t->height,level)*4:buffer_read?requested:(size_t)s->width*s->height*4;
+    size_t bytes=buffer_read==2?texture_level_bytes(t,level):buffer_read?requested:(size_t)s->width*s->height*4;
     VkDeviceSize aligned=buffer_read==1?offset&~(VkDeviceSize)3:0,skip=buffer_read==1?offset-aligned:0;
     VkDeviceSize transfer_bytes=buffer_read==1?(((VkDeviceSize)offset+bytes+3)&~(VkDeviceSize)3)-aligned:bytes;
     copy=malloc(bytes);if(!copy){hr=FNV_VK_OOM;goto done;}
@@ -631,8 +631,10 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     }
     if(!d->physical){hr=FNV_VK_INVALID;goto fail;}
     d->v.GetPhysicalDeviceMemoryProperties(d->physical,&d->memory);
+    VkPhysicalDeviceFeatures supported,enabled={0};d->v.GetPhysicalDeviceFeatures(d->physical,&supported);
+    enabled.textureCompressionBC=supported.textureCompressionBC;d->bc=enabled.textureCompressionBC;
     float priority=1;VkDeviceQueueCreateInfo qci={.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,.queueFamilyIndex=d->family,.queueCount=1,.pQueuePriorities=&priority};
-    VkDeviceCreateInfo dci={.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,.queueCreateInfoCount=1,.pQueueCreateInfos=&qci};
+    VkDeviceCreateInfo dci={.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,.queueCreateInfoCount=1,.pQueueCreateInfos=&qci,.pEnabledFeatures=&enabled};
     const char *device_extensions[]={VK_KHR_SWAPCHAIN_EXTENSION_NAME,VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME};
     VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT,.swapchainMaintenance1=VK_TRUE};
     if(window){dci.enabledExtensionCount=2;dci.ppEnabledExtensionNames=device_extensions;dci.pNext=&maintenance;}
@@ -684,8 +686,8 @@ uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *d,uint32_t usage,uin
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(type==1 && usage==1 && format==21){vk_format=VK_FORMAT_B8G8R8A8_UNORM;flags=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
     else if(type==1 && usage==2 && format==75){vk_format=VK_FORMAT_D24_UNORM_S8_UINT;flags=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
-    else if(type==3 && !(usage&~(512u|0x20000u)) && (format==21 || format==22 || format==23 || format==28 || format==50)){
-        vk_format=VK_FORMAT_R8G8B8A8_UNORM;flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    else if(type==3 && !(usage&~(512u|0x20000u)) && (format==21 || format==22 || format==23 || format==28 || format==50 || (d->bc && bc_format(format)))){
+        vk_format=bc_format(format)?bc_format(format):VK_FORMAT_R8G8B8A8_UNORM;flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if(usage&0x20000u){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,vk_format,&props);if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))goto done;}
     }
     if(!flags)goto done;
