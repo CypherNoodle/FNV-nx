@@ -41,7 +41,7 @@ La [profundidad y samplers](pc/docs/native-vulkan-state.md) ya proceden de
 estados COM en esa prueba, con UV fuera de rango y un control negativo que
 detecta el sampler incorrecto. Faltan otros estados y el proveedor general.
 El [proveedor Vulkan propio](pc/docs/native-vulkan-backend.md) ya crea dispositivo,
-superficies, buffers de vertices/indices y Clear desde COM sin un dispositivo D3D9 Windows, con dos envios
+superficies, buffers de vertices/indices, texturas 2D y Clear desde COM sin un dispositivo D3D9 Windows, con dos envios
 en vuelo y retencion por fences. Aun no incorpora draws ni presentacion NVK.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).

@@ -160,3 +160,8 @@ fuera de rango y un control negativo de clamp. Ver [subset y cobertura GPU](../d
 Vulkan propio. Comprueba pixeles, dos frames en vuelo, vida de recursos, limites
 y fallos con `vk_backend_fault_proxy.h`. No usa el dispositivo NULLREF anterior.
 Ver [propiedad, sincronizacion y limites](../docs/native-vulkan-backend.md).
+
+El [backend Vulkan propio](../docs/native-vulkan-backend.md) integra ahora uploads
+versionados de texturas 2D por COM. `../tests/test_d3d9_vk_backend.py` verifica
+mipmaps, cinco conversiones sin compresion, bytes por transfer GPU, fallos y
+retencion por fences. Sus transfers no equivalen todavia a sampling en draws.

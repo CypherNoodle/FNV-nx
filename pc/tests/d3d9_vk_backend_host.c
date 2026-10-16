@@ -27,6 +27,7 @@ static void pixels(uint32_t base,uint32_t patch,unsigned w,unsigned h,unsigned x
     free(data);
 }
 #include "vk_backend_buffers_fixture.h"
+#include "vk_backend_textures_fixture.h"
 int main(int argc,char **argv){
     assert(argc==4 && !strcmp(argv[3],"normal"));
     HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
@@ -36,6 +37,7 @@ int main(int argc,char **argv){
     struct fnv_vk_backend *bad=(void*)1;struct fnv_vk_config tiny=cfg;tiny.memory_budget=1;
     assert(fnv_vk_backend_create(gp,&tiny,&bad,&failure)==FNV_VK_OOM && !bad);
     force_noncoherent=1;assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));force_noncoherent=0;fnv_vk_backend_callbacks(gpu,&provider);
+    original_texture_create=provider.create_texture;provider.create_texture=capture_texture;
     original_buffer_create=provider.create_buffer;provider.create_buffer=capture_buffer;
     assert(stats().live_surfaces==2 && stats().device_references==1 && fnv_vk_backend_destroy(gpu)==FNV_VK_BUSY);
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
@@ -80,17 +82,18 @@ int main(int argc,char **argv){
     clear[1]=clear[2]=0;assert(call(CLEAR,7,clear)==FNV_VK_BUSY && stats().queued_commands==4);
     pixels(0xffabcdef,0xffabcdef,32,32,0,0,32,32);
     for(unsigned i=0;i<64;++i){uint32_t transient=surface(i&1,8);assert(!release(transient));}
-    exercise_buffers();
+    exercise_buffers();exercise_textures();
     assert(!release(back) && !release(auto_ds));
     assert(!fnv_cpu_detach() && !fnv_d3d9_com_destroy(com));assert(!stats().device_references && !stats().allocated_bytes && !stats().live_surfaces);
     assert(!fnv_cpu_unregister_native(cpu,dummy_token,1) && !fnv_cpu_destroy(cpu));assert(VirtualFree(arena,0,MEM_RELEASE));
     struct fnv_vk_stats final=stats();assert(final.submissions==final.completions && !final.pending_frames && !final.queued_commands);
-    assert(!fnv_vk_backend_destroy(gpu));no_live_handles();unsigned fault_cases=exercise_faults(&cfg);assert(fault_cases==9);
+    assert(!fnv_vk_backend_destroy(gpu));no_live_handles();exercise_texture_submit_faults(&cfg);unsigned fault_cases=exercise_faults(&cfg);assert(fault_cases==9);
     FreeLibrary(loader);assert(!api && !device);
     printf("{\"status\":\"PASS\",\"native_vulkan_backend\":true,\"desktop_d3d9_used\":false,\"gpu_rendered\":true,\"gpu_draw_executed\":false,\"game_frame_rendered\":false,"
         "\"fault_scenarios\":9,\"unknown_completion_quarantined\":true,\"noncoherent_invalidation_checked\":true,\"all_gpu_handles_released\":true,"
+        "\"immutable_texture_versions\":true,\"texture_upload_faults\":5,\"texture_submit_faults\":3,\"texture_bytes_checked\":%u,"
         "\"immutable_buffer_versions\":true,\"buffer_upload_faults\":3,\"buffer_bytes_checked\":%u,"
         "\"pixel_checks\":%u,\"submissions\":%llu,\"completions\":%llu,\"frames_in_flight\":2,\"resources_retained_until_fence\":true,\"budget_and_backpressure_checked\":true}\n",
-        buffer_bytes_checked,pixels_checked,(unsigned long long)final.submissions,(unsigned long long)final.completions);
+        texture_bytes_checked,buffer_bytes_checked,pixels_checked,(unsigned long long)final.submissions,(unsigned long long)final.completions);
     return 0;
 }

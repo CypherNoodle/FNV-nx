@@ -4,6 +4,15 @@ static PFN_vkGetInstanceProcAddr original_gpa;
 static PFN_vkGetDeviceProcAddr original_gdpa;
 static unsigned fail_memory,fail_map,fail_flush,timeout_fence,fail_submit,fail_idle,invalidations,flushes;
 static int force_noncoherent;
+static unsigned fail_end,fail_reset;
+static PFN_vkEndCommandBuffer original_end;
+static PFN_vkResetFences original_reset;
+static VKAPI_ATTR VkResult VKAPI_CALL proxy_end(VkCommandBuffer cmd){
+    if(fail_end){fail_end--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_end(cmd);
+}
+static VKAPI_ATTR VkResult VKAPI_CALL proxy_reset(VkDevice d,uint32_t n,const VkFence *fences){
+    if(fail_reset){fail_reset--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_reset(d,n,fences);
+}
 #define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence)
 #define OBJECT(n) \
 static PFN_vkCreate##n original_create_##n;static PFN_vkDestroy##n original_destroy_##n; \
@@ -67,6 +76,8 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gdpa(VkDevice d,const char
     HOOK(MapMemory,original_map,proxy_map)
     HOOK(WaitForFences,original_wait,proxy_wait)
     HOOK(QueueSubmit,original_submit,proxy_submit)
+    HOOK(EndCommandBuffer,original_end,proxy_end)
+    HOOK(ResetFences,original_reset,proxy_reset)
     HOOK(DeviceWaitIdle,original_idle,proxy_idle)
     HOOK(InvalidateMappedMemoryRanges,original_invalidate,proxy_invalidate)
     HOOK(FlushMappedMemoryRanges,original_flush,proxy_flush)

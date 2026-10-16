@@ -1,4 +1,4 @@
-# Proveedor D3D9 propio: dispositivo, superficies y buffers Vulkan
+# Proveedor D3D9 propio: dispositivo, superficies, buffers y texturas Vulkan
 
 `pc/native/d3d9_vk_backend.c/.h` crea un dispositivo Vulkan 1.1 real con una
 cola grafica, superficies color BGRA8 y profundidad/stencil D24S8 opcional.
@@ -33,6 +33,22 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
   NOOVERWRITE tambien crea una version completa; instancing no implementado.
   Cada version pendiente permanece viva hasta su fence, incluso tras un DISCARD.
   Fallos de allocation/map/flush conservan la version anterior y permiten reintentar.
+- Texturas 2D con mipmaps y 16 bindings de pixel sampler. ARGB8/XRGB8,
+  RGB565, A8 y L8 convertidos a RGBA8; imagenes Vulkan OPTIMAL con uso sampled
+  y transfer. Pools Default/Managed, DYNAMIC solo Default. RT/depth/autogen,
+  texturas comprimidas, superficies de textura y vertex samplers pendientes.
+- Cada UnlockRect convierte el parche sobre un shadow propio y sube todos los
+  mips a una imagen nueva usando staging HOST_VISIBLE. Barreras explicitas y
+  flush si no coherente. No retiene punteros guest ni modifica la imagen previa.
+  DISCARD de nivel cero completo invalida todos los mips (aqui ceros elegidos).
+  Un fallo anterior al envio conserva la imagen anterior y permite reintentar.
+- Upload de textura ocupa un slot de transfer hasta su fence: sin esperas
+  implicitas, devuelve BUSY si no hay slot. El caller debe poll/wait para retirar
+  completados. En fallo de grabacion/envio se invalida el backend y conserva
+  recursos hasta cierre seguro. No reusa comandos con completitud desconocida.
+- Readback RGBA8 de mip mediante copia GPU, con salida intacta en fallo/timeout.
+  Textura recien creada tiene contenido indefinido; readback se rechaza hasta
+  primer upload. Esa subida inicializa tambien los otros mips con el shadow propio.
 - Readback diagnostico BGRA8, staging propio y salida intacta en error. Si
   vence una espera, staging e imagen siguen retenidos. Comprueba coherencia de
   la memoria y usa invalidate cuando corresponde. Su timeout aplica a cada
@@ -42,7 +58,7 @@ El backend serializa su estado/cola con mutex nativo. El caller garantiza la
 vida del loader y propiedad exclusiva al destruir. Hay limites explicitos:
 2..256 recursos, 1..128 comandos por lote, hasta 32 rectangulos por Clear.
 No devuelve exito para metodos pendientes. Shader creation devuelve error;
-draws y texturas todavia no tienen callbacks en este proveedor.
+draws todavia no tienen callback en este proveedor; no hay sampling integrado.
 
 La primera referencia de device se transfiere al consumidor COM. Recursos
 con referencias publicas retienen el device; bindings y comandos no forman
@@ -58,19 +74,22 @@ Los buffers usan memoria HOST_VISIBLE, flush explicito si no es coherente y
 una copia CPU completa mas una allocation dedicada en cada actualizacion.
 Es una base de correccion: faltan arenas, uploads parciales y medir en Switch.
 Readback de buffers es diagnostico de transferencias, no una prueba de draws.
+Cada upload de textura hace una copia CPU completa, una nueva imagen/staging y
+un submit dedicado; aun no hay batching ni reutilizacion de staging. Es un
+contrato inicial de correccion, no una estrategia final de rendimiento.
 Las barreras son conservadoras. No se atribuyen mejoras de FPS a este modulo.
 
 ## Prueba de integracion
 
-`test_d3d9_vk_backend.py` traduce 46 callers x86 propios usando el SDK del port
+`test_d3d9_vk_backend.py` traduce 53 callers x86 propios usando el SDK del port
 y ejecuta vtables de superficies, targets, Clear, viewport/scissor y escenas.
 Reutiliza codigo auxiliar del harness previo, pero nunca llama a su baseline
 NULLREF: comprueba que no se han creado sus objetos D3D9 Windows.
 
-Resultado final `local/vk-buffers-com02/validation.json`:
+Resultado final `local/vk-textures-com03/validation.json`:
 
 - 2.304 pixeles exactos de color: full clear, parche, copia de rectangulos y
-  recorte viewport/scissor. 28 submissions y 28 completions reales en el tramo COM, incluidos transfers.
+  recorte viewport/scissor. 63 submissions y 63 completions reales en el tramo COM, incluidos transfers.
 - Dos slots ocupados y tercer lote BUSY sin perderlo. Libera/unbind superficies
   antes de completar: se retienen hasta ultimo lote, y sus IDs obsoletos se rechazan.
 - Presupuesto insuficiente y formato no soportado conservan estado/memoria.
@@ -80,6 +99,14 @@ Resultado final `local/vk-buffers-com02/validation.json`:
   Tres fallos adicionales durante upload (allocation/map/flush), con reintento.
   Timeout seguido de DISCARD retiene ambas versiones hasta completar el fence.
   Liberacion publica, bindings, Get con resurreccion y IDs obsoletos comprobados.
+- 692 bytes de texturas copiados por GPU: cinco formatos, mipmaps, conversion
+  de canales, pitch con padding, parche preservando otros pixels/mips y DISCARD.
+  Cinco fallos de upload inyectados (memory/image/view/map/flush) con reintento.
+  Ring lleno no pierde el lock guest. READONLY no envia; bindings/Get retienen.
+  Readback con timeout conserva imagen vieja mientras DISCARD sube una nueva.
+  Release antes del fence tanto de upload como de readback mantiene el recurso.
+- Tres fallos adicionales de envio de textura (EndCommandBuffer, ResetFences,
+  QueueSubmit) invalidan el backend y permiten cierre sin handles reales vivos.
 - Nueve escenarios de fallo mediante dispatch proxy de test: allocation,
   ImageView, Fence, readback timeout, MapMemory, rama invalidate, Framebuffer,
   QueueSubmit y cuarentena ante fallo de DeviceWaitIdle. Los handles reales
@@ -104,8 +131,8 @@ propios del fixture anterior (aunque esta prueba no crea shaders). Resultados
 privados de desarrollo no son carpetas requeridas en la SD.
 
 Crear este dispositivo Vulkan **no implementa todavia** Direct3DCreate9 ni
-IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, texturas/shaders
-y draws en este backend, superficies de textura, otras operaciones y estados,
+IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, shaders
+y draws con sampling en este backend, formatos comprimidos, superficies de textura, otras operaciones y estados,
 cache de pipelines y swapchain/Present/Reset de NVK. Las pruebas graficas
 anteriores siguen separadas hasta conectar sus piezas a este proveedor.
 El arranque del motor desde EXE y sus servicios Windows permanecen independientes.
