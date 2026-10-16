@@ -114,12 +114,16 @@ centroid_reapplied=false y linked_pairs_checked=0: NO ha enlazado/restaurado los
 pares propios; falta auditar los pares/declaraciones que consume el motor.
 
 La siguiente integracion debe ampliar la validacion de pares y MSAA,
-implementar reflection/packing, conectar el proveedor COM D3D9 y comprobar
+conectar los planes de constantes y el proveedor COM D3D9 y comprobar
 recursos/estados y presentacion con NVK en Switch. Se localizaron las bibliotecas
 estaticas libvulkan/libnvk/libnak/libnir/libvtn/libnouveau_horizon conservadas
 en el workspace, pero este test usa el driver desktop, no esas bibliotecas.
 
 ## Reproducir
+
+La [reflexion y subida de constantes](native-vulkan-uniforms.md) ya tiene
+planes por shader y un empaquetador C portable. Pasa un dibujo Vulkan propio
+con registros float dispersos, INT y BOOL. Aun no es el proveedor COM del motor.
 
 Usar directorios de salida nuevos; los siguientes son ejemplos. Zig cc o un
 compilador compatible con los flags GCC/Clang sirve para los ejecutables host.

@@ -18,6 +18,9 @@ y al backend Switch sigue pendiente.
 El adaptador centroid propio conserva la declaracion en SPIR-V, comprobada
 con shaders propios y dibujo desktop a 1x. Los 1.808/1.809 shaders aceptados
 por el traductor con copias temporales todavia no son cobertura grafica del juego.
+Los [planes UBO y el empaquetador nativo](docs/native-vulkan-uniforms.md) ya
+conservan float/INT/BOOL y pasan dibujos propios con registros dispersos;
+falta conectarlos a los callbacks del proveedor COM.
 
 ## Estado
 

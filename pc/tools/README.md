@@ -127,3 +127,11 @@ propio y las restaura como decoraciones del input SPIR-V despues del enlace.
 La auditoria `--centroid` acepta 1.808/1.809 copias temporales; ese recuento
 no representa pares enlazados ni shaders del juego dibujados. Ver los limites
 MSAA y comandos en el documento Vulkan anterior. No modifica MojoShader.
+
+`spirv_uniform_layout.py` obtiene spans de bancos globales desde los metadatos
+publicos y offsets/tipos/indices reales del SPIR-V. `test_uniform_pack.py`
+comprueba el modulo C portable y genera datos propios consumidos por Vulkan,
+incluidos INT/BOOL y registros dispersos. `inspect_shader_ctab.py` permite
+inspeccionar rangos declarados sin repararlos. Ver [contrato, pruebas y
+comandos](../docs/native-vulkan-uniforms.md). Las salidas son privadas y no se
+copian a la SD como carpetas de runtime.

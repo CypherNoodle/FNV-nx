@@ -66,6 +66,17 @@ static int audit(const char *manifest, const char *directory) {
     int ok=!ferror(f) && count>0;fclose(f);return ok?0:3;
 }
 
+static void uniform_metadata(const MOJOSHADER_parseData *p) {
+    putchar('[');
+    for(int i=0;i<p->uniform_count;++i){
+        const MOJOSHADER_uniform *u=&p->uniforms[i];
+        if(i)putchar(',');
+        printf("{\"kind\":%d,\"first\":%d,\"count\":%d,\"local\":%s}",
+            u->type,u->index,u->array_count?u->array_count:1,u->constant?"true":"false");
+    }
+    putchar(']');
+}
+
 int main(int argc, char **argv) {
     if(argc==4 && !strcmp(argv[1],"--audit-manifest"))return audit(argv[2],argv[3]);
     if (argc != 6) {
@@ -118,9 +129,10 @@ int main(int argc, char **argv) {
     }
     printf("{\"patch_table_bytes_removed_per_stage\":%d,\"vertex_bytes\":%d,"
            "\"pixel_bytes\":%d,\"vertex_uniforms\":%d,\"pixel_uniforms\":%d,"
-           "\"vertex_samplers\":%d,\"pixel_samplers\":%d}\n",
+           "\"vertex_samplers\":%d,\"pixel_samplers\":%d,\"vertex_uniform_metadata\":",
            tail, vs->output_len-tail, ps->output_len-tail,
            vs->uniform_count, ps->uniform_count, vs->sampler_count, ps->sampler_count);
+    uniform_metadata(vs);printf(",\"pixel_uniform_metadata\":");uniform_metadata(ps);puts("}");
     result = 0;
 done:
     MOJOSHADER_freeParseData(vs);

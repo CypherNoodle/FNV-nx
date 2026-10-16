@@ -27,6 +27,8 @@ la GPU del PC. Aun no es un frame de Fallout ni un renderer conectado en Switch.
 El adaptador propio ya restaura centroid en pares de prueba. La auditoria de
 copias temporales llega a 1.808/1.809 shaders traducibles; falta comprobar sus
 pares reales, cobertura MSAA y conexion al motor.
+Tambien pasa la [subida nativa de constantes float/INT/BOOL](pc/docs/native-vulkan-uniforms.md)
+con planes reflejados y dibujo Vulkan propio; el modulo ya compila para ARM64.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).

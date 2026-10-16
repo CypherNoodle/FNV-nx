@@ -12,6 +12,7 @@ import struct
 import subprocess
 
 from inspect_spirv import inspect
+from spirv_uniform_layout import reflect
 
 CENTROID = 0x00400000
 
@@ -124,14 +125,20 @@ def translate(args):
     (out/'linker.stderr.txt').write_text(r.stderr, encoding='utf-8')
     if r.returncode:
         raise RuntimeError('pair link rejected: '+r.stderr)
+    link = json.loads(r.stdout)
+    if 'vertex_uniform_metadata' not in link or 'pixel_uniform_metadata' not in link:
+        raise RuntimeError('linker lacks uniform metadata; rebuild it with build_shader_linker.py')
     for stage in ('vs', 'ps'):
         final, targets = restore((out/(stage+'.linked.spv')).read_bytes(), records[stage]['centroid'])
         (out/(stage+'.spv')).write_bytes(final)
         records[stage].update(spirv=inspect(final), centroid_ids=targets)
-    report = {'status': 'PASS', 'stages': records, 'link': json.loads(r.stdout),
+        metadata = link['vertex_uniform_metadata' if stage == 'vs' else 'pixel_uniform_metadata']
+        records[stage]['uniform_plan'] = reflect(final, metadata)
+    report = {'status': 'PASS', 'stages': records, 'link': link,
               'linker_sha256': digest(args.linker.read_bytes()),
               'tool_sha256': digest(Path(__file__).read_bytes()),
               'inspector_sha256': digest(Path(inspect.__code__.co_filename).read_bytes()),
+              'uniform_reflector_sha256': digest(Path(reflect.__code__.co_filename).read_bytes()),
               'attributes_sha256': digest(args.attributes.read_bytes()),
               'gpu_rendered': False, 'semantic_validation': False, 'game_executed': False}
     (out/'translation.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')

@@ -94,7 +94,7 @@ static void transition(VkCommandBuffer cmd,VkImage im,VkImageLayout old,VkImageL
     vkCmdPipelineBarrier(cmd,a,b,0,0,NULL,0,NULL,1,&barrier);
 }
 static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPipelineLayout layout,
-                             const VkDescriptorSetLayout sets[4],VkRenderPass pass,const VkPipeline pipelines[2]){
+                             const VkDescriptorSetLayout sets[4],VkRenderPass pass,const VkPipeline pipelines[2],const char *uniform_path){
     VkFormatProperties fp;vkGetPhysicalDeviceFormatProperties(p,VK_FORMAT_D32_SFLOAT,&fp);
     REQUIRE(fp.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
     const float vertices[16]={-1,1,0,0, 1,1,1,0, 1,-1,1,1, -1,-1,0,1};
@@ -105,11 +105,23 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     Buffer upload=buffer(d,p,sizeof(texels),VK_BUFFER_USAGE_TRANSFER_SRC_BIT,texels);
     Buffer readback=buffer(d,p,4*4096,VK_BUFFER_USAGE_TRANSFER_DST_BIT,NULL);
     Buffer constants[6];
+    uint32_t uniform_sizes[2]={16,16};unsigned char *uniform_data=NULL;
+    if(uniform_path){
+        FILE *f=fopen(uniform_path,"rb");REQUIRE(f);
+        unsigned char magic[8];REQUIRE(fread(magic,1,8,f)==8 && !memcmp(magic,"FNVUBO01",8));
+        REQUIRE(fread(uniform_sizes,4,2,f)==2);
+        for(unsigned j=0;j<2;++j)REQUIRE(uniform_sizes[j] && uniform_sizes[j]<=65536 && uniform_sizes[j]%16==0);
+        size_t size=3*((size_t)uniform_sizes[0]+uniform_sizes[1]);
+        uniform_data=malloc(size);REQUIRE(uniform_data);
+        REQUIRE(fread(uniform_data,1,size,f)==size && fgetc(f)==EOF && !ferror(f));REQUIRE(!fclose(f));
+    }
     for(unsigned i=0;i<3;++i){
         float depth[4]={0,0,i==0?.75f:i==1?.25f:.9f,0},tint[4]={0,0,0,1};tint[i]=1;
-        constants[i*2]=buffer(d,p,16,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,depth);
-        constants[i*2+1]=buffer(d,p,16,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,tint);
+        const unsigned char *base=uniform_data?uniform_data+i*((size_t)uniform_sizes[0]+uniform_sizes[1]):NULL;
+        constants[i*2]=buffer(d,p,uniform_sizes[0],VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,base?(const void*)base:(const void*)depth);
+        constants[i*2+1]=buffer(d,p,uniform_sizes[1],VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,base?(const void*)(base+uniform_sizes[0]):(const void*)tint);
     }
+    free(uniform_data);
     Image tex=image(d,p,2,2,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     Image color=image(d,p,32,32,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     Image depth=image(d,p,32,32,VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -129,7 +141,7 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
         VkDescriptorSetAllocateInfo ai={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool=pool,.descriptorSetCount=3,.pSetLayouts=sets+1};
         OK(vkAllocateDescriptorSets(d,&ai,descriptors[i]));
-        VkDescriptorBufferInfo buffers[2]={{constants[i*2].handle,0,16},{constants[i*2+1].handle,0,16}};
+        VkDescriptorBufferInfo buffers[2]={{constants[i*2].handle,0,uniform_sizes[0]},{constants[i*2+1].handle,0,uniform_sizes[1]}};
         VkDescriptorImageInfo ii={sampler,tex.view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet writes[3]={
             {.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[i][0],.descriptorCount=1,
@@ -210,7 +222,7 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
 }
 
 int main(int argc,char **argv) {
-    if(argc!=3)return 2;
+    if(argc!=3 && argc!=4)return 2;
     /* Avoid the current directory / game DLL search path. */
     HMODULE dll=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);
     REQUIRE(dll);
@@ -302,7 +314,7 @@ int main(int argc,char **argv) {
     OK(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&pci,NULL,&pipelines[0]));
     ds.depthTestEnable=ds.depthWriteEnable=VK_FALSE;
     OK(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&pci,NULL,&pipelines[1]));
-    unsigned pixels=render_probe(device,selected,family,layout,sets,pass,pipelines);
+    unsigned pixels=render_probe(device,selected,family,layout,sets,pass,pipelines,argc==4?argv[3]:NULL);
     for(int i=0;i<2;++i)vkDestroyPipeline(device,pipelines[i],NULL);
     vkDestroyRenderPass(device,pass,NULL);vkDestroyPipelineLayout(device,layout,NULL);
     for(int i=0;i<4;++i)vkDestroyDescriptorSetLayout(device,sets[i],NULL);
@@ -310,7 +322,7 @@ int main(int argc,char **argv) {
     vkDestroyDevice(device,NULL);vkDestroyInstance(instance,NULL);FreeLibrary(dll);
     printf("{\"pipelines_created\":2,\"vendor_id\":%u,\"device_id\":%u,"
            "\"driver_version\":%u,\"api_version\":%u,\"gpu_rendered\":true,\"pixels_checked\":%u,\"draws\":7,"
-           "\"game_executed\":false,\"switch_hardware_tested\":false}\n",
-           properties.vendorID,properties.deviceID,properties.driverVersion,properties.apiVersion,pixels);
+           "\"game_executed\":false,\"switch_hardware_tested\":false,\"reflected_uniform_data\":%s}\n",
+           properties.vendorID,properties.deviceID,properties.driverVersion,properties.apiVersion,pixels,argc==4?"true":"false");
     return 0;
 }
