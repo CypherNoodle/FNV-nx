@@ -447,12 +447,13 @@ done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
 static uint32_t scene(void *ctx,int begin){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t hr=0;
     if(d->lost || !d->device_refs)hr=FNV_VK_LOST;else d->in_scene=begin;fnv_host_mutex_unlock(&d->guard);return hr;}
+static uint32_t present_device(void *ctx,uint64_t timeout){return fnv_vk_backend_present_sync(ctx,timeout);}
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_backend *out){
     if(!out)return;
     *out=(struct fnv_d3d9_shader_backend){.context=d,.create=create_shader,.bind_shader=bind_shader,.create_declaration=create_declaration,.bind_declaration=bind_declaration,.upload_constants=upload_constants,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
         .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
-        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.clear=clear,.scene=scene,.draw=draw};
+        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.clear=clear,.scene=scene,.draw=draw,.present=d && d->wsi.chain?present_device:NULL};
 }
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;

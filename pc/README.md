@@ -44,8 +44,9 @@ retenidas hasta sus fences. La [fabrica preparada](docs/native-d3d9-factory.md)
 ya enlaza Direct3DCreate9 y valida CreateDevice para un device fijo. Caps
 completas, catalogo del juego, otros estados,
 batching/caches y validacion NVK siguen pendientes. La [ruta WSI inicial](docs/native-vulkan-presentation.md)
-ya presenta en Vulkan Windows y compila el enlace NWindow; Present COM, Reset y
-la prueba de esta ruta en consola aun faltan.
+ya presenta por COM desde x86 traducido en Vulkan Windows y compila el enlace
+NWindow. La [prueba conjunta Switch](docs/switch-renderer-probe.md) cubre esa ruta
+sin archivos del juego; faltan su resultado HW, Reset y el arranque del motor.
 
 ## Estado
 

@@ -5,7 +5,8 @@ de diagnostico. `fnv_vk_backend_create_window` prepara instancia, surface,
 familia graphics/present y device con swapchain. La creacion headless anterior
 se conserva. `fnv_vk_backend_present` copia el backbuffer implicito con
 `vkCmdCopyImage`, transiciona la imagen a PRESENT_SRC y ejecuta QueuePresentKHR.
-No descarga pixels a CPU. No es todavia el metodo COM IDirect3DDevice9::Present.
+No descarga pixels a CPU. Tambien se conecta al metodo COM IDirect3DDevice9::Present
+mediante el proveedor opcional y su variante bloqueante.
 
 ## Contrato inicial
 
@@ -82,10 +83,31 @@ desarrollo, no assets/carpetas requeridos para la SD.
 
 ## Pendiente
 
-Conectar Present con el ABI COM y politica de bloqueo de DX9, ventanas guest,
-rectangulos y parametros; Reset/recreacion y recuperacion de superficie;
+El slot COM 17 ya despacha cinco argumentos x86 stdcall (this incluido).
+Acepta DISCARD de backbuffer completo: source/dest/dirty NULL y override HWND
+NULL o igual a la identidad guest preparada. No transforma ese HWND en un host
+pointer. CreateDevice recuerda hDeviceWindow, o focus si el primero es NULL.
+Rechaza Present dentro de una escena y antes de CreateDevice si hay fabrica.
+Provider ausente o watchdog host deshabilitado devuelve NOTAVAILABLE.
+
+`fnv_vk_backend_present_sync` espera un slot libre solo cuando hace falta,
+mediante WaitForFences(waitAny) y observacion/retirada de fences reales. No hace
+spin ni vacia siempre todos los frames. Cada espera tiene el watchdog finito
+configurado por el host; el timeout pierde el device y devuelve DEVICELOST,
+sin exito ficticio ni WASSTILLDRAWING al caller base D3D9. No espera scanout.
+Esta politica de timeout es propia del host, no conformidad completa Windows.
+
+Prueba COM actual: 82 callers, 57 consultas de fabrica y 26 draws en cada modo.
+El modo WSI ejecuta cuatro Present traducidos, nueve comprobaciones y 146
+submits/completions; headless conserva 141 y comprueba NOTAVAILABLE. El test WSI
+separado agrega watchdog de acquire/cola: 18 presents y siete fallos de runtime.
+La regresion NULLREF separada conserva 400 constantes concurrentes y 86 metodos.
+
+Faltan ventanas guest generales, swap effect COPY y rectangulos;
+Reset/recreacion y recuperacion de superficie;
 capacidades completas, catalogo del juego, batching/cache y prueba NVK en
-hardware. Esto no completa DX9 ni arranca Fallout desde EXE.
+hardware. La [prueba conjunta Switch](switch-renderer-probe.md) ya se puede
+compilar para esa validacion. Esto no completa DX9 ni arranca Fallout desde EXE.
 
 Referencias: [semaforos por imagen](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html),
 [AcquireNextImageKHR](https://docs.vulkan.org/refpages/latest/refpages/source/vkAcquireNextImageKHR.html),

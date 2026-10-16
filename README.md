@@ -45,7 +45,8 @@ superficies, buffers de vertices/indices, texturas 2D, modulos shader, declaraci
 en vuelo y retencion por fences. Ya ejecuta draws propios texturizados; aun no hay frames del juego ni
 presentacion NVK validada en hardware. La [primera ruta WSI](pc/docs/native-vulkan-presentation.md)
 ya presenta frames sinteticos en Vulkan Windows y compila el enlace NWindow ARM64;
-falta conectar Present COM y probarla en Switch. La [fabrica DX9 inicial](pc/docs/native-d3d9-factory.md) ya
+Present COM tambien pasa con callers x86 traducidos. La [prueba conjunta para Switch](pc/docs/switch-renderer-probe.md)
+permite validar esa ruta en hardware; aun no arranca Fallout. La [fabrica DX9 inicial](pc/docs/native-d3d9-factory.md) ya
 entrega el device preparado mediante Direct3DCreate9/CreateDevice; caps completas
 y recreacion siguen pendientes.
 

@@ -178,3 +178,10 @@ CALL [IAT]. Valida el [bridge de fabrica](../docs/native-d3d9-factory.md), entre
 el device preparado a traves de CreateDevice y conserva los tests GPU. El runner
 COM previo mantiene sus regresiones sin habilitar la fabrica. Caps completas y
 presentacion no se simulan como terminadas.
+# Diagnostico grafico Switch
+
+`build_switch_renderer_probe.py` compila el NRO propio DX9/COM/Vulkan para probar
+NVK y NWindow en hardware. Incluye solamente callers sinteticos y shaders propios;
+no usa el AOT ni los archivos del juego. Ver
+[dependencias, comprobaciones e instrucciones](../docs/switch-renderer-probe.md).
+

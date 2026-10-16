@@ -50,6 +50,11 @@ uint32_t fnv_vk_backend_create_window(PFN_vkGetInstanceProcAddr,const struct fnv
  * acquisition. Caller poll/waits then retries. Surface loss/out-of-date stop
  * this device (LOST), never recycle uncertain presentation synchronization. */
 uint32_t fnv_vk_backend_present(struct fnv_vk_backend *,uint64_t acquire_timeout_ns);
+/* Blocking DISCARD variant for the D3D9 callback: wait for a free command
+ * slot, then acquire/present. Each wait uses this finite host watchdog.
+ * A timeout stops this device and returns LOST; no spurious WASSTILLDRAWING.
+ * Does not wait for scanout or force all frames to complete on every call. */
+uint32_t fnv_vk_backend_present_sync(struct fnv_vk_backend *,uint64_t wait_timeout_ns);
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *,struct fnv_d3d9_shader_backend *);
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *,struct fnv_vk_stats *);
 /* Clear queues owned commands; EndScene does not submit or observe fences.

@@ -215,12 +215,13 @@ privados de desarrollo no son carpetas requeridas en la SD.
 
 La [fabrica preparada](native-d3d9-factory.md) ya enlaza Direct3DCreate9 por IAT
 y publica una vez el device real tras validar CreateDevice. Es un adaptador
-virtual de tamano fijo; faltan caps completas, Present COM/Reset y recreacion.
+virtual de tamano fijo; faltan caps completas, Reset y recreacion.
 La [ruta WSI host](native-vulkan-presentation.md) ya presenta por Vulkan Windows
 y compila el enlace NWindow; no ha ejecutado esta ruta en NVK/Switch.
 Permanecen pendientes catalogo/interfaz de shaders del juego, mas topologias,
 lineas/puntos, stencil y otros estados, formatos comprimidos, superficies de textura,
-cache de pipelines y conexion Present COM/Reset con NVK. Las pruebas graficas
+cache de pipelines y Reset con NVK. Present COM ya usa la ruta WSI; falta su
+validacion en consola mediante el probe propio. Las pruebas graficas
 anteriores se conservan como pruebas separadas; este runner usa el proveedor
 propio para las operaciones descritas.
 El arranque del motor desde EXE y sus servicios Windows permanecen independientes.

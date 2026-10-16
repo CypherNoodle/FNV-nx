@@ -18,7 +18,7 @@ def run(a):
     if r.returncode:raise RuntimeError(r.stderr)
     r=subprocess.run([str(exe)],capture_output=True,text=True,timeout=60);(out/'run.log').write_text(r.stdout+r.stderr)
     if r.returncode:raise RuntimeError(f'exit {r.returncode}: {r.stdout}{r.stderr}')
-    result=json.loads(r.stdout.strip().splitlines()[-1]);assert result['status']=='PASS' and result['actual_wsi_presents']==16 and result['copy_commands']==20 and result['runtime_faults']==5
+    result=json.loads(r.stdout.strip().splitlines()[-1]);assert result['status']=='PASS' and result['actual_wsi_presents']==18 and result['copy_commands']==22 and result['runtime_faults']==7
     assert {str(p):sha(p) for p in inputs}==frozen
     result.update(source_sha256=frozen,exe_sha256=sha(exe),native_engine_started=False,desktop_d3d9_used=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k!='source_sha256'},indent=2))

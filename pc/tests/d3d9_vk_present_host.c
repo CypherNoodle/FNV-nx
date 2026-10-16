@@ -121,16 +121,18 @@ int main(void){
     VkResult r=real_present(delayed_queue,&info);assert(r==VK_SUCCESS || r==VK_SUBOPTIMAL_KHR);
     uint32_t hr=FNV_VK_BUSY;for(unsigned i=0;i<100 && hr==FNV_VK_BUSY;++i){hr=fnv_vk_backend_destroy(d);if(hr==FNV_VK_BUSY)Sleep(1);}assert(!hr);check_empty();
     assert(presents==expected_presents && copies==expected_presents+1);
-    for(unsigned fault=0;fault<5;++fault){
+    for(unsigned fault=0;fault<7;++fault){
         assert(!fnv_vk_backend_create_window(wsi_gpa,&cfg,&window,&d,&failure));fnv_vk_backend_callbacks(d,&b);clear_ready(d,&b,0xffabcdef);
         if(fault==0)acquire_error=VK_ERROR_OUT_OF_DATE_KHR;else if(fault==1)acquire_error=VK_ERROR_SURFACE_LOST_KHR;
-        else if(fault==2)fail_end=1;else if(fault==3)fail_reset=1;else fail_submit=1;
+        else if(fault==2)fail_end=1;else if(fault==3)fail_reset=1;else if(fault==4)fail_submit=1;
+        else if(fault==5)acquire_timeout=1;
+        else {assert(!fnv_vk_backend_present(d,1000000000ull));assert(!fnv_vk_backend_present(d,1000000000ull));timeout_fence=1;}
         uint32_t expected=fault==2 || fault==3?FNV_VK_OOM:FNV_VK_LOST;
-        assert(fnv_vk_backend_present(d,1000000000ull)==expected);acquire_error=VK_SUCCESS;
-        assert(!fail_end && !fail_reset && !fail_submit && fnv_vk_backend_poll(d)==FNV_VK_LOST);
+        assert((fault>=5?b.present(d,1000000000ull):fnv_vk_backend_present(d,1000000000ull))==expected);acquire_error=VK_SUCCESS;
+        assert(!fail_end && !fail_reset && !fail_submit && !acquire_timeout && !timeout_fence && fnv_vk_backend_poll(d)==FNV_VK_LOST);
         b.device_release(d);uint32_t closed=FNV_VK_BUSY;
         for(unsigned i=0;i<100 && closed==FNV_VK_BUSY;++i){closed=fnv_vk_backend_destroy(d);if(closed==FNV_VK_BUSY)Sleep(1);}assert(!closed);check_empty();
     }
     DestroyWindow(hwnd);UnregisterClassW(wc.lpszClassName,wc.hInstance);FreeLibrary(loader);
-    printf("{\"status\":\"PASS\",\"actual_wsi_presents\":%u,\"copy_commands\":%u,\"source_pixels_checked\":2048,\"setup_faults\":5,\"runtime_faults\":5,\"acquire_timeouts\":2,\"full_ring_checked\":true,\"unknown_present_quarantined\":true,\"all_gpu_handles_released\":true,\"game_frame_rendered\":false,\"switch_hardware_tested\":false}\n",presents,copies);return 0;
+    printf("{\"status\":\"PASS\",\"actual_wsi_presents\":%u,\"copy_commands\":%u,\"source_pixels_checked\":2048,\"setup_faults\":5,\"runtime_faults\":7,\"acquire_timeouts\":2,\"full_ring_checked\":true,\"unknown_present_quarantined\":true,\"all_gpu_handles_released\":true,\"game_frame_rendered\":false,\"switch_hardware_tested\":false}\n",presents,copies);return 0;
 }

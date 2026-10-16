@@ -56,7 +56,7 @@ Vulkan actual aun NO publica esa tabla: retorna NOTAVAILABLE y deja la salida
 intacta, incluso si el callback de prueba escribio datos parciales antes de fallar.
 
 Esto no completa D3D9 ni el arranque del motor. Faltan D3DCAPS9, identificador,
-mas consultas de compatibilidad, Present/Reset y swapchain NVK; tambien el catalogo
+mas consultas de compatibilidad, Reset y validacion de swapchain NVK; tambien el catalogo
 e interfaces de shaders del juego, operaciones/formatos restantes y servicios
 Windows. No se debe anunciar este CreateDevice como dispositivo listo para jugar.
 
@@ -78,6 +78,13 @@ capacidad/alias y cuatro fallos estrictos. Ahora prepara 85 metodos (67 previos 
 
 CMake ARM64 `fnv_native_d3d9_com` y `fnv_d3d9_vk_backend` pasan con -Werror.
 Ninguna de estas pruebas arranca Fallout ni ejecuta NVK en la consola.
+
+Present ahora agrega el metodo preparado 86 (slot device17) y valida el
+subconjunto DISCARD de backbuffer completo. CreateDevice recuerda la identidad
+guest de hDeviceWindow/focus para rechazar overrides de otra ventana. El host
+configura el watchdog por espera; cero deshabilita Present. La prueba actual
+WSI pasa cuatro llamadas Present traducidas y la regresion previa 86 metodos.
+Ver [presentacion](native-vulkan-presentation.md) y [probe HW](switch-renderer-probe.md).
 
 `local/vk-factory-queries01/validation.json` amplía la prueba a 81 callers y 57
 comprobaciones de fabrica. Cubre NONE color/depth, calidad/salida NULL, rechazo
