@@ -67,6 +67,8 @@ ni una ejecucion de Fallout. No se dibuja el mundo del juego ni se mide FPS.
 La [ampliacion de geometria](native-vulkan-geometry.md) agrega ocho callers y
 conecta tambien uploads/bindings VB/IB con Vulkan. Texturas, estados y targets
 permanecen explicitos; no cambia el alcance del resultado inicial com03.
+La [ampliacion de texturas](native-vulkan-texture-upload.md) agrega cinco
+callers mas y uploads ARGB8. Sampler, estados y targets siguen explicitos.
 
 Resultados finales: uniform-state-unit03 PASS, uniform-state-com03 PASS
 (fence real y 4.096 pixeles), regresion COM por defecto PASS con dos shaders

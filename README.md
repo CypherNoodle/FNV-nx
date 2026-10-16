@@ -34,6 +34,9 @@ por callers x86 recompilados y conserva tres versiones hasta un fence Vulkan
 real. La [geometria desde COM](pc/docs/native-vulkan-geometry.md) tambien pasa
 por uploads VB/IB y validacion de rangos antes del dibujo Vulkan. Aun faltan
 el gestor general de recursos, estados y presenter del proveedor completo.
+La [textura desde COM](pc/docs/native-vulkan-texture-upload.md) tambien llega
+a Vulkan con versiones conservadas, parches y reintentos de upload. Es un
+fixture de integracion; aun no es el renderer del motor.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).

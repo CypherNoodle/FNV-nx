@@ -18,6 +18,9 @@
 #ifndef FNV_VULKAN_GEOMETRY
 #define FNV_VULKAN_GEOMETRY(i,v,b) ((void)0)
 #endif
+#ifndef FNV_VULKAN_TEXTURE
+#define FNV_VULKAN_TEXTURE(i,t) ((void)0)
+#endif
 
 #define FUNCTIONS(X) \
  X(CreateInstance) X(DestroyInstance) X(EnumeratePhysicalDevices) \
@@ -106,7 +109,14 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
                              const VkDescriptorSetLayout sets[4],VkRenderPass pass,const VkPipeline pipelines[2],const char *uniform_path){
     VkFormatProperties fp;vkGetPhysicalDeviceFormatProperties(p,VK_FORMAT_D32_SFLOAT,&fp);
     REQUIRE(fp.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
-    const unsigned char texels[16]={255,255,255,255, 128,128,128,255, 64,64,64,255, 192,192,192,255};
+    unsigned char texture_pixels[3][16];
+    Buffer upload[3];Image tex[3];
+    for(unsigned i=0;i<3;++i){
+        unsigned char texels[16]={255,255,255,255, 128,128,128,255, 64,64,64,255, 192,192,192,255};
+        FNV_VULKAN_TEXTURE(i,texels);memcpy(texture_pixels[i],texels,16);
+        upload[i]=buffer(d,p,sizeof(texels),VK_BUFFER_USAGE_TRANSFER_SRC_BIT,texels);
+        tex[i]=image(d,p,2,2,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
+    }
     Buffer vb[3],ib[3];
     for(unsigned i=0;i<3;++i){
         float vertices[16]={-1,1,0,0, 1,1,1,0, 1,-1,1,1, -1,-1,0,1};
@@ -115,7 +125,6 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
         vb[i]=buffer(d,p,sizeof(vertices),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertices);
         ib[i]=buffer(d,p,sizeof(indices),VK_BUFFER_USAGE_INDEX_BUFFER_BIT,indices);
     }
-    Buffer upload=buffer(d,p,sizeof(texels),VK_BUFFER_USAGE_TRANSFER_SRC_BIT,texels);
     Buffer readback=buffer(d,p,4*4096,VK_BUFFER_USAGE_TRANSFER_DST_BIT,NULL);
     Buffer constants[6];
     uint32_t uniform_sizes[2]={16,16};unsigned char *uniform_data=NULL;
@@ -135,7 +144,6 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
         constants[i*2+1]=buffer(d,p,uniform_sizes[1],VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,base?(const void*)(base+uniform_sizes[0]):(const void*)tint);
     }
     free(uniform_data);
-    Image tex=image(d,p,2,2,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     Image color=image(d,p,32,32,VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     Image depth=image(d,p,32,32,VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,VK_IMAGE_ASPECT_DEPTH_BIT);
     VkImageView views[2]={color.view,depth.view};
@@ -155,7 +163,7 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
             .descriptorPool=pool,.descriptorSetCount=3,.pSetLayouts=sets+1};
         OK(vkAllocateDescriptorSets(d,&ai,descriptors[i]));
         VkDescriptorBufferInfo buffers[2]={{constants[i*2].handle,0,uniform_sizes[0]},{constants[i*2+1].handle,0,uniform_sizes[1]}};
-        VkDescriptorImageInfo ii={sampler,tex.view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo ii={sampler,tex[i].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet writes[3]={
             {.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[i][0],.descriptorCount=1,
              .descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,.pBufferInfo=&buffers[0]},
@@ -172,12 +180,14 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     VkCommandBuffer cmd;OK(vkAllocateCommandBuffers(d,&cai,&cmd));
     VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     OK(vkBeginCommandBuffer(cmd,&bi));
-    transition(cmd,tex.handle,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,0,VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
     VkBufferImageCopy copy={.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},.imageExtent={2,2,1}};
-    vkCmdCopyBufferToImage(cmd,upload.handle,tex.handle,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
-    transition(cmd,tex.handle,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    for(unsigned i=0;i<3;++i){
+        transition(cmd,tex[i].handle,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,0,VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
+        vkCmdCopyBufferToImage(cmd,upload[i].handle,tex[i].handle,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
+        transition(cmd,tex[i].handle,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    }
     unsigned draws=0;
     for(unsigned frame=0;frame<4;++frame){
         /* Previous copy and depth writes must finish before discarded attachments are reused. */
@@ -215,11 +225,12 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     OK(vkQueueSubmit(queue,1,&submit,fence));FNV_VULKAN_SUBMITTED();
     OK(vkWaitForFences(d,1,&fence,VK_TRUE,10000000000ull));FNV_VULKAN_COMPLETED();
     void *mapped;OK(vkMapMemory(d,readback.memory,0,4*4096,0,&mapped));
-    unsigned pixels=0;const unsigned tones[4]={255,128,64,192};
+    unsigned pixels=0;
     for(unsigned frame=0;frame<4;++frame)for(unsigned y=0;y<32;++y)for(unsigned x=0;x<32;++x){
         unsigned channel=frame==0?0:frame==3?2:1;
         const unsigned char *actual=(const unsigned char*)mapped+frame*4096+(y*32+x)*4;
-        unsigned char expected[4]={0,0,0,255};expected[channel]=(unsigned char)tones[(y>=16)*2+(x>=16)];
+        unsigned version=frame==0?0:frame==3?2:1;
+        unsigned char expected[4]={0,0,0,255};expected[channel]=texture_pixels[version][((y>=16)*2+(x>=16))*4+channel];
         if(memcmp(actual,expected,4)){
             fprintf(stderr,"pixel frame=%u x=%u y=%u actual=%u,%u,%u,%u expected=%u,%u,%u,%u\n",frame,x,y,
                 actual[0],actual[1],actual[2],actual[3],expected[0],expected[1],expected[2],expected[3]);exit(1);
@@ -229,9 +240,10 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     REQUIRE(draws==7);vkUnmapMemory(d,readback.memory);
     vkDestroyFence(d,fence,NULL);vkDestroyCommandPool(d,commands,NULL);vkDestroyDescriptorPool(d,pool,NULL);
     vkDestroySampler(d,sampler,NULL);vkDestroyFramebuffer(d,fb,NULL);
-    free_image(d,tex);free_image(d,color);free_image(d,depth);
+    for(unsigned i=0;i<3;++i){free_image(d,tex[i]);free_buffer(d,upload[i]);}
+    free_image(d,color);free_image(d,depth);
     for(unsigned i=0;i<3;++i){free_buffer(d,vb[i]);free_buffer(d,ib[i]);}
-    free_buffer(d,upload);free_buffer(d,readback);
+    free_buffer(d,readback);
     for(unsigned i=0;i<6;++i)free_buffer(d,constants[i]);
     return pixels;
 }

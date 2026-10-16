@@ -50,9 +50,12 @@ tres versiones de geometria, 4.096 pixeles y fence real), y
 `geometry-vulkan-regression01` (fixture Vulkan independiente). El target CMake
 `fnv_d3d9_geometry` compila para AArch64 con warnings tratados como errores.
 
+Los resultados geometry-com-gpu01 corresponden al fixture de geometria inicial.
+La [ampliacion de texturas](native-vulkan-texture-upload.md) conecta tambien
+uploads ARGB8 desde COM; no altera el alcance historico de aquel resultado.
 NULLREF Windows sigue siendo el oracle de objetos y referencias en esta prueba.
 Los callbacks de recursos de produccion Vulkan, su gestor de memoria/versiones,
-texturas, estados, superficies y presenter NVK aun no estan completos. Las
+texturas generales, estados, superficies y presenter NVK aun no estan completos. Las
 copias CPU de geometria se conservan hasta terminar el test; no constituyen un
 anillo de recursos general ni una prueba de reciclado de recursos GPU.
 No se ejecuta Fallout, ni el driver NVK, ni hardware Switch en estos tests.

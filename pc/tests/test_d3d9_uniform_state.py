@@ -1,7 +1,7 @@
 """SDK x86 COM callers -> bank/version manager -> Vulkan pixels and real fence.
 
-Constants and VB/IB uploads/bindings are connected through COM. Texture, states
-and targets remain an explicit Vulkan fixture, not a full provider.
+Constants, VB/IB and ARGB8 texture uploads/bindings are connected through COM.
+States and targets remain an explicit Vulkan fixture, not a full provider.
 """
 import argparse
 import json
@@ -36,15 +36,17 @@ def run(args):
     gpu=fixture/'gpu-fixture';modules=(gpu/'normal.vs.spv',gpu/'normal.ps.spv')
     for path,stage in zip(modules,('vs','ps')):assert sha(path)==translation['stages'][stage]['spirv']['sha256']
     native=pc/'native';headers=args.headers.resolve()
-    sources=[native/'d3d9_uniform_state.c',native/'d3d9_uniform_pack.c',native/'d3d9_geometry.c']
+    sources=[native/'d3d9_uniform_state.c',native/'d3d9_uniform_pack.c',native/'d3d9_geometry.c',native/'d3d9_texture_upload.c']
     extra=[Path(__file__),header,fixture/'vs.bin',fixture/'ps.bin',fixture/'pair/translation.json',
            native/'d3d9_uniform_state.h',native/'d3d9_uniform_pack.h',native/'d3d9_geometry.h',
-           pc/'tests/d3d9_geometry_gpu_fixture.h',pc/'tests/vulkan_pipeline_host.c',
+           pc/'tests/d3d9_geometry_gpu_fixture.h',pc/'tests/d3d9_texture_gpu_fixture.h',
+           native/'d3d9_texture_upload.h',pc/'tests/vulkan_pipeline_host.c',
            Path(os.environ['SystemRoot'])/'System32/d3d9.dll',Path(os.environ['SystemRoot'])/'System32/vulkan-1.dll',
            *sorted((headers/'vulkan').glob('*.h')),*sorted((headers/'vk_video').glob('*.h'))]
     opts=SimpleNamespace(sdk=args.sdk,python_deps=args.python_deps,output=args.output,shaders=shaders,cc=args.cc)
     test(opts,host_source='d3d9_uniform_state_host.c',slots=SLOTS+[(41,1),(42,1),(82,7),(107,2),
-         (26,7),(27,7),(11,5),(12,1),(100,5),(104,2),(86,3),(87,2)],
+         (26,7),(27,7),(11,5),(12,1),(100,5),(104,2),(86,3),(87,2),
+         (23,9),(19,5),(20,2),(65,3),(64,3)],
          modes=('normal',),strict_fault_cases=0,extra_args=modules,extra_inputs=extra,
          extra_run_args=(args.output.resolve()/'com-uniform-data.bin',),extra_sources=sources,
          extra_includes=(headers,inputs),baseline_lifetime_checks=False)
@@ -52,6 +54,8 @@ def run(args):
     assert report['actual_gpu_fence_observed'] is True and report['recorded_versions']==3
     assert report['pixels_checked']==4096 and report['gpu_rendered'] is True
     assert report['geometry_from_com'] is True and report['geometry_versions']==3
+    assert report['texture_from_com'] is True and report['texture_versions']==3
+    assert report['texture_failed_uploads']==3 and report['texture_modified_after_recording'] is True
 
 
 if __name__=='__main__':

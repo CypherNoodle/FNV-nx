@@ -26,7 +26,9 @@ La [prueba de bancos/versiones COM](docs/native-vulkan-uniform-state.md) ya
 ejecuta esos callbacks desde callers x86 traducidos, con pixeles y fence Vulkan
 reales en desktop. La [conexion de geometria](docs/native-vulkan-geometry.md)
 tambien lleva uploads y bindings VB/IB desde COM a Vulkan y valida sus accesos.
-Texturas, estados y targets siguen siendo explicitos en el fixture;
+La [conexion de texturas](docs/native-vulkan-texture-upload.md) agrega uploads
+ARGB8 y snapshots por draw, con parches/reintentos y conversion C para cinco
+formatos sin compresion. Sampler, estados y targets siguen explicitos;
 no es todavia el proveedor completo de Switch. Los forks del driver se
 comparan con refs fijados en [revision Mesa](docs/mesa-switch-review.md).
 

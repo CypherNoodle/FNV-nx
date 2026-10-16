@@ -146,3 +146,8 @@ de Mesa indicados por el usuario se revisan en [refs y procedencia](../docs/mesa
 indices 16/32, base con signo, seis topologias, streams y tipos de declaracion.
 `test_d3d9_uniform_state.py` tambien conecta geometria COM con draws Vulkan,
 conservando copias tras modificar buffers. Ver [alcance y limites](../docs/native-vulkan-geometry.md).
+
+`test_texture_upload.py` compara parches de cinco formatos sin compresion con
+un modelo Python; verifica RGBA, alpha, pitch, padding y errores sin escrituras.
+`test_d3d9_uniform_state.py` conecta tambien uploads y bindings de texturas con
+Vulkan. Ver [contrato y limites](../docs/native-vulkan-texture-upload.md).
