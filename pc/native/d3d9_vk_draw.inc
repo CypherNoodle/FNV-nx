@@ -73,8 +73,9 @@ static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources 
     VkDescriptorPool pool=VK_NULL_HANDLE;hr=result(d,d->v.CreateDescriptorPool(d->device,&pci,NULL,&pool));if(hr)return hr;r->descriptors=pool;
     return 0;
 }
-static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives){
-    struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;
+static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride){
+    uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;struct stream_binding streams[16];memcpy(streams,d->streams,sizeof(streams));
+    if(up_vertex){memset(streams,0,sizeof(streams));streams[0].stride=up_stride;}
     struct shader_resource *vs=find_shader(d,d->bound_shaders[0]),*ps=find_shader(d,d->bound_shaders[1]);
     struct declaration_resource *decl=find_declaration(d,d->declaration);struct surface *color=find(d,d->color),*depth=find(d,d->depth);
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
@@ -86,9 +87,9 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
     if(!program)goto done;
     struct fnv_geometry_input geometry={.elements=decl->elements,.element_count=decl->count,.indexed=(uint32_t)indexed,.primitive=primitive,
         .base_bits=base,.min_vertex=min_vertex,.vertices=vertices,.start=start,.primitives=primitives};
-    for(unsigned i=0;i<16;++i){struct buffer_resource *b=find_buffer(d,d->streams[i].id);
-        geometry.streams[i]=(struct fnv_geometry_stream){b?b->bytes:0,d->streams[i].offset,d->streams[i].stride,1};}
-    struct buffer_resource *ib=find_buffer(d,d->indices);
+    for(unsigned i=0;i<16;++i){struct buffer_resource *b=up_vertex?(i?NULL:up_vertex):find_buffer(d,streams[i].id);
+        geometry.streams[i]=(struct fnv_geometry_stream){b?b->bytes:0,streams[i].offset,streams[i].stride,1};}
+    struct buffer_resource *ib=up_vertex?up_index:find_buffer(d,d->indices);
     if(indexed){if(!ib)goto done;geometry.indices=ib->shadow;geometry.index_bytes=ib->bytes;geometry.index_size=ib->format==101?2:4;}
     struct fnv_geometry_access access;hr=fnv_d3d9_geometry_validate(&geometry,&access);if(hr)goto done;
     VkVertexInputAttributeDescription attributes[32];VkVertexInputBindingDescription bindings[16];uint32_t binding_count=0,stream_mask=0;
@@ -97,16 +98,16 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
         if(found==decl->count){hr=FNV_VK_INVALID;goto done;}
         const unsigned char *e=decl->elements+found*8;uint32_t stream=e[0]|(uint32_t)e[1]<<8,offset=e[2]|(uint32_t)e[3]<<8;
         unsigned type=e[4],alignment=type<4?4:(type==6 || type==7 || (type>=9 && type<=12) || type>=15)?2:1;
-        if(((uint64_t)d->streams[stream].offset+offset)%alignment || d->streams[stream].stride%alignment){hr=FNV_VK_INVALID;goto done;}
+        if(((uint64_t)streams[stream].offset+offset)%alignment || streams[stream].stride%alignment){hr=FNV_VK_INVALID;goto done;}
         attributes[i]=(VkVertexInputAttributeDescription){program->inputs[i].location,stream,decl->formats[found],offset};stream_mask|=1u<<stream;
     }
-    for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i))bindings[binding_count++]=(VkVertexInputBindingDescription){i,d->streams[i].stride,VK_VERTEX_INPUT_RATE_VERTEX};
+    for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i))bindings[binding_count++]=(VkVertexInputBindingDescription){i,streams[i].stride,VK_VERTEX_INPUT_RATE_VERTEX};
     VkSamplerCreateInfo sampler_info[16];
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
         if(!t || !t->version->initialized){hr=FNV_VK_INVALID;goto done;}
         hr=fnv_d3d9_vk_sampler(d->sampler_state+i,t->levels,d->properties.limits.maxSamplerLodBias,sampler_info+i);if(hr)goto done;
         if(sampler_info[i].magFilter==VK_FILTER_LINEAR || sampler_info[i].minFilter==VK_FILTER_LINEAR || sampler_info[i].mipmapMode==VK_SAMPLER_MIPMAP_MODE_LINEAR){
-            VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,VK_FORMAT_R8G8B8A8_UNORM,&props);
+            VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,bc_format(t->format)?bc_format(t->format):VK_FORMAT_R8G8B8A8_UNORM,&props);
             if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)){hr=FNV_VK_INVALID;goto done;}}
     }
     VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&d->depth_state,&depth_info);if(hr)goto done;
@@ -118,7 +119,7 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
     if(!f){hr=FNV_VK_BUSY;goto done;}
     f->draw=calloc(1,sizeof(*f->draw));if(!f->draw){hr=FNV_VK_OOM;goto done;}struct draw_resources *r=f->draw;
     draw_pin(d,r,color->id);if(depth)draw_pin(d,r,depth->id);draw_pin(d,r,vs->id);draw_pin(d,r,ps->id);draw_pin(d,r,decl->id);
-    for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i)){struct buffer_resource *b=find_buffer(d,d->streams[i].id);r->vertices[i]=b->version;r->vertices[i]->refs++;draw_pin(d,r,b->id);}
+    for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i)){struct buffer_resource *b=up_vertex?(i?NULL:up_vertex):find_buffer(d,streams[i].id);r->vertices[i]=b->version;r->vertices[i]->refs++;draw_pin(d,r,b->id);}
     if(indexed){r->indices=ib->version;r->indices->refs++;draw_pin(d,r,ib->id);}
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
         r->textures[i]=t->version;r->textures[i]->refs++;draw_pin(d,r,t->id);}
@@ -160,12 +161,19 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
     VkRenderPassBeginInfo begin={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=f->passes[0],.framebuffer=f->buffers[0],.renderArea={{0,0},{color->width,color->height}}};
     d->v.CmdBeginRenderPass(f->cmd,&begin,VK_SUBPASS_CONTENTS_INLINE);d->v.CmdBindPipeline(f->cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,r->pipeline);
     d->v.CmdBindDescriptorSets(f->cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,r->layout,1,3,descriptors,0,NULL);
-    for(unsigned i=0;i<16;++i)if(r->vertices[i]){VkDeviceSize offset=d->streams[i].offset;d->v.CmdBindVertexBuffers(f->cmd,i,1,&r->vertices[i]->buffer,&offset);}
+    for(unsigned i=0;i<16;++i)if(r->vertices[i]){VkDeviceSize offset=streams[i].offset;d->v.CmdBindVertexBuffers(f->cmd,i,1,&r->vertices[i]->buffer,&offset);}
     if(indexed){d->v.CmdBindIndexBuffer(f->cmd,r->indices->buffer,0,ib->format==101?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32);
         int64_t signed_base=base&0x80000000u?(int64_t)base-0x100000000ll:base;d->v.CmdDrawIndexed(f->cmd,access.count,1,start,(int32_t)signed_base,0);}
     else d->v.CmdDraw(f->cmd,access.count,1,start,0);
     d->v.CmdEndRenderPass(f->cmd);hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}d->draws++;goto done;
 rollback:
     if(!d->lost && f)retire_frame(d,f);
-done:fnv_host_mutex_unlock(&d->guard);return hr;
+done:return hr;
 }
+
+static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives){
+    struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);
+    uint32_t hr=draw_locked(d,indexed,primitive,base,min_vertex,vertices,start,primitives,NULL,NULL,0);
+    fnv_host_mutex_unlock(&d->guard);return hr;
+}
+#include "d3d9_vk_up.inc"

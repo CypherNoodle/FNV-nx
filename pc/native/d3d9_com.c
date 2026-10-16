@@ -693,6 +693,7 @@ static void draw(int indexed) {
         if(!result)result=c->config.backend.draw(c->config.backend.context,indexed,primitive,base,min_vertex,vertices,start,primitives);}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,indexed?28:16);
 }
+#include "d3d9_up.inc"
 static void api_draw_primitive(void){draw(0);}
 static void api_draw_indexed(void){draw(1);}
 static void constant(enum fnv_d3d9_stage stage,enum fnv_d3d9_constant_kind kind,int get) {
@@ -732,7 +733,7 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
     api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
     api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
-    api_unavailable2,api_unavailable4,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative};
+    api_unavailable2,api_unavailable4,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
@@ -813,6 +814,7 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     for(unsigned i=0;i<8;i++)if(i!=2)write32(c->objects+surface_slots[i]*4,c->tokens[55+i]);
     const unsigned draw_slots[4]={41,42,81,82};
     for(unsigned i=0;i<4;i++)write32(c->objects+draw_slots[i]*4,c->tokens[63+i]);
+    write32(c->objects+83*4,c->tokens[88]);write32(c->objects+84*4,c->tokens[89]);
     write32(c->objects+17*4,c->tokens[85]);
     write32(c->objects+16*4,c->tokens[86]);write32(c->objects+3*4,c->tokens[87]);
     if(cfg->factory){

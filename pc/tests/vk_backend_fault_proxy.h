@@ -25,12 +25,13 @@ static VKAPI_ATTR void VKAPI_CALL proxy_destroy_pipeline(VkDevice d,VkPipeline p
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_descriptor_sets(VkDevice d,const VkDescriptorSetAllocateInfo *info,VkDescriptorSet *out){
     if(fail_descriptors){fail_descriptors--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_descriptor_sets(d,info,out);
 }
-static int force_noncoherent;
+static int force_noncoherent,hide_bc_linear;
 static PFN_vkGetPhysicalDeviceFormatProperties original_format_properties;
 static VkFormat last_vertex_format;
 static VkFormatFeatureFlags last_vertex_features;
 static VKAPI_ATTR void VKAPI_CALL proxy_format_properties(VkPhysicalDevice p,VkFormat format,VkFormatProperties *out){
     original_format_properties(p,format,out);last_vertex_format=format;last_vertex_features=out->bufferFeatures;
+    if(hide_bc_linear && (format==VK_FORMAT_BC1_RGBA_UNORM_BLOCK || format==VK_FORMAT_BC2_UNORM_BLOCK || format==VK_FORMAT_BC3_UNORM_BLOCK))out->optimalTilingFeatures&=~VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
 }
 static unsigned fail_end,fail_reset;
 static PFN_vkEndCommandBuffer original_end;

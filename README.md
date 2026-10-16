@@ -60,6 +60,10 @@ Las [texturas DXT1/3/5](pc/docs/native-vulkan-bc.md) ya se suben comprimidas
 como BC1/2/3 y se muestrean en Vulkan. Pasan pruebas GPU de escritorio de
 color, alpha, mipmaps y parches; falta comprobar esta ampliacion en Switch.
 
+Los [draws UP](pc/docs/native-d3d9-up.md) tambien llegan a Vulkan desde memoria
+guest, con copias propias protegidas por fences y limpieza de bindings.
+Pasan 7168 pixels adicionales de escritorio y compilacion ARM64; falta HW.
+
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
 Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-runtime.md).

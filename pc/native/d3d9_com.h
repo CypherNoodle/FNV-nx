@@ -2,7 +2,7 @@
 #define FNV_D3D9_COM_H
 #include "cpu_runtime.h"
 #include "d3d9_constants.h"
-#define FNV_D3D9_COM_METHOD_COUNT 88u
+#define FNV_D3D9_COM_METHOD_COUNT 90u
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
 enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE };
@@ -79,6 +79,9 @@ struct fnv_d3d9_shader_backend {
     /* Fixed-configuration healthy-device Reset. Reject live DEFAULT resources;
      * preserve shader/managed objects, discard bindings/constants/state. No
      * success until old render work is complete and new targets are ready. */
+    /* UP data must be copied before return; transient GPU versions retain fences.
+     * After an attempt, clear stream zero, and indices for indexed UP. */
+    uint32_t (*draw_up)(void *,int indexed,uint32_t primitive,uint32_t minimum,uint32_t vertices,uint32_t primitives,const void *indices,uint32_t format,const void *vertices_data,uint32_t stride,uint32_t vertex_bytes,uint32_t index_bytes);
     uint32_t (*reset)(void *,uint64_t wait_timeout_ns);
     uint32_t (*cooperative)(void *);
 };
