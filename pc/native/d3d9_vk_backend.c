@@ -6,14 +6,14 @@
 #include <string.h>
 #define GLOBALS(X) X(CreateInstance)
 #define INSTANCE(X) X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) \
- X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceImageFormatProperties) X(CreateDevice) X(GetDeviceProcAddr)
+ X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceImageFormatProperties) X(GetPhysicalDeviceFormatProperties) X(CreateDevice) X(GetDeviceProcAddr)
 #define DEVICE(X) X(DestroyDevice) X(DeviceWaitIdle) X(GetDeviceQueue) X(CreateImage) X(DestroyImage) \
  X(GetImageMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindImageMemory) X(CreateImageView) X(DestroyImageView) \
  X(CreateCommandPool) X(DestroyCommandPool) X(ResetCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer) \
  X(CreateFence) X(DestroyFence) X(ResetFences) X(GetFenceStatus) X(WaitForFences) X(QueueSubmit) \
  X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) X(CmdPipelineBarrier) \
  X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdClearAttachments) X(CreateBuffer) X(DestroyBuffer) \
- X(GetBufferMemoryRequirements) X(BindBufferMemory) X(CmdCopyImageToBuffer) X(CmdCopyBufferToImage) X(CmdCopyBuffer) X(MapMemory) X(UnmapMemory) X(InvalidateMappedMemoryRanges) X(FlushMappedMemoryRanges)
+ X(GetBufferMemoryRequirements) X(BindBufferMemory) X(CmdCopyImageToBuffer) X(CmdCopyBufferToImage) X(CmdCopyBuffer) X(MapMemory) X(UnmapMemory) X(InvalidateMappedMemoryRanges) X(FlushMappedMemoryRanges) X(CreateShaderModule) X(DestroyShaderModule)
 #define FIELD(n) PFN_vk##n n;
 struct dispatch { GLOBALS(FIELD) INSTANCE(FIELD) DEVICE(FIELD) };
 #undef FIELD
@@ -32,6 +32,12 @@ struct texture_resource {
     uintptr_t id;uint32_t refs,pins,width,height,levels,usage,format,pool;
     size_t bytes,offsets[16];unsigned char *shadow;struct texture_version *version;
 };
+struct shader_catalog {
+    struct shader_catalog *next;enum fnv_d3d9_stage stage;uint32_t code_bytes,spirv_bytes;
+    unsigned char *code;uint32_t *spirv;struct fnv_uniform_plan plan;struct fnv_uniform_entry *entries;
+};
+struct shader_resource {uintptr_t id;uint32_t refs,pins;struct shader_catalog *entry;VkShaderModule module;};
+struct declaration_resource {uintptr_t id;uint32_t refs,pins,count;unsigned char elements[65*8];VkFormat formats[64];};
 struct stream_binding {uintptr_t id;uint32_t offset,stride;};
 struct clear_command {
     uintptr_t color,depth;uint32_t flags,argb,z,stencil,count;
@@ -51,6 +57,9 @@ struct fnv_vk_backend {
     VkPhysicalDeviceProperties properties;VkPhysicalDeviceMemoryProperties memory;
     uint32_t family;struct surface *surfaces;struct frame frames[3];
     struct buffer_resource *buffer_resources;struct stream_binding streams[16];uintptr_t indices;
+    struct shader_catalog *catalog;uint32_t catalog_count;
+    struct shader_resource *shaders;struct declaration_resource *declarations;
+    uintptr_t bound_shaders[2],declaration;struct fnv_uniform_state *uniforms;
     uint32_t buffer_versions,texture_versions;struct texture_resource *textures;uintptr_t texture_bindings[16];
     struct clear_command *commands;uint32_t count;
     uintptr_t next_id,back,auto_depth,color,depth;
@@ -84,8 +93,23 @@ static void collect_texture(struct fnv_vk_backend *d,struct texture_resource *t)
     if(!t || !t->id || t->refs || t->pins)return;
     release_texture_version(d,t->version);free(t->shadow);memset(t,0,sizeof(*t));
 }
+static struct shader_resource *find_shader(struct fnv_vk_backend *d,uintptr_t id){
+    if(id && d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].id==id)return d->shaders+i;
+    return NULL;
+}
+static struct declaration_resource *find_declaration(struct fnv_vk_backend *d,uintptr_t id){
+    if(id && d->declarations)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->declarations[i].id==id)return d->declarations+i;
+    return NULL;
+}
+static void collect_shader(struct fnv_vk_backend *d,struct shader_resource *s){
+    if(!s || !s->id || s->refs || s->pins)return;
+    d->v.DestroyShaderModule(d->device,s->module,NULL);memset(s,0,sizeof(*s));
+}
+static void collect_declaration(struct declaration_resource *v){
+    if(v && v->id && !v->refs && !v->pins)memset(v,0,sizeof(*v));
+}
 static uint32_t resource_count(struct fnv_vk_backend *d){
-    uint32_t n=0;for(uint32_t i=0;i<d->config.resource_capacity;++i)n+=(d->surfaces[i].id!=0)+(d->buffer_resources[i].id!=0)+(d->textures[i].id!=0);return n;
+    uint32_t n=0;for(uint32_t i=0;i<d->config.resource_capacity;++i)n+=(d->surfaces[i].id!=0)+(d->buffer_resources[i].id!=0)+(d->textures[i].id!=0)+(d->shaders[i].id!=0)+(d->declarations[i].id!=0);return n;
 }
 static void release_version(struct fnv_vk_backend *d,struct buffer_version *v){
     if(v && !--v->refs){d->v.DestroyBuffer(d->device,v->buffer,NULL);d->v.FreeMemory(d->device,v->memory,NULL);
@@ -105,8 +129,12 @@ static void pin(struct fnv_vk_backend *d,uintptr_t id,int add){
     if(s){if(add)s->pins++;else if(s->pins){s->pins--;collect(d,s);}return;}
     struct buffer_resource *b=find_buffer(d,id);
     if(b){if(add)b->pins++;else if(b->pins){b->pins--;collect_buffer(d,b);}return;}
-    struct texture_resource *t=find_texture(d,id);if(!t)return;
-    if(add)t->pins++;else if(t->pins){t->pins--;collect_texture(d,t);}
+    struct texture_resource *t=find_texture(d,id);
+    if(t){if(add)t->pins++;else if(t->pins){t->pins--;collect_texture(d,t);}return;}
+    struct shader_resource *shader=find_shader(d,id);
+    if(shader){if(add)shader->pins++;else if(shader->pins){shader->pins--;collect_shader(d,shader);}return;}
+    struct declaration_resource *decl=find_declaration(d,id);
+    if(decl){if(add)decl->pins++;else if(decl->pins){decl->pins--;collect_declaration(decl);}}
 }
 static void close_device(struct fnv_vk_backend *d){
     uintptr_t ids[4]={d->color,d->depth,d->back,d->auto_depth};
@@ -114,6 +142,9 @@ static void close_device(struct fnv_vk_backend *d){
     for(unsigned i=0;i<4;++i)pin(d,ids[i],0);
     for(unsigned i=0;i<16;++i){uintptr_t id=d->streams[i].id;d->streams[i]=(struct stream_binding){0};pin(d,id,0);}
     for(unsigned i=0;i<16;++i){uintptr_t id=d->texture_bindings[i];d->texture_bindings[i]=0;pin(d,id,0);}
+    for(unsigned i=0;i<2;++i){uintptr_t id=d->bound_shaders[i];d->bound_shaders[i]=0;pin(d,id,0);
+        if(d->uniforms)(void)fnv_uniform_state_bind(d->uniforms,(enum fnv_d3d9_stage)i,NULL);}
+    uintptr_t declaration=d->declaration;d->declaration=0;pin(d,declaration,0);
     uintptr_t index=d->indices;d->indices=0;pin(d,index,0);
 }
 static uint32_t allocate(struct fnv_vk_backend *d,VkMemoryRequirements req,VkMemoryPropertyFlags required,VkDeviceMemory *out,uint32_t *coherent){
@@ -307,16 +338,23 @@ static uint32_t flush_locked(struct fnv_vk_backend *d){
     hr=submit_frame(d,f);if(hr)d->lost=1;return hr;
 }
 #include "d3d9_vk_textures.inc"
-static uint32_t unsupported_shader(void *ctx,enum fnv_d3d9_stage stage,const void *code,uint32_t bytes,uintptr_t *out){
-    (void)ctx;(void)stage;(void)code;(void)bytes;(void)out;return FNV_VK_INVALID;
+#include "d3d9_vk_shaders.inc"
+static void addref(void *ctx,uintptr_t id){
+    struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t *refs=NULL;
+    struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);struct texture_resource *t=find_texture(d,id);
+    struct shader_resource *shader=find_shader(d,id);struct declaration_resource *decl=find_declaration(d,id);
+    if(s)refs=&s->refs;else if(b)refs=&b->refs;else if(t)refs=&t->refs;else if(shader)refs=&shader->refs;else if(decl)refs=&decl->refs;
+    if(refs){if(!*refs)d->device_refs++;(*refs)++;}fnv_host_mutex_unlock(&d->guard);
 }
-static void addref(void *ctx,uintptr_t id){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);
-    if(s){if(!s->refs)d->device_refs++;s->refs++;}else if(b){if(!b->refs)d->device_refs++;b->refs++;}else {struct texture_resource *t=find_texture(d,id);if(t){if(!t->refs)d->device_refs++;t->refs++;}}fnv_host_mutex_unlock(&d->guard);}
-static void release(void *ctx,uintptr_t id){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);
-    if(s && s->refs){if(!--s->refs && !--d->device_refs)close_device(d);collect(d,s);}
-    else if(b && b->refs){if(!--b->refs && !--d->device_refs)close_device(d);collect_buffer(d,b);}
-    else {struct texture_resource *t=find_texture(d,id);if(t && t->refs){if(!--t->refs && !--d->device_refs)close_device(d);collect_texture(d,t);}}
-    fnv_host_mutex_unlock(&d->guard);}
+static void release(void *ctx,uintptr_t id){
+    struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t *refs=NULL;
+    struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);struct texture_resource *t=find_texture(d,id);
+    struct shader_resource *shader=find_shader(d,id);struct declaration_resource *decl=find_declaration(d,id);
+    if(s)refs=&s->refs;else if(b)refs=&b->refs;else if(t)refs=&t->refs;else if(shader)refs=&shader->refs;else if(decl)refs=&decl->refs;
+    if(refs && *refs){if(!--*refs && !--d->device_refs)close_device(d);
+        collect(d,s);collect_buffer(d,b);collect_texture(d,t);collect_shader(d,shader);collect_declaration(decl);}
+    fnv_host_mutex_unlock(&d->guard);
+}
 static void device_addref(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);d->device_refs++;fnv_host_mutex_unlock(&d->guard);}
 static void device_release(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);if(d->device_refs && !--d->device_refs)close_device(d);fnv_host_mutex_unlock(&d->guard);}
 static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_t format,uint32_t samples,uint32_t quality,uint32_t flag,uintptr_t *out){
@@ -386,7 +424,7 @@ static uint32_t scene(void *ctx,int begin){struct fnv_vk_backend *d=ctx;fnv_host
     if(d->lost || !d->device_refs)hr=FNV_VK_LOST;else d->in_scene=begin;fnv_host_mutex_unlock(&d->guard);return hr;}
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_backend *out){
     if(!out)return;
-    *out=(struct fnv_d3d9_shader_backend){.context=d,.create=unsupported_shader,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
+    *out=(struct fnv_d3d9_shader_backend){.context=d,.create=create_shader,.bind_shader=bind_shader,.create_declaration=create_declaration,.bind_declaration=bind_declaration,.upload_constants=upload_constants,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
         .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
         .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.clear=clear,.scene=scene};
@@ -397,6 +435,8 @@ uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out)
     struct fnv_vk_stats s={.allocated_bytes=d->allocated,.submissions=d->submissions,.completions=d->completions,.device_references=d->device_refs,.queued_commands=d->count,.last_result=d->last};
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
+    s.shader_catalog_entries=d->catalog_count;
+    for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->textures[i].id)s.live_textures++;
     for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)s.pending_frames++;
@@ -492,11 +532,14 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
         if(d->buffer_resources)for(uint32_t i=0;i<d->config.resource_capacity;++i){struct buffer_resource *b=d->buffer_resources+i;
             release_version(d,b->version);free(b->shadow);}
         if(d->textures)for(uint32_t i=0;i<d->config.resource_capacity;++i){release_texture_version(d,d->textures[i].version);free(d->textures[i].shadow);}
+        if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
     }
     if(d->instance && d->v.DestroyInstance)d->v.DestroyInstance(d->instance,NULL);
     for(uint32_t i=0;i<d->config.frames;++i){free(d->frames[i].commands);free(d->frames[i].passes);free(d->frames[i].buffers);}
-    free(d->surfaces);free(d->buffer_resources);free(d->textures);free(d->commands);fnv_host_mutex_destroy(&d->guard);free(d);return 0;
+    while(d->catalog){struct shader_catalog *entry=d->catalog;d->catalog=entry->next;free(entry->code);free(entry->spirv);free(entry->entries);free(entry);}
+    if(d->uniforms)(void)fnv_uniform_state_destroy(d->uniforms);
+    free(d->shaders);free(d->declarations);free(d->surfaces);free(d->buffer_resources);free(d->textures);free(d->commands);fnv_host_mutex_destroy(&d->guard);free(d);return 0;
 }
 uint32_t fnv_vk_backend_destroy(struct fnv_vk_backend *d){
     if(!d)return FNV_VK_INVALID;
@@ -542,9 +585,13 @@ uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     DEVICE(LOAD_DEVICE)
 #undef LOAD_DEVICE
     d->v.GetDeviceQueue(d->device,d->family,0,&d->queue);
+    uint32_t max_uniform=d->properties.limits.maxUniformBufferRange;if(max_uniform>65536)max_uniform=65536;max_uniform&=~15u;
+    struct fnv_uniform_config uc={256,224,cfg->frames*cfg->commands>64?64:cfg->frames*cfg->commands,max_uniform};
+    hr=fnv_uniform_state_create(&uc,&d->uniforms);if(hr)goto fail;
+    d->shaders=calloc(cfg->resource_capacity,sizeof(*d->shaders));d->declarations=calloc(cfg->resource_capacity,sizeof(*d->declarations));
     d->textures=calloc(cfg->resource_capacity,sizeof(*d->textures));
     d->surfaces=calloc(cfg->resource_capacity,sizeof(*d->surfaces));d->buffer_resources=calloc(cfg->resource_capacity,sizeof(*d->buffer_resources));d->commands=calloc(cfg->commands,sizeof(*d->commands));
-    if(!d->surfaces || !d->buffer_resources || !d->textures || !d->commands){hr=FNV_VK_OOM;goto fail;}
+    if(!d->surfaces || !d->buffer_resources || !d->textures || !d->shaders || !d->declarations || !d->commands){hr=FNV_VK_OOM;goto fail;}
     for(uint32_t i=0;i<cfg->frames;++i){struct frame *f=d->frames+i;
         f->commands=calloc(cfg->commands,sizeof(*f->commands));f->passes=calloc(cfg->commands,sizeof(*f->passes));f->buffers=calloc(cfg->commands,sizeof(*f->buffers));
         if(!f->commands || !f->passes || !f->buffers){hr=FNV_VK_OOM;goto fail;}

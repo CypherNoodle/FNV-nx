@@ -49,6 +49,24 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
 - Readback RGBA8 de mip mediante copia GPU, con salida intacta en fallo/timeout.
   Textura recien creada tiene contenido indefinido; readback se rechaza hasta
   primer upload. Esa subida inicializa tambien los otros mips con el shadow propio.
+- Catalogo host propio: tokens DX9 exactos, SPIR-V prevalidado offline y plan
+  reflejado de constantes se copian a memoria propia. Registro limitado a 4096
+  entradas; duplicados, etapa/cabecera invalidas y planes fuera de rango fallan.
+  La comprobacion basica de SPIR-V no sustituye spirv-val, reflection ni linkage
+  offline de la pareja. El caller debe suministrar los artefactos compatibles.
+- CreateVertexShader/CreatePixelShader crea VkShaderModule real desde ese catalogo;
+  Set/Get y referencias por binding pertenecen al backend. Fallos no publican
+  handles. El guest nunca suministra SPIR-V. Los modulos quedan hasta su ultima
+  referencia; su retencion por futuros draws aun debe conectarse.
+- Declaraciones de vertices propias, copiadas e inmutables; comprueba END,
+  streams, semanticas unicas, limites y soporte de formato del dispositivo.
+  FLOAT/half, D3DCOLOR y formatos normalizados o scaled admitidos si soportados.
+  UBYTE4 usa USCALED y SHORT2/4 SSCALED (entradas float); UDEC3/DEC3N y metodos
+  especiales se rechazan hasta disponer de conversion equivalente.
+- Constantes float/int/bool por COM a bancos privados persistentes, con planes
+  reflejados copiados al bind. Debug read_uniforms verifica el empaquetado std140
+  sin submit: estos snapshots son CPU, aun no UBOs consumidos por un draw GPU.
+  Falta mapear semanticas a locations de los shaders en la creacion de pipelines.
 - Readback diagnostico BGRA8, staging propio y salida intacta en error. Si
   vence una espera, staging e imagen siguen retenidos. Comprueba coherencia de
   la memoria y usa invalidate cuando corresponde. Su timeout aplica a cada
@@ -57,8 +75,9 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
 El backend serializa su estado/cola con mutex nativo. El caller garantiza la
 vida del loader y propiedad exclusiva al destruir. Hay limites explicitos:
 2..256 recursos, 1..128 comandos por lote, hasta 32 rectangulos por Clear.
-No devuelve exito para metodos pendientes. Shader creation devuelve error;
-draws todavia no tienen callback en este proveedor; no hay sampling integrado.
+No devuelve exito para metodos pendientes. CreateShader solo admite tokens con
+una traduccion previamente registrada por el host; no hay compilacion guest.
+Draws todavia no tienen callback en este proveedor; no hay sampling integrado.
 
 La primera referencia de device se transfiere al consumidor COM. Recursos
 con referencias publicas retienen el device; bindings y comandos no forman
@@ -81,12 +100,12 @@ Las barreras son conservadoras. No se atribuyen mejoras de FPS a este modulo.
 
 ## Prueba de integracion
 
-`test_d3d9_vk_backend.py` traduce 53 callers x86 propios usando el SDK del port
+`test_d3d9_vk_backend.py` traduce 61 callers x86 propios usando el SDK del port
 y ejecuta vtables de superficies, targets, Clear, viewport/scissor y escenas.
 Reutiliza codigo auxiliar del harness previo, pero nunca llama a su baseline
 NULLREF: comprueba que no se han creado sus objetos D3D9 Windows.
 
-Resultado final `local/vk-textures-com03/validation.json`:
+Resultado final `local/vk-shaders-com03/validation.json`:
 
 - 2.304 pixeles exactos de color: full clear, parche, copia de rectangulos y
   recorte viewport/scissor. 63 submissions y 63 completions reales en el tramo COM, incluidos transfers.
@@ -107,6 +126,16 @@ Resultado final `local/vk-textures-com03/validation.json`:
   Release antes del fence tanto de upload como de readback mantiene el recurso.
 - Tres fallos adicionales de envio de textura (EndCommandBuffer, ResetFences,
   QueueSubmit) invalidan el backend y permiten cierre sin handles reales vivos.
+- Dos modulos shader Vulkan reales desde tokens DX9 por COM; dos fallos
+  CreateShaderModule inyectados y reintento. Catalogo, SPIR-V y planes conservan
+  sus copias despues de sobrescribir el input del registro. Rechaza tokens no
+  registrados, cabecera incorrecta, plan invalido y registro duplicado.
+- 96 bytes de constantes empaquetadas desde setters x86, incluidos int con signo,
+  BOOL no canonico y padding cero. Salida intacta si no hay shaders o capacidad.
+  Bind/Get resucita refs; cierre de device suelta shader/declaracion enlazados.
+- Copia nativa de declaracion y roundtrip COM, rechazo de semantica duplicada,
+  tipos packed pendientes e IDs obsoletos. Tres selecciones scaled comprobadas
+  consultando caps; no es una prueba GPU de decodificacion de esos tres tipos.
 - Nueve escenarios de fallo mediante dispatch proxy de test: allocation,
   ImageView, Fence, readback timeout, MapMemory, rama invalidate, Framebuffer,
   QueueSubmit y cuarentena ante fallo de DeviceWaitIdle. Los handles reales
@@ -122,17 +151,17 @@ CMake `fnv_d3d9_vk_backend` compila como AArch64 con `-Werror`; eso no sustituye
 ## Uso y siguientes conexiones
 
 ```powershell
-python pc/tests/test_d3d9_vk_backend.py --sdk /externo/xboxrecomp --python-deps /externo/python-deps --headers /externo/mesa/include --shaders /privado/shaders-propios --output local/vk-backend --cc /tools/zig.exe cc
+python pc/tests/test_d3d9_vk_backend.py --sdk /externo/xboxrecomp --python-deps /externo/python-deps --headers /externo/mesa/include --shaders /privado/shaders-propios --linked-shaders /privado/fixture-linked --output local/vk-backend --cc /tools/zig.exe cc
 cmake --build /build/arm64 --target fnv_d3d9_vk_backend
 ```
 
 Usar un build ARM64 configurado con FNV_VULKAN_HEADERS y un SDP de shaders
-propios del fixture anterior (aunque esta prueba no crea shaders). Resultados
+propios del fixture anterior y sus normal.vs.spv/normal.ps.spv enlazados, con
+planes conocidos de 64/32 bytes. No es un runner generico para otra pareja. Resultados
 privados de desarrollo no son carpetas requeridas en la SD.
 
 Crear este dispositivo Vulkan **no implementa todavia** Direct3DCreate9 ni
-IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, shaders
-y draws con sampling en este backend, formatos comprimidos, superficies de textura, otras operaciones y estados,
+IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, pipelines y draws con sampling en este backend, formatos comprimidos, superficies de textura, otras operaciones y estados,
 cache de pipelines y swapchain/Present/Reset de NVK. Las pruebas graficas
 anteriores siguen separadas hasta conectar sus piezas a este proveedor.
 El arranque del motor desde EXE y sus servicios Windows permanecen independientes.
@@ -140,3 +169,7 @@ El arranque del motor desde EXE y sus servicios Windows permanecen independiente
 Semantica de Clear y scissor contrastada con documentacion primaria:
 [Clear](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-clear),
 [Scissor Test](https://learn.microsoft.com/en-us/windows/win32/direct3d9/scissor-test).
+
+La seleccion de formatos scaled se contrasto con [D3DDECLTYPE de Microsoft](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3ddecltype)
+y [vertex input de Vulkan](https://docs.vulkan.org/spec/latest/chapters/fxvertex.html).
+No se interpreta USCALED/SSCALED como normalizacion a 0..1.

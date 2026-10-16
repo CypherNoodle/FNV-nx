@@ -4,6 +4,12 @@ static PFN_vkGetInstanceProcAddr original_gpa;
 static PFN_vkGetDeviceProcAddr original_gdpa;
 static unsigned fail_memory,fail_map,fail_flush,timeout_fence,fail_submit,fail_idle,invalidations,flushes;
 static int force_noncoherent;
+static PFN_vkGetPhysicalDeviceFormatProperties original_format_properties;
+static VkFormat last_vertex_format;
+static VkFormatFeatureFlags last_vertex_features;
+static VKAPI_ATTR void VKAPI_CALL proxy_format_properties(VkPhysicalDevice p,VkFormat format,VkFormatProperties *out){
+    original_format_properties(p,format,out);last_vertex_format=format;last_vertex_features=out->bufferFeatures;
+}
 static unsigned fail_end,fail_reset;
 static PFN_vkEndCommandBuffer original_end;
 static PFN_vkResetFences original_reset;
@@ -13,7 +19,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL proxy_end(VkCommandBuffer cmd){
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_reset(VkDevice d,uint32_t n,const VkFence *fences){
     if(fail_reset){fail_reset--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_reset(d,n,fences);
 }
-#define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence)
+#define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence) X(ShaderModule)
 #define OBJECT(n) \
 static PFN_vkCreate##n original_create_##n;static PFN_vkDestroy##n original_destroy_##n; \
 static unsigned live_##n,fail_##n; \
@@ -87,6 +93,7 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gdpa(VkDevice d,const char
 static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gpa(VkInstance instance,const char *name){
     PFN_vkVoidFunction p=original_gpa(instance,name);
     if(!strcmp(name,"vkGetDeviceProcAddr")){original_gdpa=(PFN_vkGetDeviceProcAddr)p;return (PFN_vkVoidFunction)proxy_gdpa;}
+    if(!strcmp(name,"vkGetPhysicalDeviceFormatProperties")){original_format_properties=(PFN_vkGetPhysicalDeviceFormatProperties)p;return (PFN_vkVoidFunction)proxy_format_properties;}
     if(!strcmp(name,"vkGetPhysicalDeviceMemoryProperties")){original_memory_properties=(PFN_vkGetPhysicalDeviceMemoryProperties)p;return (PFN_vkVoidFunction)proxy_memory_properties;}
     return p;
 }

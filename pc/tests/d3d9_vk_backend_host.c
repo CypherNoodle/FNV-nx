@@ -28,8 +28,9 @@ static void pixels(uint32_t base,uint32_t patch,unsigned w,unsigned h,unsigned x
 }
 #include "vk_backend_buffers_fixture.h"
 #include "vk_backend_textures_fixture.h"
+#include "vk_backend_shaders_fixture.h"
 int main(int argc,char **argv){
-    assert(argc==4 && !strcmp(argv[3],"normal"));
+    assert(argc==6 && !strcmp(argv[3],"normal"));
     HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
     FARPROC symbol=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&symbol,sizeof(gp));assert(gp);
     original_gpa=gp;gp=proxy_gpa;
@@ -37,15 +38,17 @@ int main(int argc,char **argv){
     struct fnv_vk_backend *bad=(void*)1;struct fnv_vk_config tiny=cfg;tiny.memory_budget=1;
     assert(fnv_vk_backend_create(gp,&tiny,&bad,&failure)==FNV_VK_OOM && !bad);
     force_noncoherent=1;assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));force_noncoherent=0;fnv_vk_backend_callbacks(gpu,&provider);
+    load_shader_catalog(argv[2]);register_shader_files(argv[4],argv[5]);
+    original_declaration_create=provider.create_declaration;provider.create_declaration=capture_declaration;
     original_texture_create=provider.create_texture;provider.create_texture=capture_texture;
     original_buffer_create=provider.create_buffer;provider.create_buffer=capture_buffer;
     assert(stats().live_surfaces==2 && stats().device_references==1 && fnv_vk_backend_destroy(gpu)==FNV_VK_BUSY);
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(!fnv_native_load_image(argv[1],arena,ARENA,&image));
     struct fnv_cpu_config cpu_cfg={0};cpu_cfg.memory=arena;cpu_cfg.guest_base=BASE;cpu_cfg.memory_bytes=ARENA;cpu_cfg.code_low=BASE+0x1000;cpu_cfg.code_high=BASE+0x3000;
-    assert(!fnv_cpu_create(&cpu_cfg,&cpu));registry_checks();
+    assert(!fnv_cpu_create(&cpu_cfg,&cpu));registry_checks();code_at=BASE+0x200000;
     struct fnv_d3d9_com_config cc={.objects_address=BASE+0x18000,.objects_bytes=4096,.resource_capacity=32,.vertex_floats=256,.pixel_floats=224,.backend=provider,
-        .buffer_address=BASE+0x1000000,.buffer_bytes=4096};
+        .catalog=catalog,.catalog_count=catalog_count,.buffer_address=BASE+0x1000000,.buffer_bytes=4096};
     assert(!fnv_d3d9_com_create(cpu,&cc,&com));device_at=fnv_d3d9_com_device(com);
     struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(!fnv_cpu_attach(cpu,&initial));
     uint32_t back_args[]={device_at,0,GUEST_OUT},ds_args[]={device_at,GUEST_OUT};assert(!call(GET_RT,3,back_args));uint32_t back=get(GUEST_OUT);
@@ -82,16 +85,17 @@ int main(int argc,char **argv){
     clear[1]=clear[2]=0;assert(call(CLEAR,7,clear)==FNV_VK_BUSY && stats().queued_commands==4);
     pixels(0xffabcdef,0xffabcdef,32,32,0,0,32,32);
     for(unsigned i=0;i<64;++i){uint32_t transient=surface(i&1,8);assert(!release(transient));}
-    exercise_buffers();exercise_textures();
+    exercise_buffers();exercise_textures();exercise_shaders();leave_shader_bound_for_close();
     assert(!release(back) && !release(auto_ds));
-    assert(!fnv_cpu_detach() && !fnv_d3d9_com_destroy(com));assert(!stats().device_references && !stats().allocated_bytes && !stats().live_surfaces);
+    assert(!fnv_cpu_detach() && !fnv_d3d9_com_destroy(com));assert(!stats().device_references && !stats().allocated_bytes && !stats().live_surfaces && !stats().live_shaders && !stats().live_declarations);
     assert(!fnv_cpu_unregister_native(cpu,dummy_token,1) && !fnv_cpu_destroy(cpu));assert(VirtualFree(arena,0,MEM_RELEASE));
     struct fnv_vk_stats final=stats();assert(final.submissions==final.completions && !final.pending_frames && !final.queued_commands);
     assert(!fnv_vk_backend_destroy(gpu));no_live_handles();exercise_texture_submit_faults(&cfg);unsigned fault_cases=exercise_faults(&cfg);assert(fault_cases==9);
+    for(unsigned i=0;i<catalog_count;++i)free((void*)catalog[i].bytes);free(catalog);
     FreeLibrary(loader);assert(!api && !device);
     printf("{\"status\":\"PASS\",\"native_vulkan_backend\":true,\"desktop_d3d9_used\":false,\"gpu_rendered\":true,\"gpu_draw_executed\":false,\"game_frame_rendered\":false,"
         "\"fault_scenarios\":9,\"unknown_completion_quarantined\":true,\"noncoherent_invalidation_checked\":true,\"all_gpu_handles_released\":true,"
-        "\"immutable_texture_versions\":true,\"texture_upload_faults\":5,\"texture_submit_faults\":3,\"texture_bytes_checked\":%u,"
+        "\"scaled_vertex_formats_checked\":3,\"native_shader_modules\":true,\"shader_module_faults\":2,\"uniform_bytes_checked\":96,\"declaration_owned_copy\":true,\"immutable_texture_versions\":true,\"texture_upload_faults\":5,\"texture_submit_faults\":3,\"texture_bytes_checked\":%u,"
         "\"immutable_buffer_versions\":true,\"buffer_upload_faults\":3,\"buffer_bytes_checked\":%u,"
         "\"pixel_checks\":%u,\"submissions\":%llu,\"completions\":%llu,\"frames_in_flight\":2,\"resources_retained_until_fence\":true,\"budget_and_backpressure_checked\":true}\n",
         texture_bytes_checked,buffer_bytes_checked,pixels_checked,(unsigned long long)final.submissions,(unsigned long long)final.completions);
