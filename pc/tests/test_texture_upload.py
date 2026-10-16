@@ -33,7 +33,7 @@ def run(args):
                 if fmt in (21,22):rgba=[v[2],v[1],v[0],v[3] if fmt==21 else 255]
                 elif fmt==23:
                     bits=int.from_bytes(v,'little');rgba=[round((bits>>11)*255/31),round(((bits>>5)&63)*255/63),round((bits&31)*255/31),255]
-                elif fmt==28:rgba=[255,255,255,v[0]]
+                elif fmt==28:rgba=[0,0,0,v[0]]
                 else:rgba=[v[0]]*3+[255]
                 offset=(top+y)*dp+(left+x)*4;expected[offset:offset+4]=bytes(rgba)
         assert not fn(C.byref(p),dst,h*dp,dp) and dst.raw==bytes(expected)

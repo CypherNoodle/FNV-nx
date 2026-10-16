@@ -24,7 +24,7 @@ uint32_t fnv_d3d9_texture_rgba8(const struct fnv_texture_patch *input,void *dest
                 d[0]=(unsigned char)(((v>>11)*255+15)/31);
                 d[1]=(unsigned char)((((v>>5)&63)*255+31)/63);
                 d[2]=(unsigned char)(((v&31)*255+15)/31);d[3]=255;break;}
-            case 28:d[0]=d[1]=d[2]=255;d[3]=s[0];break;
+            case 28:d[0]=d[1]=d[2]=0;d[3]=s[0];break;
             case 50:d[0]=d[1]=d[2]=s[0];d[3]=255;break;
             }
         }
