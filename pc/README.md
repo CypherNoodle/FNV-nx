@@ -8,6 +8,10 @@ Los [draws UP desde memoria guest](docs/native-d3d9-up.md) usan versiones
 Vulkan transitorias, validan rangos y conservan los datos hasta sus fences.
 La suite GPU de escritorio cubre ambas llamadas y sus efectos sobre bindings.
 
+[SetFVF/GetFVF](docs/native-d3d9-fvf.md) ya convierten el subconjunto sin
+blending a declaraciones y conservan su identidad y vida. La conversion no
+sustituye los shaders del pipeline fijo que aun faltan.
+
 Estado posterior: [Reset del dispositivo sano y tamano fijo](docs/native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.
 
 Esta rama trabaja en un port nativo de la version PC. Xbox permanece pausado.

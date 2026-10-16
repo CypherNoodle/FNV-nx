@@ -66,7 +66,7 @@ static int upload_constants(void *ctx,enum fnv_d3d9_stage stage,enum fnv_d3d9_co
     fnv_host_mutex_unlock(&d->guard);return accepted;
 }
 static uint32_t create_declaration(void *ctx,const void *elements,uint32_t count,uintptr_t *out){
-    struct fnv_vk_backend *d=ctx;if(!elements || !out || count<2 || count>65 || count-1>d->properties.limits.maxVertexInputAttributes)return FNV_VK_INVALID;
+    struct fnv_vk_backend *d=ctx;if(!elements || !out || count<1 || count>65 || count-1>d->properties.limits.maxVertexInputAttributes)return FNV_VK_INVALID;
     struct declaration_resource next={.refs=1,.count=count};memcpy(next.elements,elements,count*8);
     const VkFormat formats[17]={VK_FORMAT_R32_SFLOAT,VK_FORMAT_R32G32_SFLOAT,VK_FORMAT_R32G32B32_SFLOAT,VK_FORMAT_R32G32B32A32_SFLOAT,
         VK_FORMAT_B8G8R8A8_UNORM,VK_FORMAT_R8G8B8A8_USCALED,VK_FORMAT_R16G16_SSCALED,VK_FORMAT_R16G16B16A16_SSCALED,

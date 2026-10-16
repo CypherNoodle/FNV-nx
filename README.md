@@ -64,6 +64,10 @@ Los [draws UP](pc/docs/native-d3d9-up.md) tambien llegan a Vulkan desde memoria
 guest, con copias propias protegidas por fences y limpieza de bindings.
 Pasan 7168 pixels adicionales de escritorio y compilacion ARM64; falta HW.
 
+La [conversion FVF](pc/docs/native-d3d9-fvf.md) ya genera declaraciones
+compatibles con el proveedor: 360 layouts contrastados con Windows y un
+draw XYZ/UV comprobado en Vulkan. El pipeline fijo completo sigue pendiente.
+
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
 Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-runtime.md).
