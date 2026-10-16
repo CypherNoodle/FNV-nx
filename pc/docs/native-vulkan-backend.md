@@ -1,4 +1,4 @@
-# Proveedor D3D9 propio: dispositivo y superficies Vulkan
+# Proveedor D3D9 propio: dispositivo, superficies y buffers Vulkan
 
 `pc/native/d3d9_vk_backend.c/.h` crea un dispositivo Vulkan 1.1 real con una
 cola grafica, superficies color BGRA8 y profundidad/stencil D24S8 opcional.
@@ -26,6 +26,13 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
   flush no espera ni retira slots implicitamente; devuelve BUSY si estan ocupados.
   poll observa fences, wait usa un solo timeout para todos los fences pendientes.
   EndScene no envia ni libera recursos. No hay bucles de polling con sleeps.
+- Vertex/index buffers reales con bindings de 16 streams e indices 16/32 bits.
+  Pools Default/Managed, WRITEONLY/DYNAMIC; VB con FVF cero (declaracion pendiente).
+  Lock/Unlock por COM instala versiones Vulkan inmutables. Actualizacion parcial
+  preserva bytes, DISCARD invalida el contenido anterior y aqui lo inicializa a cero.
+  NOOVERWRITE tambien crea una version completa; instancing no implementado.
+  Cada version pendiente permanece viva hasta su fence, incluso tras un DISCARD.
+  Fallos de allocation/map/flush conservan la version anterior y permiten reintentar.
 - Readback diagnostico BGRA8, staging propio y salida intacta en error. Si
   vence una espera, staging e imagen siguen retenidos. Comprueba coherencia de
   la memoria y usa invalidate cuando corresponde. Su timeout aplica a cada
@@ -35,7 +42,7 @@ El backend serializa su estado/cola con mutex nativo. El caller garantiza la
 vida del loader y propiedad exclusiva al destruir. Hay limites explicitos:
 2..256 recursos, 1..128 comandos por lote, hasta 32 rectangulos por Clear.
 No devuelve exito para metodos pendientes. Shader creation devuelve error;
-draws, buffers y texturas todavia no tienen callbacks en este proveedor.
+draws y texturas todavia no tienen callbacks en este proveedor.
 
 La primera referencia de device se transfiere al consumidor COM. Recursos
 con referencias publicas retienen el device; bindings y comandos no forman
@@ -47,23 +54,32 @@ el caller puede reintentar destroy. No se inventa un fence completado.
 
 Render passes/framebuffers se conservan por lote hasta el fence. Se crean
 por comando en esta primera version; faltan sus caches y medir coste en NVK.
+Los buffers usan memoria HOST_VISIBLE, flush explicito si no es coherente y
+una copia CPU completa mas una allocation dedicada en cada actualizacion.
+Es una base de correccion: faltan arenas, uploads parciales y medir en Switch.
+Readback de buffers es diagnostico de transferencias, no una prueba de draws.
 Las barreras son conservadoras. No se atribuyen mejoras de FPS a este modulo.
 
 ## Prueba de integracion
 
-`test_d3d9_vk_backend.py` traduce 37 callers x86 propios usando el SDK del port
+`test_d3d9_vk_backend.py` traduce 46 callers x86 propios usando el SDK del port
 y ejecuta vtables de superficies, targets, Clear, viewport/scissor y escenas.
 Reutiliza codigo auxiliar del harness previo, pero nunca llama a su baseline
 NULLREF: comprueba que no se han creado sus objetos D3D9 Windows.
 
-Resultado final `local/vk-backend-com03/validation.json`:
+Resultado final `local/vk-buffers-com02/validation.json`:
 
 - 2.304 pixeles exactos de color: full clear, parche, copia de rectangulos y
-  recorte viewport/scissor. 9 submissions y 9 completions reales en el tramo COM.
+  recorte viewport/scissor. 28 submissions y 28 completions reales en el tramo COM, incluidos transfers.
 - Dos slots ocupados y tercer lote BUSY sin perderlo. Libera/unbind superficies
   antes de completar: se retienen hasta ultimo lote, y sus IDs obsoletos se rechazan.
 - Presupuesto insuficiente y formato no soportado conservan estado/memoria.
   Reciclado de slots de recursos y cierre final sin VkDeviceMemory propia viva.
+- 821 bytes de VB/IB recuperados por copias GPU, incluidos rangos no alineados,
+  buffers de 1..8 bytes, indices de 16/32 bits y cambios parciales/DISCARD.
+  Tres fallos adicionales durante upload (allocation/map/flush), con reintento.
+  Timeout seguido de DISCARD retiene ambas versiones hasta completar el fence.
+  Liberacion publica, bindings, Get con resurreccion y IDs obsoletos comprobados.
 - Nueve escenarios de fallo mediante dispatch proxy de test: allocation,
   ImageView, Fence, readback timeout, MapMemory, rama invalidate, Framebuffer,
   QueueSubmit y cuarentena ante fallo de DeviceWaitIdle. Los handles reales
@@ -71,7 +87,7 @@ Resultado final `local/vk-backend-com03/validation.json`:
 
 Los fallos/timeouts anteriores son inyectados; no se presentan como fallos
 observados del driver. El proxy puede ocultar HOST_COHERENT para ejercitar
-invalidate: no demuestra comportamiento fisico de toda memoria no coherente.
+flush/invalidate: no demuestra comportamiento fisico de toda memoria no coherente.
 Depth/stencil se graban, pero el readback verifica color. No hay draws GPU ni
 frames de Fallout. No se ha ejecutado el modulo en Switch/NVK. El target
 CMake `fnv_d3d9_vk_backend` compila como AArch64 con `-Werror`; eso no sustituye HW.
@@ -88,7 +104,7 @@ propios del fixture anterior (aunque esta prueba no crea shaders). Resultados
 privados de desarrollo no son carpetas requeridas en la SD.
 
 Crear este dispositivo Vulkan **no implementa todavia** Direct3DCreate9 ni
-IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, buffers/texturas/shaders
+IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, texturas/shaders
 y draws en este backend, superficies de textura, otras operaciones y estados,
 cache de pipelines y swapchain/Present/Reset de NVK. Las pruebas graficas
 anteriores siguen separadas hasta conectar sus piezas a este proveedor.

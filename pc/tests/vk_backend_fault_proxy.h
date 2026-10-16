@@ -2,7 +2,7 @@
  * API failures verify rollback and lifetime without requiring driver faults. */
 static PFN_vkGetInstanceProcAddr original_gpa;
 static PFN_vkGetDeviceProcAddr original_gdpa;
-static unsigned fail_memory,fail_map,timeout_fence,fail_submit,fail_idle,invalidations;
+static unsigned fail_memory,fail_map,fail_flush,timeout_fence,fail_submit,fail_idle,invalidations,flushes;
 static int force_noncoherent;
 #define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence)
 #define OBJECT(n) \
@@ -22,6 +22,7 @@ static PFN_vkWaitForFences original_wait;
 static PFN_vkQueueSubmit original_submit;
 static PFN_vkDeviceWaitIdle original_idle;
 static PFN_vkInvalidateMappedMemoryRanges original_invalidate;
+static PFN_vkFlushMappedMemoryRanges original_flush;
 static PFN_vkGetPhysicalDeviceMemoryProperties original_memory_properties;
 static unsigned live_memory;
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_allocate(VkDevice d,const VkMemoryAllocateInfo *info,const VkAllocationCallbacks *a,VkDeviceMemory *out){
@@ -44,6 +45,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL proxy_idle(VkDevice d){if(fail_idle){fail_
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_invalidate(VkDevice d,uint32_t count,const VkMappedMemoryRange *ranges){
     assert(count==1 && ranges[0].offset==0 && ranges[0].size==VK_WHOLE_SIZE);invalidations++;return original_invalidate(d,count,ranges);
 }
+static VKAPI_ATTR VkResult VKAPI_CALL proxy_flush(VkDevice d,uint32_t count,const VkMappedMemoryRange *ranges){
+    assert(count==1 && ranges[0].offset==0 && ranges[0].size==VK_WHOLE_SIZE);
+    if(fail_flush){fail_flush--;return VK_ERROR_OUT_OF_HOST_MEMORY;}
+    flushes++;return original_flush(d,count,ranges);
+}
 static VKAPI_ATTR void VKAPI_CALL proxy_memory_properties(VkPhysicalDevice p,VkPhysicalDeviceMemoryProperties *out){
     original_memory_properties(p,out);
     if(force_noncoherent)for(uint32_t i=0;i<out->memoryTypeCount;++i)out->memoryTypes[i].propertyFlags&=~VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -63,6 +69,7 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gdpa(VkDevice d,const char
     HOOK(QueueSubmit,original_submit,proxy_submit)
     HOOK(DeviceWaitIdle,original_idle,proxy_idle)
     HOOK(InvalidateMappedMemoryRanges,original_invalidate,proxy_invalidate)
+    HOOK(FlushMappedMemoryRanges,original_flush,proxy_flush)
 #undef HOOK
     return p;
 }

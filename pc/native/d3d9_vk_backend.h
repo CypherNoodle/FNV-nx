@@ -12,6 +12,7 @@ struct fnv_vk_stats {
     uint64_t allocated_bytes,submissions,completions,device_references;
     uint32_t live_surfaces,queued_commands,pending_frames;
     VkResult last_result;
+    uint32_t live_buffers,buffer_versions;
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
@@ -38,6 +39,10 @@ uint32_t fnv_vk_backend_wait(struct fnv_vk_backend *,uint64_t timeout_ns);
  * tightly packed; unchanged on error/timeout. Temporary GPU resources remain
  * owned by the frame after timeout. Not a Present implementation. */
 uint32_t fnv_vk_backend_read_color(struct fnv_vk_backend *,uintptr_t,void *,size_t,uint64_t timeout_ns);
+/* Debug GPU transfer readback of an arbitrary VB/IB byte range. Each upload
+ * installs an immutable VkBuffer version; pending transfers keep the previous
+ * version alive through its real fence. Output unchanged on error/timeout. */
+uint32_t fnv_vk_backend_read_buffer(struct fnv_vk_backend *,uintptr_t,uint32_t offset,uint32_t bytes,void *,size_t,uint64_t timeout_ns);
 /* Caller prevents concurrent teardown. BUSY if public references or submitted
  * work remain. Unsubmitted commands can be discarded only after device refs
  * reach zero. A permanently lost device is cleaned without claiming completion. */

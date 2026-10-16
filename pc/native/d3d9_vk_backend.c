@@ -12,7 +12,7 @@
  X(CreateFence) X(DestroyFence) X(ResetFences) X(GetFenceStatus) X(WaitForFences) X(QueueSubmit) \
  X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) X(CmdPipelineBarrier) \
  X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdClearAttachments) X(CreateBuffer) X(DestroyBuffer) \
- X(GetBufferMemoryRequirements) X(BindBufferMemory) X(CmdCopyImageToBuffer) X(MapMemory) X(UnmapMemory) X(InvalidateMappedMemoryRanges)
+ X(GetBufferMemoryRequirements) X(BindBufferMemory) X(CmdCopyImageToBuffer) X(CmdCopyBuffer) X(MapMemory) X(UnmapMemory) X(InvalidateMappedMemoryRanges) X(FlushMappedMemoryRanges)
 #define FIELD(n) PFN_vk##n n;
 struct dispatch { GLOBALS(FIELD) INSTANCE(FIELD) DEVICE(FIELD) };
 #undef FIELD
@@ -21,6 +21,12 @@ struct surface {
     VkImage image;VkDeviceMemory memory;VkImageView view;VkDeviceSize allocation;
     VkImageLayout layout;
 };
+struct buffer_version {VkBuffer buffer;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs;};
+struct buffer_resource {
+    uintptr_t id;uint32_t refs,pins,kind,bytes,usage,format,pool;
+    unsigned char *shadow;struct buffer_version *version;
+};
+struct stream_binding {uintptr_t id;uint32_t offset,stride;};
 struct clear_command {
     uintptr_t color,depth;uint32_t flags,argb,z,stencil,count;
     VkClearRect rects[32];
@@ -31,12 +37,15 @@ struct frame {
     VkRenderPass *passes;VkFramebuffer *buffers;
     uintptr_t read_surface;VkBuffer read_buffer;VkDeviceMemory read_memory;
     VkDeviceSize read_allocation;uint32_t read_coherent;
+    struct buffer_version *read_version;
 };
 struct fnv_vk_backend {
     fnv_host_mutex guard;struct dispatch v;struct fnv_vk_config config;
     VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;
     VkPhysicalDeviceProperties properties;VkPhysicalDeviceMemoryProperties memory;
     uint32_t family;struct surface *surfaces;struct frame frames[3];
+    struct buffer_resource *buffer_resources;struct stream_binding streams[16];uintptr_t indices;
+    uint32_t buffer_versions;
     struct clear_command *commands;uint32_t count;
     uintptr_t next_id,back,auto_depth,color,depth;
     uint32_t viewport[6],scissor[4];uint64_t device_refs,allocated,submissions,completions;
@@ -53,19 +62,38 @@ static struct surface *find(struct fnv_vk_backend *d,uintptr_t id){
     if(id)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id==id)return d->surfaces+i;
     return NULL;
 }
+static struct buffer_resource *find_buffer(struct fnv_vk_backend *d,uintptr_t id){
+    if(id && d->buffer_resources)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id==id)return d->buffer_resources+i;
+    return NULL;
+}
+static uint32_t resource_count(struct fnv_vk_backend *d){
+    uint32_t n=0;for(uint32_t i=0;i<d->config.resource_capacity;++i)n+=(d->surfaces[i].id!=0)+(d->buffer_resources[i].id!=0);return n;
+}
+static void release_version(struct fnv_vk_backend *d,struct buffer_version *v){
+    if(v && !--v->refs){d->v.DestroyBuffer(d->device,v->buffer,NULL);d->v.FreeMemory(d->device,v->memory,NULL);
+        d->allocated-=v->allocation;d->buffer_versions--;free(v);}
+}
+static void collect_buffer(struct fnv_vk_backend *d,struct buffer_resource *b){
+    if(!b || !b->id || b->refs || b->pins)return;
+    release_version(d,b->version);free(b->shadow);memset(b,0,sizeof(*b));
+}
 static void collect(struct fnv_vk_backend *d,struct surface *s){
     if(!s || !s->id || s->refs || s->pins)return;
     d->v.DestroyImageView(d->device,s->view,NULL);d->v.DestroyImage(d->device,s->image,NULL);
     d->v.FreeMemory(d->device,s->memory,NULL);d->allocated-=s->allocation;memset(s,0,sizeof(*s));
 }
 static void pin(struct fnv_vk_backend *d,uintptr_t id,int add){
-    struct surface *s=find(d,id);if(!s)return;
-    if(add)s->pins++;else if(s->pins){s->pins--;collect(d,s);}
+    struct surface *s=find(d,id);
+    if(s){if(add)s->pins++;else if(s->pins){s->pins--;collect(d,s);}return;}
+    struct buffer_resource *b=find_buffer(d,id);if(!b)return;
+    if(add)b->pins++;else if(b->pins){b->pins--;collect_buffer(d,b);}
 }
 static void close_device(struct fnv_vk_backend *d){
     uintptr_t ids[4]={d->color,d->depth,d->back,d->auto_depth};
     d->color=d->depth=d->back=d->auto_depth=0;
     for(unsigned i=0;i<4;++i)pin(d,ids[i],0);
+    for(unsigned i=0;i<16;++i){uintptr_t id=d->streams[i].id;d->streams[i]=(struct stream_binding){0};pin(d,id,0);}
+    uintptr_t index=d->indices;d->indices=0;pin(d,index,0);
 }
 static uint32_t allocate(struct fnv_vk_backend *d,VkMemoryRequirements req,VkMemoryPropertyFlags required,VkDeviceMemory *out,uint32_t *coherent){
     if(req.size>d->config.memory_budget-d->allocated)return FNV_VK_OOM;
@@ -80,11 +108,80 @@ static uint32_t allocate(struct fnv_vk_backend *d,VkMemoryRequirements req,VkMem
     if(!hr){*out=memory;d->allocated+=req.size;if(coherent)*coherent=(d->memory.memoryTypes[chosen].propertyFlags&VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)!=0;}
     return hr;
 }
+static uint32_t make_version(struct fnv_vk_backend *d,uint32_t kind,uint32_t bytes,const void *data,struct buffer_version **out){
+    struct buffer_version *v=calloc(1,sizeof(*v));if(!v)return FNV_VK_OOM;
+    VkDeviceSize padded=((VkDeviceSize)bytes+3)&~(VkDeviceSize)3;
+    VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=padded,
+        .usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT|(kind==FNV_D3D9_VB?VK_BUFFER_USAGE_VERTEX_BUFFER_BIT:VK_BUFFER_USAGE_INDEX_BUFFER_BIT)};
+    uint32_t hr=result(d,d->v.CreateBuffer(d->device,&ci,NULL,&v->buffer));
+    if(hr){free(v);return hr;}
+    VkMemoryRequirements req;uint32_t coherent=0;d->v.GetBufferMemoryRequirements(d->device,v->buffer,&req);
+    hr=allocate(d,req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,&v->memory,&coherent);
+    if(!hr){v->allocation=req.size;hr=result(d,d->v.BindBufferMemory(d->device,v->buffer,v->memory,0));}
+    void *mapped=NULL;if(!hr)hr=result(d,d->v.MapMemory(d->device,v->memory,0,VK_WHOLE_SIZE,0,&mapped));
+    if(!hr){
+        memset(mapped,0,(size_t)padded);memcpy(mapped,data,bytes);
+        if(!coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=v->memory,.offset=0,.size=VK_WHOLE_SIZE};
+            hr=result(d,d->v.FlushMappedMemoryRanges(d->device,1,&range));}
+        d->v.UnmapMemory(d->device,v->memory);
+    }
+    if(hr){d->v.DestroyBuffer(d->device,v->buffer,NULL);if(v->memory){d->v.FreeMemory(d->device,v->memory,NULL);d->allocated-=v->allocation;}free(v);return hr;}
+    v->refs=1;d->buffer_versions++;*out=v;return 0;
+}
+static uint32_t create_buffer(void *ctx,enum fnv_d3d9_resource_kind kind,uint32_t bytes,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out){
+    struct fnv_vk_backend *d=ctx;
+    if(!out || !bytes || (kind!=FNV_D3D9_VB && kind!=FNV_D3D9_IB) || pool>1 || (usage&~(8u|512u)) ||
+       ((usage&512) && pool!=0) || (kind==FNV_D3D9_VB?format!=0:(format!=101 && format!=102)))return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_OOM;
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(d->next_id==UINTPTR_MAX){hr=FNV_VK_INVALID;goto done;}
+    if(bytes>d->config.memory_budget || resource_count(d)==d->config.resource_capacity)goto done;
+    struct buffer_resource *b=NULL;for(uint32_t i=0;i<d->config.resource_capacity;++i)if(!d->buffer_resources[i].id){b=d->buffer_resources+i;break;}
+    if(!b)goto done;
+    unsigned char *shadow=calloc(1,bytes);if(!shadow)goto done;
+    struct buffer_version *version=NULL;hr=make_version(d,kind,bytes,shadow,&version);
+    if(hr){free(shadow);goto done;}
+    *b=(struct buffer_resource){.id=++d->next_id,.refs=1,.kind=kind,.bytes=bytes,.usage=usage,.format=format,.pool=pool,.shadow=shadow,.version=version};
+    d->device_refs++;*out=b->id;
+done:fnv_host_mutex_unlock(&d->guard);return hr;
+}
+static uint32_t update_buffer(void *ctx,uintptr_t id,uint32_t offset,uint32_t bytes,uint32_t flags,const void *data){
+    struct fnv_vk_backend *d=ctx;if(!data || !bytes || (flags&~(0x800u|0x1000u|0x2000u)) || (flags&0x3000u)==0x3000u)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(!b || offset>b->bytes || bytes>b->bytes-offset || ((flags&0x3000u) && !(b->usage&512)))goto done;
+    unsigned char *candidate=malloc(b->bytes);if(!candidate){hr=FNV_VK_OOM;goto done;}
+    if(flags&0x2000u)memset(candidate,0,b->bytes);else memcpy(candidate,b->shadow,b->bytes);
+    memcpy(candidate+offset,data,bytes);struct buffer_version *version=NULL;hr=make_version(d,b->kind,b->bytes,candidate,&version);
+    if(hr){free(candidate);goto done;}
+    struct buffer_version *old=b->version;unsigned char *old_shadow=b->shadow;
+    b->version=version;b->shadow=candidate;release_version(d,old);free(old_shadow);
+done:fnv_host_mutex_unlock(&d->guard);return hr;
+}
+static uint32_t bind_stream(void *ctx,uint32_t stream,uintptr_t id,uint32_t offset,uint32_t stride){
+    struct fnv_vk_backend *d=ctx;if(stream>=16)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if((id && (!b || b->kind!=FNV_D3D9_VB || offset>b->bytes)) || stride>d->properties.limits.maxVertexInputBindingStride)goto done;
+    uintptr_t old=d->streams[stream].id;pin(d,id,1);d->streams[stream]=(struct stream_binding){id,offset,stride};pin(d,old,0);hr=0;
+done:fnv_host_mutex_unlock(&d->guard);return hr;
+}
+static uint32_t bind_indices(void *ctx,uintptr_t id){
+    struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;
+    if(d->lost || !d->device_refs)hr=FNV_VK_LOST;
+    else if(!id || (b && b->kind==FNV_D3D9_IB)){uintptr_t old=d->indices;pin(d,id,1);d->indices=id;pin(d,old,0);hr=0;}
+    fnv_host_mutex_unlock(&d->guard);return hr;
+}
+static uint32_t frequency(void *ctx,uint32_t stream,uint32_t setting){
+    struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);
+    uint32_t hr=d->lost || !d->device_refs?FNV_VK_LOST:stream<16 && setting==1?0:FNV_VK_INVALID;
+    fnv_host_mutex_unlock(&d->guard);return hr;
+}
 static uint32_t make_surface(struct fnv_vk_backend *d,int depth,uint32_t w,uint32_t h,uint32_t flag,int public_ref,uintptr_t *out){
     if(d->lost || !d->device_refs)return FNV_VK_LOST;
     if(!w || !h || w>d->properties.limits.maxImageDimension2D || h>d->properties.limits.maxImageDimension2D || d->next_id==UINTPTR_MAX)return FNV_VK_INVALID;
     struct surface *s=NULL;for(uint32_t i=0;i<d->config.resource_capacity;++i)if(!d->surfaces[i].id){s=d->surfaces+i;break;}
-    if(!s)return FNV_VK_OOM;
+    if(!s || resource_count(d)==d->config.resource_capacity)return FNV_VK_OOM;
     VkFormat format=depth?VK_FORMAT_D24_UNORM_S8_UINT:VK_FORMAT_B8G8R8A8_UNORM;
     VkImageUsageFlags usage=(depth?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     VkImageFormatProperties caps;
@@ -118,6 +215,7 @@ static void retire_frame(struct fnv_vk_backend *d,struct frame *f){
     if(f->read_buffer)d->v.DestroyBuffer(d->device,f->read_buffer,NULL);
     if(f->read_memory){d->v.FreeMemory(d->device,f->read_memory,NULL);d->allocated-=f->read_allocation;}
     pin(d,f->read_surface,0);
+    release_version(d,f->read_version);f->read_version=NULL;
     f->read_buffer=VK_NULL_HANDLE;f->read_memory=VK_NULL_HANDLE;f->read_surface=0;f->read_allocation=0;
     f->count=0;if(f->pending){f->pending=0;d->completions++;}
 }
@@ -189,10 +287,12 @@ static uint32_t flush_locked(struct fnv_vk_backend *d){
 static uint32_t unsupported_shader(void *ctx,enum fnv_d3d9_stage stage,const void *code,uint32_t bytes,uintptr_t *out){
     (void)ctx;(void)stage;(void)code;(void)bytes;(void)out;return FNV_VK_INVALID;
 }
-static void addref(void *ctx,uintptr_t id){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);
-    if(s){if(!s->refs)d->device_refs++;s->refs++;}fnv_host_mutex_unlock(&d->guard);}
-static void release(void *ctx,uintptr_t id){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);
-    if(s && s->refs){if(!--s->refs && !--d->device_refs)close_device(d);collect(d,s);}fnv_host_mutex_unlock(&d->guard);}
+static void addref(void *ctx,uintptr_t id){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);
+    if(s){if(!s->refs)d->device_refs++;s->refs++;}else if(b){if(!b->refs)d->device_refs++;b->refs++;}fnv_host_mutex_unlock(&d->guard);}
+static void release(void *ctx,uintptr_t id){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);
+    if(s && s->refs){if(!--s->refs && !--d->device_refs)close_device(d);collect(d,s);}
+    else if(b && b->refs){if(!--b->refs && !--d->device_refs)close_device(d);collect_buffer(d,b);}
+    fnv_host_mutex_unlock(&d->guard);}
 static void device_addref(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);d->device_refs++;fnv_host_mutex_unlock(&d->guard);}
 static void device_release(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);if(d->device_refs && !--d->device_refs)close_device(d);fnv_host_mutex_unlock(&d->guard);}
 static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_t format,uint32_t samples,uint32_t quality,uint32_t flag,uintptr_t *out){
@@ -263,6 +363,7 @@ static uint32_t scene(void *ctx,int begin){struct fnv_vk_backend *d=ctx;fnv_host
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_backend *out){
     if(!out)return;
     *out=(struct fnv_d3d9_shader_backend){.context=d,.create=unsupported_shader,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
+        .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
         .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.clear=clear,.scene=scene};
 }
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
@@ -270,6 +371,8 @@ uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out)
     fnv_host_mutex_lock(&d->guard);
     struct fnv_vk_stats s={.allocated_bytes=d->allocated,.submissions=d->submissions,.completions=d->completions,.device_references=d->device_refs,.queued_commands=d->count,.last_result=d->last};
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
+    for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
+    s.buffer_versions=d->buffer_versions;
     for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)s.pending_frames++;
     *out=s;fnv_host_mutex_unlock(&d->guard);return 0;
 }
@@ -283,25 +386,37 @@ uint32_t fnv_vk_backend_poll(struct fnv_vk_backend *d){
     if(d->lost)hr=FNV_VK_LOST;
     fnv_host_mutex_unlock(&d->guard);return hr;
 }
-uint32_t fnv_vk_backend_read_color(struct fnv_vk_backend *d,uintptr_t id,void *output,size_t output_bytes,uint64_t timeout){
+static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t offset,uint32_t requested,int buffer_read,void *output,size_t output_bytes,uint64_t timeout){
     if(!d || !output)return FNV_VK_INVALID;
-    fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);uint32_t hr=FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;
     unsigned char *copy=NULL;struct frame *f=NULL;int held=0;
-    if(!s || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
-    size_t bytes=(size_t)s->width*s->height*4;copy=malloc(bytes);if(!copy){hr=FNV_VK_OOM;goto done;}
+    if(buffer_read){if(!b || !requested || offset>b->bytes || requested>b->bytes-offset || requested>output_bytes)goto done;}
+    else if(!s || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
+    size_t bytes=buffer_read?requested:(size_t)s->width*s->height*4;
+    VkDeviceSize aligned=buffer_read?offset&~(VkDeviceSize)3:0,skip=buffer_read?offset-aligned:0;
+    VkDeviceSize transfer_bytes=buffer_read?(((VkDeviceSize)offset+bytes+3)&~(VkDeviceSize)3)-aligned:bytes;
+    copy=malloc(bytes);if(!copy){hr=FNV_VK_OOM;goto done;}
     pin(d,id,1);held=1;
     if((hr=wait_locked(d,timeout))!=0 || (hr=flush_locked(d))!=0 || (hr=wait_locked(d,timeout))!=0)goto done;
     if((hr=begin_frame(d,&f))!=0)goto done;
     f->read_surface=id;pin(d,id,1);
-    VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=bytes,.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT};
+    VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=transfer_bytes,.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT};
     VkBuffer buffer=VK_NULL_HANDLE;hr=result(d,d->v.CreateBuffer(d->device,&ci,NULL,&buffer));if(!hr)f->read_buffer=buffer;
     if(!hr){VkMemoryRequirements req;d->v.GetBufferMemoryRequirements(d->device,f->read_buffer,&req);
         hr=allocate(d,req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,&f->read_memory,&f->read_coherent);
         if(!hr){f->read_allocation=req.size;hr=result(d,d->v.BindBufferMemory(d->device,f->read_buffer,f->read_memory,0));}}
     if(hr){retire_frame(d,f);goto done;}
-    barrier(d,f->cmd,s);
-    VkBufferImageCopy region={.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},.imageExtent={s->width,s->height,1}};
-    d->v.CmdCopyImageToBuffer(f->cmd,s->image,VK_IMAGE_LAYOUT_GENERAL,f->read_buffer,1,&region);
+    if(buffer_read){
+        f->read_version=b->version;f->read_version->refs++;
+        VkBufferMemoryBarrier source={.sType=VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_HOST_WRITE_BIT,.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT,
+            .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=f->read_version->buffer,.offset=0,.size=VK_WHOLE_SIZE};
+        d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_HOST_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,NULL,1,&source,0,NULL);
+        VkBufferCopy region={aligned,0,transfer_bytes};d->v.CmdCopyBuffer(f->cmd,f->read_version->buffer,f->read_buffer,1,&region);
+    }else{
+        barrier(d,f->cmd,s);
+        VkBufferImageCopy region={.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},.imageExtent={s->width,s->height,1}};
+        d->v.CmdCopyImageToBuffer(f->cmd,s->image,VK_IMAGE_LAYOUT_GENERAL,f->read_buffer,1,&region);
+    }
     VkMemoryBarrier host={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT,.dstAccessMask=VK_ACCESS_HOST_READ_BIT};
     d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,1,&host,0,NULL,0,NULL);
     if((hr=submit_frame(d,f))!=0){d->lost=1;goto done;}
@@ -310,7 +425,7 @@ uint32_t fnv_vk_backend_read_color(struct fnv_vk_backend *d,uintptr_t id,void *o
     if(!hr){
         if(!f->read_coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=f->read_memory,.offset=0,.size=VK_WHOLE_SIZE};
             hr=result(d,d->v.InvalidateMappedMemoryRanges(d->device,1,&range));}
-        if(!hr)memcpy(copy,mapped,bytes);
+        if(!hr)memcpy(copy,(const unsigned char*)mapped+(size_t)skip,bytes);
         d->v.UnmapMemory(d->device,f->read_memory);
     }
     retire_frame(d,f);if(d->lost)hr=FNV_VK_LOST;
@@ -319,6 +434,8 @@ done:
     if(held)pin(d,id,0);
     free(copy);fnv_host_mutex_unlock(&d->guard);return hr;
 }
+uint32_t fnv_vk_backend_read_color(struct fnv_vk_backend *d,uintptr_t id,void *out,size_t bytes,uint64_t timeout){return read_resource(d,id,0,0,0,out,bytes,timeout);}
+uint32_t fnv_vk_backend_read_buffer(struct fnv_vk_backend *d,uintptr_t id,uint32_t offset,uint32_t bytes,void *out,size_t capacity,uint64_t timeout){return read_resource(d,id,offset,bytes,1,out,capacity,timeout);}
 static uint32_t destroy_storage(struct fnv_vk_backend *d){
     if(d->device){
         if(d->v.DeviceWaitIdle){VkResult idle=d->v.DeviceWaitIdle(d->device);
@@ -332,17 +449,20 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
             if(f->fence)d->v.DestroyFence(d->device,f->fence,NULL);
             if(f->read_buffer)d->v.DestroyBuffer(d->device,f->read_buffer,NULL);
             if(f->read_memory)d->v.FreeMemory(d->device,f->read_memory,NULL);
+            release_version(d,f->read_version);
         }
         if(d->surfaces)for(uint32_t i=0;i<d->config.resource_capacity;++i){struct surface *s=d->surfaces+i;
             if(s->view)d->v.DestroyImageView(d->device,s->view,NULL);
             if(s->image)d->v.DestroyImage(d->device,s->image,NULL);
             if(s->memory)d->v.FreeMemory(d->device,s->memory,NULL);
         }
+        if(d->buffer_resources)for(uint32_t i=0;i<d->config.resource_capacity;++i){struct buffer_resource *b=d->buffer_resources+i;
+            release_version(d,b->version);free(b->shadow);}
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
     }
     if(d->instance && d->v.DestroyInstance)d->v.DestroyInstance(d->instance,NULL);
     for(uint32_t i=0;i<d->config.frames;++i){free(d->frames[i].commands);free(d->frames[i].passes);free(d->frames[i].buffers);}
-    free(d->surfaces);free(d->commands);fnv_host_mutex_destroy(&d->guard);free(d);return 0;
+    free(d->surfaces);free(d->buffer_resources);free(d->commands);fnv_host_mutex_destroy(&d->guard);free(d);return 0;
 }
 uint32_t fnv_vk_backend_destroy(struct fnv_vk_backend *d){
     if(!d)return FNV_VK_INVALID;
@@ -388,8 +508,8 @@ uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     DEVICE(LOAD_DEVICE)
 #undef LOAD_DEVICE
     d->v.GetDeviceQueue(d->device,d->family,0,&d->queue);
-    d->surfaces=calloc(cfg->resource_capacity,sizeof(*d->surfaces));d->commands=calloc(cfg->commands,sizeof(*d->commands));
-    if(!d->surfaces || !d->commands){hr=FNV_VK_OOM;goto fail;}
+    d->surfaces=calloc(cfg->resource_capacity,sizeof(*d->surfaces));d->buffer_resources=calloc(cfg->resource_capacity,sizeof(*d->buffer_resources));d->commands=calloc(cfg->commands,sizeof(*d->commands));
+    if(!d->surfaces || !d->buffer_resources || !d->commands){hr=FNV_VK_OOM;goto fail;}
     for(uint32_t i=0;i<cfg->frames;++i){struct frame *f=d->frames+i;
         f->commands=calloc(cfg->commands,sizeof(*f->commands));f->passes=calloc(cfg->commands,sizeof(*f->passes));f->buffers=calloc(cfg->commands,sizeof(*f->buffers));
         if(!f->commands || !f->passes || !f->buffers){hr=FNV_VK_OOM;goto fail;}
