@@ -37,8 +37,10 @@ El [proveedor Vulkan nativo](docs/native-vulkan-backend.md) ya atiende superfici
 targets, buffers de vertices/indices, texturas 2D, viewport/scissor y Clear con objetos propios
 y fences, sin NULLREF.
 Tambien crea modulos shader de un catalogo offline y declaraciones propias;
-constantes empaquetadas en CPU. Su fabrica guest, pipelines/draws con sampling,
-UBOs GPU y presentacion siguen pendientes.
+constantes empaquetadas y copiadas a UBOs GPU por draw. El subconjunto inicial
+ya dibuja triangle lists texturizadas con depth y scissor, con referencias
+retenidas hasta sus fences. Fabrica guest, catalogo del juego, otros estados,
+batching/caches y presentacion NVK siguen pendientes.
 
 ## Estado
 

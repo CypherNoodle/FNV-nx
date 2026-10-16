@@ -27,7 +27,7 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
   poll observa fences, wait usa un solo timeout para todos los fences pendientes.
   EndScene no envia ni libera recursos. No hay bucles de polling con sleeps.
 - Vertex/index buffers reales con bindings de 16 streams e indices 16/32 bits.
-  Pools Default/Managed, WRITEONLY/DYNAMIC; VB con FVF cero (declaracion pendiente).
+  Pools Default/Managed, WRITEONLY/DYNAMIC; VB con FVF cero y declaraciones propias.
   Lock/Unlock por COM instala versiones Vulkan inmutables. Actualizacion parcial
   preserva bytes, DISCARD invalida el contenido anterior y aqui lo inicializa a cero.
   NOOVERWRITE tambien crea una version completa; instancing no implementado.
@@ -57,7 +57,7 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
 - CreateVertexShader/CreatePixelShader crea VkShaderModule real desde ese catalogo;
   Set/Get y referencias por binding pertenecen al backend. Fallos no publican
   handles. El guest nunca suministra SPIR-V. Los modulos quedan hasta su ultima
-  referencia; su retencion por futuros draws aun debe conectarse.
+  referencia o por el fence de un draw que los consume.
 - Declaraciones de vertices propias, copiadas e inmutables; comprueba END,
   streams, semanticas unicas, limites y soporte de formato del dispositivo.
   FLOAT/half, D3DCOLOR y formatos normalizados o scaled admitidos si soportados.
@@ -65,8 +65,28 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
   especiales se rechazan hasta disponer de conversion equivalente.
 - Constantes float/int/bool por COM a bancos privados persistentes, con planes
   reflejados copiados al bind. Debug read_uniforms verifica el empaquetado std140
-  sin submit: estos snapshots son CPU, aun no UBOs consumidos por un draw GPU.
-  Falta mapear semanticas a locations de los shaders en la creacion de pipelines.
+  sin submit; Draw copia cada snapshot a UBOs Vulkan propios y cancela el ticket
+  CPU despues de copiarlos. Los UBOs GPU permanecen vivos hasta su fence.
+- Contrato de pareja offline por link_program: copia semanticas DX9 -> locations
+  y mascara de pixel samplers, sin suponer orden de declaracion. Layout fijo:
+  set 1 binding 0 VS UBO; set 2 bindings sampler; set 3 binding 0 PS UBO.
+  El host verifica linkage, tipos y descriptors de SPIR-V antes del registro.
+- DrawPrimitive/DrawIndexedPrimitive ejecutan triangle lists con shaders propios,
+  texturas, UBOs, vertex/index buffers, base vertex con signo y offsets. Valida
+  rangos de indices/vertices, alineacion y caps antes de tocar la GPU. Requiere
+  scene activa, pareja registrada y CULL_NONE explicito. No implementa aun el
+  culling por defecto CCW, otras topologias ni fixed-function vertex processing.
+- Profundidad enable/write/compare, sampler point/linear con wrap/mirror/clamp/
+  border limitado, viewport y scissor se aplican al pipeline. Sin blend, stencil,
+  anisotropia ni sRGB configurables. Los valores no soportados fallan.
+- Clear pendiente se envia antes del draw en la misma cola. Cada draw crea sus
+  propios pipeline/descriptors/samplers/UBOs y ocupa un frame slot. Ring lleno
+  devuelve BUSY sin esperas implicitas. Al retornar exito, bytes y recursos ya
+  son propios. Cambiar bindings, constantes o actualizar recursos no altera
+  lo enviado. EndScene no libera ni confirma trabajo.
+- Fallos de construccion anteriores a BeginCommandBuffer permiten reintento y
+  liberan el candidato. Fallos de grabacion/envio invalidan backend y conservan
+  recursos hasta cierre seguro. Pipelines parciales devueltos en error se liberan.
 - Readback diagnostico BGRA8, staging propio y salida intacta en error. Si
   vence una espera, staging e imagen siguen retenidos. Comprueba coherencia de
   la memoria y usa invalidate cuando corresponde. Su timeout aplica a cada
@@ -77,7 +97,7 @@ vida del loader y propiedad exclusiva al destruir. Hay limites explicitos:
 2..256 recursos, 1..128 comandos por lote, hasta 32 rectangulos por Clear.
 No devuelve exito para metodos pendientes. CreateShader solo admite tokens con
 una traduccion previamente registrada por el host; no hay compilacion guest.
-Draws todavia no tienen callback en este proveedor; no hay sampling integrado.
+Draws tienen callback en el subconjunto indicado; no es un proveedor D3D9 completo.
 
 La primera referencia de device se transfiere al consumidor COM. Recursos
 con referencias publicas retienen el device; bindings y comandos no forman
@@ -92,23 +112,27 @@ por comando en esta primera version; faltan sus caches y medir coste en NVK.
 Los buffers usan memoria HOST_VISIBLE, flush explicito si no es coherente y
 una copia CPU completa mas una allocation dedicada en cada actualizacion.
 Es una base de correccion: faltan arenas, uploads parciales y medir en Switch.
+El contador buffer_versions incluye versiones VB/IB y UBOs propios de draws.
 Readback de buffers es diagnostico de transferencias, no una prueba de draws.
 Cada upload de textura hace una copia CPU completa, una nueva imagen/staging y
 un submit dedicado; aun no hay batching ni reutilizacion de staging. Es un
 contrato inicial de correccion, no una estrategia final de rendimiento.
+Los draws inmediatos hacen un submit dedicado y recompilan el pipeline por draw.
+Faltan batching, caches de pipeline/layout/sampler y arenas de UBOs/descriptor sets.
+No debe usarse esta estrategia inicial para estimar el rendimiento del juego.
 Las barreras son conservadoras. No se atribuyen mejoras de FPS a este modulo.
 
 ## Prueba de integracion
 
-`test_d3d9_vk_backend.py` traduce 61 callers x86 propios usando el SDK del port
+`test_d3d9_vk_backend.py` traduce 65 callers x86 propios usando el SDK del port
 y ejecuta vtables de superficies, targets, Clear, viewport/scissor y escenas.
 Reutiliza codigo auxiliar del harness previo, pero nunca llama a su baseline
 NULLREF: comprueba que no se han creado sus objetos D3D9 Windows.
 
-Resultado final `local/vk-shaders-com03/validation.json`:
+Resultado final `local/vk-draw-com03/validation.json`:
 
 - 2.304 pixeles exactos de color: full clear, parche, copia de rectangulos y
-  recorte viewport/scissor. 63 submissions y 63 completions reales en el tramo COM, incluidos transfers.
+  recorte viewport/scissor. 78 submissions y 78 completions reales en el tramo COM, incluidos transfers.
 - Dos slots ocupados y tercer lote BUSY sin perderlo. Libera/unbind superficies
   antes de completar: se retienen hasta ultimo lote, y sus IDs obsoletos se rechazan.
 - Presupuesto insuficiente y formato no soportado conservan estado/memoria.
@@ -136,6 +160,22 @@ Resultado final `local/vk-shaders-com03/validation.json`:
 - Copia nativa de declaracion y roundtrip COM, rechazo de semantica duplicada,
   tipos packed pendientes e IDs obsoletos. Tres selecciones scaled comprobadas
   consultando caps; no es una prueba GPU de decodificacion de esos tres tipos.
+- Seis draws reales (cinco indexed y uno no indexed), 6.144 pixels BGRA8 exactos
+  desde este backend: textura por cuadrantes, UBOs, vertex offset, StartIndex,
+  BaseVertexIndex=-1, LEQUAL, depth deshabilitado y scissor. Mirror se comprueba
+  con coordenadas que invierten U, no solo con un periodo equivalente a wrap.
+- Cambia VB/IB, textura y constantes antes de observar el primer fence: la
+  imagen anterior conserva sus datos. Refs publicas y bindings desaparecen
+  antes del ultimo fence; los recursos permanecen hasta su confirmacion.
+- Nueve fallos de construccion de draw: memory/map/flush, sampler, pipeline
+  layout, descriptor pool, pipeline parcial real, descriptor sets y framebuffer.
+  Se reintenta sin fugas ni incrementar draws/submissions.
+- Tres fallos de EndCommandBuffer/ResetFences/QueueSubmit en draws invalidan el
+  backend. Idle desconocido conserva contexto y recursos; reintento de destroy
+  tras confirmacion real libera los handles controlados.
+- Control negativo en proceso separado fuerza clamp en los samplers: detecta
+  pixel incorrecto. El runner exige esta deteccion (wrong_clamp_detected=true);
+  su salida anticipada no se presenta como prueba de balance de handles.
 - Nueve escenarios de fallo mediante dispatch proxy de test: allocation,
   ImageView, Fence, readback timeout, MapMemory, rama invalidate, Framebuffer,
   QueueSubmit y cuarentena ante fallo de DeviceWaitIdle. Los handles reales
@@ -144,7 +184,8 @@ Resultado final `local/vk-shaders-com03/validation.json`:
 Los fallos/timeouts anteriores son inyectados; no se presentan como fallos
 observados del driver. El proxy puede ocultar HOST_COHERENT para ejercitar
 flush/invalidate: no demuestra comportamiento fisico de toda memoria no coherente.
-Depth/stencil se graban, pero el readback verifica color. No hay draws GPU ni
+La profundidad se comprueba mediante sus resultados de color; stencil no tiene
+readback directo ni pruebas de stencil en draws. Hay draws GPU propios; no hay
 frames de Fallout. No se ha ejecutado el modulo en Switch/NVK. El target
 CMake `fnv_d3d9_vk_backend` compila como AArch64 con `-Werror`; eso no sustituye HW.
 
@@ -161,9 +202,11 @@ planes conocidos de 64/32 bytes. No es un runner generico para otra pareja. Resu
 privados de desarrollo no son carpetas requeridas en la SD.
 
 Crear este dispositivo Vulkan **no implementa todavia** Direct3DCreate9 ni
-IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, pipelines y draws con sampling en este backend, formatos comprimidos, superficies de textura, otras operaciones y estados,
+IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, catalogo/interfaz de shaders del juego, mas topologias,
+culling, blend y otros estados, formatos comprimidos, superficies de textura,
 cache de pipelines y swapchain/Present/Reset de NVK. Las pruebas graficas
-anteriores siguen separadas hasta conectar sus piezas a este proveedor.
+anteriores se conservan como pruebas separadas; este runner usa el proveedor
+propio para las operaciones descritas.
 El arranque del motor desde EXE y sus servicios Windows permanecen independientes.
 
 Semantica de Clear y scissor contrastada con documentacion primaria:

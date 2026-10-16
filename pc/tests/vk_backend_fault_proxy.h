@@ -3,6 +3,20 @@
 static PFN_vkGetInstanceProcAddr original_gpa;
 static PFN_vkGetDeviceProcAddr original_gdpa;
 static unsigned fail_memory,fail_map,fail_flush,timeout_fence,fail_submit,fail_idle,invalidations,flushes;
+static unsigned fail_pipeline,live_Pipeline,fail_descriptors,force_clamp;
+static PFN_vkCreateGraphicsPipelines original_pipelines;
+static PFN_vkDestroyPipeline original_destroy_pipeline;
+static PFN_vkAllocateDescriptorSets original_descriptor_sets;
+static VKAPI_ATTR VkResult VKAPI_CALL proxy_pipelines(VkDevice d,VkPipelineCache cache,uint32_t n,const VkGraphicsPipelineCreateInfo *info,const VkAllocationCallbacks *a,VkPipeline *out){
+    assert(n==1);VkResult result=original_pipelines(d,cache,n,info,a,out);if(out[0])live_Pipeline++;
+    if(!result && fail_pipeline){fail_pipeline--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return result;
+}
+static VKAPI_ATTR void VKAPI_CALL proxy_destroy_pipeline(VkDevice d,VkPipeline pipeline,const VkAllocationCallbacks *a){
+    if(pipeline){assert(live_Pipeline);live_Pipeline--;}original_destroy_pipeline(d,pipeline,a);
+}
+static VKAPI_ATTR VkResult VKAPI_CALL proxy_descriptor_sets(VkDevice d,const VkDescriptorSetAllocateInfo *info,VkDescriptorSet *out){
+    if(fail_descriptors){fail_descriptors--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_descriptor_sets(d,info,out);
+}
 static int force_noncoherent;
 static PFN_vkGetPhysicalDeviceFormatProperties original_format_properties;
 static VkFormat last_vertex_format;
@@ -19,7 +33,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL proxy_end(VkCommandBuffer cmd){
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_reset(VkDevice d,uint32_t n,const VkFence *fences){
     if(fail_reset){fail_reset--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_reset(d,n,fences);
 }
-#define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence) X(ShaderModule)
+#define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence) X(ShaderModule) X(Sampler) X(DescriptorSetLayout) X(PipelineLayout) X(DescriptorPool)
 #define OBJECT(n) \
 static PFN_vkCreate##n original_create_##n;static PFN_vkDestroy##n original_destroy_##n; \
 static unsigned live_##n,fail_##n; \
@@ -30,6 +44,10 @@ static VKAPI_ATTR void VKAPI_CALL proxy_destroy_##n(VkDevice d,Vk##n h,const VkA
     if(h){assert(live_##n);live_##n--;}original_destroy_##n(d,h,a);}
 OBJECTS(OBJECT)
 #undef OBJECT
+static VKAPI_ATTR VkResult VKAPI_CALL proxy_sampler_override(VkDevice d,const VkSamplerCreateInfo *info,const VkAllocationCallbacks *a,VkSampler *out){
+    VkSamplerCreateInfo next=*info;if(force_clamp)next.addressModeU=next.addressModeV=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    return proxy_create_Sampler(d,&next,a,out);
+}
 static PFN_vkAllocateMemory original_allocate;
 static PFN_vkFreeMemory original_free;
 static PFN_vkMapMemory original_map;
@@ -74,6 +92,7 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gdpa(VkDevice d,const char
 #define LOAD_OBJECT(n) \
     if(!strcmp(name,"vkCreate" #n)){original_create_##n=(PFN_vkCreate##n)p;return (PFN_vkVoidFunction)proxy_create_##n;} \
     if(!strcmp(name,"vkDestroy" #n)){original_destroy_##n=(PFN_vkDestroy##n)p;return (PFN_vkVoidFunction)proxy_destroy_##n;}
+    if(!strcmp(name,"vkCreateSampler")){original_create_Sampler=(PFN_vkCreateSampler)p;return (PFN_vkVoidFunction)proxy_sampler_override;}
     OBJECTS(LOAD_OBJECT)
 #undef LOAD_OBJECT
 #define HOOK(vk,slot,fn) if(!strcmp(name,"vk" #vk)){slot=(PFN_vk##vk)p;return (PFN_vkVoidFunction)fn;}
@@ -82,6 +101,9 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL proxy_gdpa(VkDevice d,const char
     HOOK(MapMemory,original_map,proxy_map)
     HOOK(WaitForFences,original_wait,proxy_wait)
     HOOK(QueueSubmit,original_submit,proxy_submit)
+    HOOK(CreateGraphicsPipelines,original_pipelines,proxy_pipelines)
+    HOOK(DestroyPipeline,original_destroy_pipeline,proxy_destroy_pipeline)
+    HOOK(AllocateDescriptorSets,original_descriptor_sets,proxy_descriptor_sets)
     HOOK(EndCommandBuffer,original_end,proxy_end)
     HOOK(ResetFences,original_reset,proxy_reset)
     HOOK(DeviceWaitIdle,original_idle,proxy_idle)
@@ -101,7 +123,7 @@ static void no_live_handles(void){
 #define CHECK_OBJECT(n) assert(!live_##n);
     OBJECTS(CHECK_OBJECT)
 #undef CHECK_OBJECT
-    assert(!live_memory);
+    assert(!live_memory && !live_Pipeline);
 }
 static unsigned exercise_faults(const struct fnv_vk_config *cfg){
     unsigned scenarios=0;VkResult reason;struct fnv_vk_backend *d;struct fnv_d3d9_shader_backend b;struct fnv_vk_stats s;
