@@ -152,7 +152,7 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
     /* Pipelines can be returned on failure, unlike ordinary create calls. */
     if(pipeline)r->pipeline=pipeline;
     hr=result(d,built);if(hr)goto rollback;
-    {struct frame *actual=NULL;hr=begin_frame(d,&actual);if(hr)goto rollback;}
+    {struct frame *actual=NULL;hr=begin_frame(d,&actual);if(hr)goto rollback;if(actual!=f){hr=FNV_VK_INVALID;goto rollback;}}
     barrier(d,f->cmd,color);if(depth)barrier(d,f->cmd,depth);
     VkMemoryBarrier host={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_HOST_WRITE_BIT,.dstAccessMask=VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT|VK_ACCESS_INDEX_READ_BIT|VK_ACCESS_UNIFORM_READ_BIT};
     d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_HOST_BIT,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT|VK_PIPELINE_STAGE_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,1,&host,0,NULL,0,NULL);
