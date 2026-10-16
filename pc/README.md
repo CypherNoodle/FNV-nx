@@ -11,6 +11,10 @@ Leer el EXE en la consola aporta secciones, datos y direcciones del programa.
 No traduce todo el motor en ese momento. Cada version soportada necesitara
 un perfil de identidad que coincida con el codigo ARM64 compilado. Los bridges
 D3D8 de Silent Hill no sustituyen directamente el D3D9 de New Vegas.
+La ruta grafica elegida es Vulkan sobre Mesa/NVK; deko3d queda pausado.
+La [prueba Vulkan propia](docs/native-vulkan-shaders.md) verifica conversion
+SPIR-V, textura y profundidad en la GPU del PC. Su conexion al proveedor COM
+y al backend Switch sigue pendiente.
 
 ## Estado
 

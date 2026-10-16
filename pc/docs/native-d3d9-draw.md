@@ -84,6 +84,10 @@ resolves y Reset. La traduccion de los bytecodes D3D9 al backend Switch y la
 gestion de sus formatos, comandos y fences aun necesitan implementacion.
 No se sustituye esa traduccion por el exito del compilador HLSL de Windows.
 
+Como etapa posterior independiente, el [test Vulkan](native-vulkan-shaders.md)
+ya traduce el mismo HLSL propio a SPIR-V y comprueba textura/depth en la GPU
+del PC. Todavia no es un proveedor Vulkan conectado a estos bridges COM.
+
 Referencias: [BeginScene](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-beginscene),
 [EndScene](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-endscene)
 y [vertices e indices](https://learn.microsoft.com/en-us/windows/win32/direct3d9/rendering-from-vertex-and-index-buffers).

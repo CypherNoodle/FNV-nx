@@ -110,3 +110,13 @@ fallos sin modificar salidas. Ver [contrato de estados](../docs/native-d3d9-stat
 backbuffer implicito, viewport y pixeles de Clear. Ver [targets y limites](../docs/native-d3d9-targets.md).
 `test_d3d9_draw.py` verifica un pipeline propio texturizado con indices,
 constantes, depth y pixels en D3D9 HAL. Ver [draws y limites](../docs/native-d3d9-draw.md).
+
+`build_shader_linker.py` construye nuestro adaptador offline contra una copia
+externa sin cambios de MojoShader; `link_d3d9_spirv.c` enlaza VS/PS y retira
+su tabla auxiliar antes de entregar SPIR-V. `inspect_spirv.py` comprueba framing
+y refleja bindings; no sustituye spirv-val. `audit_spirv_catalog.py` verifica
+hashes y separa aceptacion de traduccion de cobertura dibujada.
+`test_d3d9_spirv.py` y `test_vulkan_pipeline.py` comprueban shaders propios,
+rechazos y 4.096 pixeles Vulkan en desktop. Ver [dependencias, comandos y
+limites](../docs/native-vulkan-shaders.md). No se copian herramientas, DLLs
+del PC ni carpetas de desarrollo a la SD.

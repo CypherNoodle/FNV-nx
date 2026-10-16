@@ -9,6 +9,7 @@ El codigo del juego se traducira antes de compilar el NRO. En la consola,
 el port leera `FalloutNV.exe` y `Data` desde su propia carpeta y resolvera
 las llamadas Windows mediante implementaciones nativas incluidas en el NRO.
 No requiere una biblioteca de juegos de Autorun ni un prefijo Wine en la SD.
+El backend grafico activo sera Vulkan sobre Mesa/NVK; deko3d queda pausado.
 
 **Todavia no existe un NRO PC nativo que arranque el motor.** La biblioteca
 actual carga los datos PE32 y el runtime CPU integra estado por hilo,
@@ -19,6 +20,10 @@ del motor, y no acredita un arranque desde el EXE original.
 
 Ya existe un [NRO de diagnostico PC](pc/docs/switch-diagnostic.md) para
 comprobar lectura del EXE y runtime en Switch. No ejecuta la entrada del motor.
+
+La [prueba grafica Vulkan propia](pc/docs/native-vulkan-shaders.md) ya convierte
+shaders D3D9 a SPIR-V y verifica textura y profundidad con 4.096 pixeles en
+la GPU del PC. Aun no es un frame de Fallout ni un renderer conectado en Switch.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).

@@ -1,6 +1,6 @@
 # Renderer PC y optimizacion para Switch
 
-Revision del 15 de octubre de 2026. Xbox sigue pausado; estas decisiones son
+Revision del 16 de octubre de 2026. Xbox sigue pausado; estas decisiones son
 para el port nativo PC. Todavia no hay frames del motor PC en Switch que
 permitan afirmar una mejora de FPS.
 
@@ -31,11 +31,20 @@ el programa PC no los requiere. Los render targets seran imagenes host con
 identidad, subrecursos y dependencias conocidas. Clears, StretchRect, resolves
 de MSAA y lecturas CPU conservaran su semantica D3D9.
 
-Mantener el backend separado de esa API. NVK es una primera opcion por la
-infraestructura Switch conservada; deko3d sigue siendo una opcion de backend.
-La seleccion definitiva requiere los mismos draws, shaders y escena visibles
-en ambos y medidas de CPU/GPU. No atribuir el coste de la antigua emulacion
-Xenos al coste de Vulkan del futuro renderer PC.
+Mantener el backend separado de esa API. Por indicacion del usuario, la ruta
+activa es D3D9 -> Vulkan -> Mesa/NVK en Switch. Deko3d queda pausado.
+SH2-nx usa [OpenGL/EGL sobre Mesa](https://github.com/cutarev/sh2-nx/blob/main/CMakeLists.txt)
+y [SH3-nx](https://github.com/cutarev/sh3-nx#how-it-works) usa D3D8 sobre OpenGL,
+con switch-mesa como dependencia. Se conserva su modelo de recompilacion y
+servicios nativos; Vulkan es la eleccion de backend para FNV, no una API que
+se atribuya a esos ports. No atribuir el coste de la antigua emulacion Xenos
+al coste de Vulkan del futuro renderer PC.
+
+El primer [pipeline Vulkan propio](native-vulkan-shaders.md) convierte y enlaza
+VS/PS D3D9, crea dos pipelines y comprueba 4.096 pixeles en siete draws de la
+GPU del PC. No usa el motor, no pasa aun por el proveedor COM y no acredita
+el backend NVK en Switch. Las bibliotecas estaticas Mesa/NVK conservadas se
+han localizado, pero aun no se enlazan al NRO PC actual.
 
 La instalacion Steam revisada contiene 16 archivos `Data/Shaders/shaderpackage*.sdp`.
 El nuevo parser acotado ya inventaria 15.791 registros y 1.809 bytecodes
