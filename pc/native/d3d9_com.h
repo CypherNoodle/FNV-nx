@@ -2,7 +2,7 @@
 #define FNV_D3D9_COM_H
 #include "cpu_runtime.h"
 #include "d3d9_constants.h"
-#define FNV_D3D9_COM_METHOD_COUNT 86u
+#define FNV_D3D9_COM_METHOD_COUNT 88u
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
 enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE };
@@ -76,6 +76,11 @@ struct fnv_d3d9_shader_backend {
      * without spinning. Timeout means device lost, never fake success or a
      * nonblocking BUSY result to the base D3D9 Present caller. */
     uint32_t (*present)(void *,uint64_t wait_timeout_ns);
+    /* Fixed-configuration healthy-device Reset. Reject live DEFAULT resources;
+     * preserve shader/managed objects, discard bindings/constants/state. No
+     * success until old render work is complete and new targets are ready. */
+    uint32_t (*reset)(void *,uint64_t wait_timeout_ns);
+    uint32_t (*cooperative)(void *);
 };
 /* Optional single prepared virtual-adapter factory. Dimensions/formats must
  * match the provider's real implicit targets. No swapchain/caps are invented.
@@ -104,6 +109,7 @@ struct fnv_d3d9_com_config {
      * identity with hDeviceWindow, or hFocusWindow when hDeviceWindow is 0. */
     uint64_t presentation_timeout_ns;
     uint32_t presentation_window;
+    uint64_t reset_timeout_ns; /* Zero disables Reset; finite per wait. */
 };
 /* One module for the single active flat-mapped CPU. Caller owns a dedicated
  * writable guest object range, disjoint from image/PEB/TEB/stack/data. Setup

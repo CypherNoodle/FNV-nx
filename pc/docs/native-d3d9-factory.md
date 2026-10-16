@@ -1,5 +1,7 @@
 # Fabrica DX9 preparada: Direct3DCreate9 y CreateDevice
 
+Estado posterior: [Reset del dispositivo sano y tamano fijo](native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.
+
 `native/d3d9_factory.inc` forma parte del modulo COM propio. Exporta
 `d3d9.dll!Direct3DCreate9` mediante `fnv_d3d9_com_exports`, para enlazar la IAT
 antes del primer attach. Son funciones propias dentro del runtime, sin DLL de

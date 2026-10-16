@@ -5,7 +5,9 @@ bf3204c226c5543012a72c7cf10b98a68f25d3f3. Tres cambios de una linea; los blobs
 se verificaron exactamente antes de probarlos en una copia privada del trabajo
 actual de pc-port. La revision inicial no modifico el PR. Posteriormente, por
 peticion del usuario, se agrego el fix del fixture: head actual
-02a31d3d5901e5c48fea1eb39a8d595ef4cb9939. El PR sigue abierto, sin fusionar.
+02a31d3d5901e5c48fea1eb39a8d595ef4cb9939. El PR se fusiono por orden del usuario
+en pc-port: e58401a684a4c9964f85f84d76ca4495273e0b04. Los cuatro cambios ya
+estan incluidos; no hay que aplicar el parche otra vez.
 
 ## Hallazgo P2 corregido en la rama del PR
 

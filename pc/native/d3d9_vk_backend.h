@@ -19,6 +19,7 @@ struct fnv_vk_stats {
     uint64_t draws;
     uint64_t presentation_requests,acquire_timeouts;
     uint32_t swapchain_images,present_mode; /* Vulkan mode; valid with images. */
+    uint64_t resets;
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
@@ -55,6 +56,11 @@ uint32_t fnv_vk_backend_present(struct fnv_vk_backend *,uint64_t acquire_timeout
  * A timeout stops this device and returns LOST; no spurious WASSTILLDRAWING.
  * Does not wait for scanout or force all frames to complete on every call. */
 uint32_t fnv_vk_backend_present_sync(struct fnv_vk_backend *,uint64_t wait_timeout_ns);
+/* Same dimensions/formats/presentation mode, healthy device only. Rebuild
+ * implicit targets transactionally; wait submitted renders, clear state/banks,
+ * retain managed buffers/textures and shader/declaration objects. Live public
+ * DEFAULT resources/implicit targets reject. Lost-device/WSI recovery pending. */
+uint32_t fnv_vk_backend_reset(struct fnv_vk_backend *,uint64_t wait_timeout_ns);
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *,struct fnv_d3d9_shader_backend *);
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *,struct fnv_vk_stats *);
 /* Clear queues owned commands; EndScene does not submit or observe fences.

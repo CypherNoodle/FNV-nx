@@ -1,5 +1,7 @@
 # FNV-nx: recompilacion estatica PC
 
+Estado posterior: [Reset del dispositivo sano y tamano fijo](docs/native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.
+
 Esta rama trabaja en un port nativo de la version PC. Xbox permanece pausado.
 El usuario aporta su EXE y datos; el NRO contendra el codigo ARM64 generado
 previamente y los servicios nativos de Windows que usa el juego. Es el modelo

@@ -70,7 +70,7 @@ struct fnv_vk_backend {
     VkPhysicalDeviceProperties properties;VkPhysicalDeviceMemoryProperties memory;
     uint32_t family;struct surface *surfaces;struct frame frames[3];
     struct buffer_resource *buffer_resources;struct stream_binding streams[16];uintptr_t indices;
-    struct program_entry *programs;uint32_t program_count;uint64_t draws;
+    struct program_entry *programs;uint32_t program_count;uint64_t draws,resets;
     struct fnv_d3d9_blend blend_state;struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
     struct shader_catalog *catalog;uint32_t catalog_count;
     struct shader_resource *shaders;struct declaration_resource *declarations;
@@ -244,11 +244,9 @@ static uint32_t frequency(void *ctx,uint32_t stream,uint32_t setting){
     uint32_t hr=d->lost || !d->device_refs?FNV_VK_LOST:stream<16 && setting==1?0:FNV_VK_INVALID;
     fnv_host_mutex_unlock(&d->guard);return hr;
 }
-static uint32_t make_surface(struct fnv_vk_backend *d,int depth,uint32_t w,uint32_t h,uint32_t flag,int public_ref,uintptr_t *out){
+static uint32_t build_surface(struct fnv_vk_backend *d,int depth,uint32_t w,uint32_t h,uint32_t flag,int public_ref,struct surface *out){
     if(d->lost || !d->device_refs)return FNV_VK_LOST;
     if(!w || !h || w>d->properties.limits.maxImageDimension2D || h>d->properties.limits.maxImageDimension2D || d->next_id==UINTPTR_MAX)return FNV_VK_INVALID;
-    struct surface *s=NULL;for(uint32_t i=0;i<d->config.resource_capacity;++i)if(!d->surfaces[i].id){s=d->surfaces+i;break;}
-    if(!s || resource_count(d)==d->config.resource_capacity)return FNV_VK_OOM;
     VkFormat format=depth?VK_FORMAT_D24_UNORM_S8_UINT:VK_FORMAT_B8G8R8A8_UNORM;
     VkImageUsageFlags usage=(depth?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     VkImageFormatProperties caps;
@@ -267,6 +265,13 @@ static uint32_t make_surface(struct fnv_vk_backend *d,int depth,uint32_t w,uint3
         .subresourceRange={depth?(VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT):VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
         hr=result(d,d->v.CreateImageView(d->device,&vi,NULL,&next.view));}
     if(hr){d->v.DestroyImage(d->device,next.image,NULL);if(next.memory){d->v.FreeMemory(d->device,next.memory,NULL);d->allocated-=next.allocation;}return hr;}
+    *out=next;return 0;
+}
+static uint32_t make_surface(struct fnv_vk_backend *d,int depth,uint32_t w,uint32_t h,uint32_t flag,int public_ref,uintptr_t *out){
+    if(d->lost || !d->device_refs)return FNV_VK_LOST;
+    struct surface *s=NULL;for(uint32_t i=0;i<d->config.resource_capacity;++i)if(!d->surfaces[i].id){s=d->surfaces+i;break;}
+    if(!s || resource_count(d)==d->config.resource_capacity)return FNV_VK_OOM;
+    struct surface next;uint32_t hr=build_surface(d,depth,w,h,flag,public_ref,&next);if(hr)return hr;
     next.id=++d->next_id;*s=next;if(public_ref)d->device_refs++;*out=next.id;return 0;
 }
 static void full_viewport(struct fnv_vk_backend *d,struct surface *s){
@@ -362,6 +367,7 @@ static uint32_t flush_locked(struct fnv_vk_backend *d){
 #include "d3d9_vk_shaders.inc"
 #include "d3d9_vk_draw.inc"
 #include "d3d9_vk_present.inc"
+#include "d3d9_vk_reset.inc"
 static void addref(void *ctx,uintptr_t id){
     struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t *refs=NULL;
     struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);struct texture_resource *t=find_texture(d,id);
@@ -448,12 +454,14 @@ done:fnv_host_mutex_unlock(&d->guard);return hr;
 static uint32_t scene(void *ctx,int begin){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t hr=0;
     if(d->lost || !d->device_refs)hr=FNV_VK_LOST;else d->in_scene=begin;fnv_host_mutex_unlock(&d->guard);return hr;}
 static uint32_t present_device(void *ctx,uint64_t timeout){return fnv_vk_backend_present_sync(ctx,timeout);}
+static uint32_t reset_device(void *ctx,uint64_t timeout){return fnv_vk_backend_reset(ctx,timeout);}
+static uint32_t cooperative(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t hr=d->lost || !d->device_refs?FNV_VK_LOST:0;fnv_host_mutex_unlock(&d->guard);return hr;}
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_backend *out){
     if(!out)return;
     *out=(struct fnv_d3d9_shader_backend){.context=d,.create=create_shader,.bind_shader=bind_shader,.create_declaration=create_declaration,.bind_declaration=bind_declaration,.upload_constants=upload_constants,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
         .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
-        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.clear=clear,.scene=scene,.draw=draw,.present=d && d->wsi.chain?present_device:NULL};
+        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.clear=clear,.scene=scene,.draw=draw,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
 }
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;
@@ -461,7 +469,7 @@ uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out)
     struct fnv_vk_stats s={.allocated_bytes=d->allocated,.submissions=d->submissions,.completions=d->completions,.device_references=d->device_refs,.queued_commands=d->count,.last_result=d->last};
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
-    s.shader_catalog_entries=d->catalog_count;s.draws=d->draws;
+    s.shader_catalog_entries=d->catalog_count;s.draws=d->draws;s.resets=d->resets;
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;

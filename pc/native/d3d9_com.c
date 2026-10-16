@@ -27,11 +27,12 @@ struct fnv_d3d9_com {
     unsigned char *objects;
     unsigned char *buffer_memory;struct span *free_spans;uint32_t free_count;
     int shaders[2],indices,declaration,textures[16],targets[4],depth_target;struct stream streams[16];
-    struct fnv_d3d9_factory_profile factory;uint32_t factory_refs,factory_created,creation[4];
+    struct fnv_d3d9_factory_profile factory;uint32_t factory_refs,factory_created,creation[4],present_params[14],reset_failed;uintptr_t creator;
     uint32_t tokens[METHODS],used,device_references;int in_scene;
     fnv_host_mutex guard;
 };
 static struct fnv_d3d9_com *active_com;
+static _Thread_local unsigned char creator_marker;
 static const unsigned char iid_factory[16]={0xca,0xcb,0xbd,0x81,0xd4,0x64,0x6d,0x42,0xae,0x8d,0xad,0x01,0x47,0xf4,0x27,0x5c};
 static const unsigned char iid_surface[16]={0x3A,0xAF,0xFB,0x0C,0xF6,0x9F,0x9A,0x42,0x99,0xB3,0xA2,0x79,0x6A,0xF8,0xB8,0x9B};
 static const unsigned char iid_texture[16]={0x27,0x12,0xC3,0x85,0xE5,0x3D,0x00,0x4F,0x9B,0x3A,0xF1,0x1A,0xC3,0x8C,0x18,0xB5};
@@ -669,6 +670,7 @@ static void api_end_scene(void){scene(0);}
 static void api_present(void){
     struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0),source=fnv_cpu_argument_u32(1),dest=fnv_cpu_argument_u32(2),window=fnv_cpu_argument_u32(3),dirty=fnv_cpu_argument_u32(4);
     fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t hr=FNV_D3D9_INVALIDCALL;
+    if(c->reset_failed){fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(0x88760868u,20);return;}
     if(!c->in_scene && !source && !dest && !dirty && (!window || window==c->config.presentation_window) && (!c->config.factory || c->factory_created)){
         hr=0x8876086au;
         if(c->config.presentation_timeout_ns && c->config.backend.present)hr=c->config.backend.present(c->config.backend.context,c->config.presentation_timeout_ns);
@@ -714,6 +716,7 @@ CONSTANTS(vertex,FNV_D3D9_VERTEX)
 CONSTANTS(pixel,FNV_D3D9_PIXEL)
 static void unsupported(void){invalid("D3D9 COM method pending",fnv_cpu_argument_u32(0));}
 #include "d3d9_factory.inc"
+#include "d3d9_reset.inc"
 static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_release,api_get_device,api_get_function,
     api_create_vertex,api_create_pixel,vertex_sf,vertex_gf,vertex_si,vertex_gi,vertex_sb,vertex_gb,
     pixel_sf,pixel_gf,pixel_si,pixel_gi,pixel_sb,pixel_gb,unsupported,
@@ -729,7 +732,7 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
     api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
     api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
-    api_unavailable2,api_unavailable4,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present};
+    api_unavailable2,api_unavailable4,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
@@ -740,7 +743,7 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     if(!cpu || !cfg || (cfg->objects_address&3) || !cfg->resource_capacity || cfg->resource_capacity>8192 ||
        !cfg->vertex_floats || cfg->vertex_floats>256 || !cfg->pixel_floats || cfg->pixel_floats>224 ||
        cfg->objects_bytes<OBJECT_OFFSET+(uint64_t)cfg->resource_capacity*4 || cfg->catalog_count>8192 ||
-       (cfg->catalog_count && !cfg->catalog) || cfg->presentation_timeout_ns==UINT64_MAX || !cfg->backend.create || !cfg->backend.addref || !cfg->backend.release ||
+       (cfg->catalog_count && !cfg->catalog) || cfg->presentation_timeout_ns==UINT64_MAX || cfg->reset_timeout_ns==UINT64_MAX || !cfg->backend.create || !cfg->backend.addref || !cfg->backend.release ||
        !cfg->backend.device_addref || !cfg->backend.device_release)return FNV_CPU_INVALID;
     if((!cfg->buffer_address)!=(!cfg->buffer_bytes) || (cfg->buffer_address&15) || (cfg->buffer_bytes&15) ||
        (cfg->buffer_bytes && (uint64_t)cfg->buffer_address<(uint64_t)cfg->objects_address+cfg->objects_bytes &&
@@ -811,6 +814,7 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     const unsigned draw_slots[4]={41,42,81,82};
     for(unsigned i=0;i<4;i++)write32(c->objects+draw_slots[i]*4,c->tokens[63+i]);
     write32(c->objects+17*4,c->tokens[85]);
+    write32(c->objects+16*4,c->tokens[86]);write32(c->objects+3*4,c->tokens[87]);
     if(cfg->factory){
         const unsigned map[17]={0,1,2,78,68,79,69,70,71,72,73,82,81,80,74,83,75};
         for(unsigned i=0;i<17;++i)write32(c->objects+FACTORY_VTABLE+i*4,c->tokens[map[i]]);

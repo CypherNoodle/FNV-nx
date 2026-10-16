@@ -91,6 +91,7 @@ static void api_create_device(void){
        (values[8] && values[12]) || (!values[8] && values[12] && values[12]!=c->factory.refresh_hz) || values[13]>1){result=NOT_AVAILABLE;goto done;}
     c->factory_created=1;c->creation[0]=adapter;c->creation[1]=type;c->creation[2]=focus;c->creation[3]=behavior;
     c->config.presentation_window=values[7]?values[7]:focus;
+    c->creator=(uintptr_t)&creator_marker;memcpy(c->present_params,values,sizeof(values));
     for(unsigned i=0;i<14;++i)write32(params+i*4,values[i]);
     write32(out,device_address(c));result=0;
 done:fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,28);

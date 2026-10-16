@@ -51,6 +51,11 @@ pixels comprobados y 545 presentaciones. Aun no arranca Fallout. La [fabrica DX9
 entrega el device preparado mediante Direct3DCreate9/CreateDevice; caps completas
 y recreacion siguen pendientes.
 
+El [Reset inicial](pc/docs/native-d3d9-reset.md) ya reinicia el dispositivo
+sano de tamano fijo, conserva recursos MANAGED y limpia constantes y bindings.
+Pasa pruebas Vulkan de escritorio y compila para ARM64; faltan recuperacion
+de superficie perdida, cambio de resolucion y su validacion en consola.
+
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
 Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-runtime.md).

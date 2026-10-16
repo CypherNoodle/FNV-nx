@@ -1,5 +1,7 @@
 # Proveedor D3D9 propio: dispositivo, superficies, buffers y texturas Vulkan
 
+Estado posterior: [Reset del dispositivo sano y tamano fijo](native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.
+
 `pc/native/d3d9_vk_backend.c/.h` crea un dispositivo Vulkan 1.1 real con una
 cola grafica, superficies color BGRA8 y profundidad/stencil D24S8 opcional.
 Entrega callbacks al bridge COM existente. Los objetos pertenecen a este
