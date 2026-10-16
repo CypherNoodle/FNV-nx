@@ -47,7 +47,7 @@ obsoletos, planes copiados, rebind sin upload, fallos atomicos y 800 uploads
 con 400 snapshots entre tres hilos. Sus seriales son un modelo de prueba;
 no se presentan como evidencia de un fence fisico.
 
-`test_d3d9_uniform_state.py` traduce 24 callers x86 con el SDK usado por el
+La version inicial de `test_d3d9_uniform_state.py` traduce 24 callers x86 con el SDK usado por el
 port. En el ejecutable host, las vtables COM ejecutan setters, getters, bind
 y draws de prueba. El callback mantiene estos bancos y reserva tres versiones
 con planes VS64/PS32 del fixture anterior. Se verifica fallo/reintento de upload,
@@ -59,11 +59,14 @@ vkWaitForFences exitoso se llama complete; se comprueban los tres slots libres,
 reciclado y rechazo de tickets anteriores. Antes de ese fence, los datos
 permanecen intactos y el anillo sigue ocupado. EndScene no los libera.
 
-El alcance es la ruta de constantes/binds COM. Los shaders son propios, los
+El alcance de ese resultado inicial es la ruta de constantes/binds COM. Los shaders son propios, los
 objetos COM de shader usan D3D9 NULLREF como oracle de referencias, y geometria,
 texturas, estados y targets Vulkan siguen siendo el fixture explicito. Los
 draw callbacks COM registran snapshots; no es un proveedor D3D9 Vulkan completo
 ni una ejecucion de Fallout. No se dibuja el mundo del juego ni se mide FPS.
+La [ampliacion de geometria](native-vulkan-geometry.md) agrega ocho callers y
+conecta tambien uploads/bindings VB/IB con Vulkan. Texturas, estados y targets
+permanecen explicitos; no cambia el alcance del resultado inicial com03.
 
 Resultados finales: uniform-state-unit03 PASS, uniform-state-com03 PASS
 (fence real y 4.096 pixeles), regresion COM por defecto PASS con dos shaders
@@ -86,7 +89,7 @@ El runner genera solo el SDP propio y el header de planes en una carpeta
 privada de desarrollo. No genera carpetas de runtime para la SD ni requiere
 copiar DLLs Windows al usuario.
 
-La siguiente conexion es reemplazar los recursos/estados explicitos del fixture
-por objetos y comandos del proveedor COM real, y agregar presenter NVK en
+La siguiente conexion es completar el gestor de recursos y reemplazar los
+estados/texturas/targets explicitos por comandos del proveedor, y agregar presenter NVK en
 Switch con el mismo contrato de lifetime. El arranque del motor y servicios
 Windows pendientes siguen siendo requisitos separados.

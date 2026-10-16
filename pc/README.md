@@ -13,8 +13,8 @@ un perfil de identidad que coincida con el codigo ARM64 compilado. Los bridges
 D3D8 de Silent Hill no sustituyen directamente el D3D9 de New Vegas.
 La ruta grafica elegida es Vulkan sobre Mesa/NVK; deko3d queda pausado.
 La [prueba Vulkan propia](docs/native-vulkan-shaders.md) verifica conversion
-SPIR-V, textura y profundidad en la GPU del PC. Su conexion al proveedor COM
-y al backend Switch sigue pendiente.
+SPIR-V, textura y profundidad en la GPU del PC. Su conexion completa al proveedor
+COM y al backend Switch sigue pendiente.
 El adaptador centroid propio conserva la declaracion en SPIR-V, comprobada
 con shaders propios y dibujo desktop a 1x. Los 1.808/1.809 shaders aceptados
 por el traductor con copias temporales todavia no son cobertura grafica del juego.
@@ -24,7 +24,9 @@ su gestion desde callbacks COM se prueba en el fixture siguiente.
 
 La [prueba de bancos/versiones COM](docs/native-vulkan-uniform-state.md) ya
 ejecuta esos callbacks desde callers x86 traducidos, con pixeles y fence Vulkan
-reales en desktop. Geometria/texturas/estados siguen siendo el fixture propio;
+reales en desktop. La [conexion de geometria](docs/native-vulkan-geometry.md)
+tambien lleva uploads y bindings VB/IB desde COM a Vulkan y valida sus accesos.
+Texturas, estados y targets siguen siendo explicitos en el fixture;
 no es todavia el proveedor completo de Switch. Los forks del driver se
 comparan con refs fijados en [revision Mesa](docs/mesa-switch-review.md).
 

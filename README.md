@@ -31,7 +31,9 @@ Tambien pasa la [subida nativa de constantes float/INT/BOOL](pc/docs/native-vulk
 con planes reflejados y dibujo Vulkan propio; el modulo ya compila para ARM64.
 La [prueba COM de constantes](pc/docs/native-vulkan-uniform-state.md) ya pasa
 por callers x86 recompilados y conserva tres versiones hasta un fence Vulkan
-real. Aun faltan recursos, estados y presenter del proveedor completo.
+real. La [geometria desde COM](pc/docs/native-vulkan-geometry.md) tambien pasa
+por uploads VB/IB y validacion de rangos antes del dibujo Vulkan. Aun faltan
+el gestor general de recursos, estados y presenter del proveedor completo.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).

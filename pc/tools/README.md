@@ -141,3 +141,8 @@ copian a la SD como carpetas de runtime.
 en Vulkan, liberando el lote tras un fence real. Genera solo fixtures privados;
 ver [contrato y alcance](../docs/native-vulkan-uniform-state.md). Los dos forks
 de Mesa indicados por el usuario se revisan en [refs y procedencia](../docs/mesa-switch-review.md).
+
+`test_geometry_access.py` compara el validador C de rangos con un modelo Python:
+indices 16/32, base con signo, seis topologias, streams y tipos de declaracion.
+`test_d3d9_uniform_state.py` tambien conecta geometria COM con draws Vulkan,
+conservando copias tras modificar buffers. Ver [alcance y limites](../docs/native-vulkan-geometry.md).

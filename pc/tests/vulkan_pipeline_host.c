@@ -15,6 +15,9 @@
 #ifndef FNV_VULKAN_COMPLETED
 #define FNV_VULKAN_COMPLETED() ((void)0)
 #endif
+#ifndef FNV_VULKAN_GEOMETRY
+#define FNV_VULKAN_GEOMETRY(i,v,b) ((void)0)
+#endif
 
 #define FUNCTIONS(X) \
  X(CreateInstance) X(DestroyInstance) X(EnumeratePhysicalDevices) \
@@ -103,11 +106,15 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
                              const VkDescriptorSetLayout sets[4],VkRenderPass pass,const VkPipeline pipelines[2],const char *uniform_path){
     VkFormatProperties fp;vkGetPhysicalDeviceFormatProperties(p,VK_FORMAT_D32_SFLOAT,&fp);
     REQUIRE(fp.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
-    const float vertices[16]={-1,1,0,0, 1,1,1,0, 1,-1,1,1, -1,-1,0,1};
-    const uint16_t indices[6]={1,2,3,1,3,4}; /* Signed baseVertex=-1. */
     const unsigned char texels[16]={255,255,255,255, 128,128,128,255, 64,64,64,255, 192,192,192,255};
-    Buffer vb=buffer(d,p,sizeof(vertices),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertices);
-    Buffer ib=buffer(d,p,sizeof(indices),VK_BUFFER_USAGE_INDEX_BUFFER_BIT,indices);
+    Buffer vb[3],ib[3];
+    for(unsigned i=0;i<3;++i){
+        float vertices[16]={-1,1,0,0, 1,1,1,0, 1,-1,1,1, -1,-1,0,1};
+        uint16_t indices[6]={1,2,3,1,3,4}; /* Signed baseVertex=-1. */
+        FNV_VULKAN_GEOMETRY(i,vertices,indices);
+        vb[i]=buffer(d,p,sizeof(vertices),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertices);
+        ib[i]=buffer(d,p,sizeof(indices),VK_BUFFER_USAGE_INDEX_BUFFER_BIT,indices);
+    }
     Buffer upload=buffer(d,p,sizeof(texels),VK_BUFFER_USAGE_TRANSFER_SRC_BIT,texels);
     Buffer readback=buffer(d,p,4*4096,VK_BUFFER_USAGE_TRANSFER_DST_BIT,NULL);
     Buffer constants[6];
@@ -187,9 +194,9 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
             .renderArea={{0,0},{32,32}},.clearValueCount=2,.pClearValues=clear};
         vkCmdBeginRenderPass(cmd,&ri,VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipelines[frame==3]);
-        VkDeviceSize zero=0;vkCmdBindVertexBuffers(cmd,0,1,&vb.handle,&zero);
-        vkCmdBindIndexBuffer(cmd,ib.handle,0,VK_INDEX_TYPE_UINT16);
         for(unsigned i=frame==3?2:0;i<=(frame==3?2:frame);++i){
+            VkDeviceSize zero=0;vkCmdBindVertexBuffers(cmd,0,1,&vb[i].handle,&zero);
+            vkCmdBindIndexBuffer(cmd,ib[i].handle,0,VK_INDEX_TYPE_UINT16);
             vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,1,3,descriptors[i],0,NULL);
             vkCmdDrawIndexed(cmd,6,1,0,-1,0);++draws;
         }
@@ -223,7 +230,8 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     vkDestroyFence(d,fence,NULL);vkDestroyCommandPool(d,commands,NULL);vkDestroyDescriptorPool(d,pool,NULL);
     vkDestroySampler(d,sampler,NULL);vkDestroyFramebuffer(d,fb,NULL);
     free_image(d,tex);free_image(d,color);free_image(d,depth);
-    free_buffer(d,vb);free_buffer(d,ib);free_buffer(d,upload);free_buffer(d,readback);
+    for(unsigned i=0;i<3;++i){free_buffer(d,vb[i]);free_buffer(d,ib[i]);}
+    free_buffer(d,upload);free_buffer(d,readback);
     for(unsigned i=0;i<6;++i)free_buffer(d,constants[i]);
     return pixels;
 }

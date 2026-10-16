@@ -3,6 +3,7 @@
 #undef main
 #include "d3d9_uniform_state.h"
 #include "uniform_fixture.h"
+#include "d3d9_geometry_gpu_fixture.h"
 static struct fnv_uniform_state *uniform_state;
 static struct fnv_uniform_draw saved[3];
 static unsigned char preserved[3][2][64];
@@ -31,6 +32,7 @@ static void completed(void){
 }
 #define FNV_VULKAN_SUBMITTED() submitted()
 #define FNV_VULKAN_COMPLETED() completed()
+#define FNV_VULKAN_GEOMETRY(i,v,b) do {memcpy(v,geometry_saved[i][0],sizeof(v));memcpy(b,geometry_saved[i][1],sizeof(b));} while(0)
 #define main vulkan_draw_main
 #include "vulkan_pipeline_host.c"
 #undef main
@@ -49,9 +51,11 @@ static int upload_uniforms(void *ctx,enum fnv_d3d9_stage s,enum fnv_d3d9_constan
 }
 static uint32_t scene_record(void *ctx,int begin){(void)ctx;(void)begin;return 0;}
 static uint32_t record_draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t minv,uint32_t vertices,uint32_t start,uint32_t primitives){
-    (void)ctx;assert(indexed && primitive==4 && base==UINT32_MAX && minv==1 && vertices==4 && !start && primitives==2);
+    (void)ctx;assert(indexed && primitive==4 && base==UINT32_MAX && vertices==4 && start==2 && primitives==2);
     struct fnv_uniform_draw draw;
     uint32_t r=fnv_uniform_state_prepare(uniform_state,&draw);if(r)return r;
+    r=geometry_record(indexed,primitive,base,minv,vertices,start,primitives);
+    if(r){assert(!fnv_uniform_state_cancel(uniform_state,draw.ticket));return r;}
     assert(recorded<3);saved[recorded]=draw;
     for(unsigned s=0;s<2;++s){assert(draw.bytes[s]<=64);memcpy(preserved[recorded][s],draw.data[s],draw.bytes[s]);}
     recorded++;return 0;
@@ -80,15 +84,22 @@ int main(int argc,char **argv){
     assert(SUCCEEDED(IDirect3D9_CreateDevice(api,0,D3DDEVTYPE_NULLREF,window,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&p,&device)));
     struct fnv_d3d9_com_config cc={.objects_address=BASE+0x18000,.objects_bytes=4096,.resource_capacity=8,
         .vertex_floats=256,.pixel_floats=224,.catalog=catalog,.catalog_count=2,
+        .buffer_address=BASE+0x1000000,.buffer_bytes=4096,
         .backend={.create=backend_create,.addref=backend_addref,.release=backend_release,.device_addref=device_addref,
+        .create_buffer=geometry_create,.update_buffer=geometry_update,.bind_stream=geometry_stream,.bind_indices=geometry_indices,
+        .create_declaration=geometry_create_decl,.bind_declaration=geometry_bind_decl,
         .device_release=device_release,.bind_shader=bind_uniform_shader,.upload_constants=upload_uniforms,.scene=scene_record,.draw=record_draw}};
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);
     struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(fnv_cpu_attach(cpu,&initial)==FNV_CPU_OK);
     uint32_t vs=make_shader(0),ps=make_shader(1),bind_args[]={device_at,vs};assert(!call(UNSUPPORTED,2,bind_args));
     bind_args[1]=ps;assert(!call(SET_PS,2,bind_args));
-    uint32_t draw_args[]={device_at,4,UINT32_MAX,1,4,0,2};assert(!call(BEGIN,1,&device_at));
+    geometry_setup();geometry_frame(0);
+    uint32_t draw_args[]={device_at,4,UINT32_MAX,1,4,2,2};assert(!call(BEGIN,1,&device_at));
     constants_for_frame(0);fail_upload_once=1;assert(call(DRAW_INDEXED,7,draw_args)==FNV_D3D9_UPLOAD_FAILED && !recorded);
-    for(unsigned i=0;i<3;++i){if(i)constants_for_frame(i);preserve_check();assert(!call(DRAW_INDEXED,7,draw_args));}
+    /* Invalid index window must cancel its reserved constants slot. */
+    draw_args[3]=2;assert(call(DRAW_INDEXED,7,draw_args)==FNV_D3D9_INVALIDCALL && !recorded);draw_args[3]=1;
+    for(unsigned i=0;i<3;++i){if(i){constants_for_frame(i);geometry_frame(i);}preserve_check();assert(!call(DRAW_INDEXED,7,draw_args));}
+    geometry_poison();
     assert(!call(END,1,&device_at));assert(call(DRAW_INDEXED,7,draw_args)==FNV_D3D9_INVALIDCALL);
     assert(!call(BEGIN,1,&device_at));assert(call(DRAW_INDEXED,7,draw_args)==FNV_UNIFORM_BUSY);assert(!call(END,1,&device_at));
     struct fnv_uniform_stats stats;assert(!fnv_uniform_state_stats(uniform_state,&stats) && stats.reserved_slots==3);
@@ -101,12 +112,13 @@ int main(int argc,char **argv){
     assert(reuse.ticket!=saved[0].ticket && fnv_uniform_state_cancel(uniform_state,saved[0].ticket)==FNV_D3D9_INVALIDCALL);
     assert(!fnv_uniform_state_cancel(uniform_state,reuse.ticket));
     bind_args[1]=0;assert(!call(UNSUPPORTED,2,bind_args) && !call(SET_PS,2,bind_args));assert(!release(vs) && !release(ps));
-    assert(fnv_cpu_detach()==FNV_CPU_OK && fnv_d3d9_com_destroy(com)==FNV_CPU_OK);
+    geometry_cleanup();assert(fnv_cpu_detach()==FNV_CPU_OK && fnv_d3d9_com_destroy(com)==FNV_CPU_OK);
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK);
     assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<2;++i)free((void*)catalog[i].bytes);free(catalog);
     assert(!fnv_uniform_state_destroy(uniform_state));
     printf("{\"status\":\"PASS\",\"prepared_methods\":67,\"recorded_versions\":3,\"uploads_attempted\":%u,"
+        "\"geometry_from_com\":true,\"geometry_versions\":3,\"geometry_updated_after_recording\":true,"
         "\"actual_gpu_fence_observed\":true,\"pixels_checked\":4096,\"gpu_rendered\":true,\"game_executed\":false}\n",upload_attempts);
     return 0;
 }
