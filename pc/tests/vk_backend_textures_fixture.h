@@ -31,7 +31,7 @@ static void exercise_textures(void){
                 p[0]=b;p[1]=g;p[2]=r;p[3]=a;e[0]=r;e[1]=g;e[2]=b;e[3]=format==0?a:255;}
             else if(format==2){const uint16_t values[6]={0xf800,0x07e0,0x001f,0xffff,0,0xf81f};uint16_t v=values[pixel];memcpy(dst+y*pitch+x*2,&v,2);
                 e[0]=(v&0xf800)?255:0;e[1]=(v&0x07e0)?255:0;e[2]=(v&31)?255:0;e[3]=255;}
-            else {unsigned char v=53+pixel*7;dst[y*pitch+x]=v;e[0]=e[1]=e[2]=format==3?255:v;e[3]=format==3?v:255;}}
+            else {unsigned char v=53+pixel*7;dst[y*pitch+x]=v;e[0]=e[1]=e[2]=format==3?0:v;e[3]=format==3?v:255;}}
         assert(!unlock_texture(t,0));check_texture(id,0,expected,24);
         uint32_t bind[]={device_at,3,t};assert(!call(T_BIND,3,bind));assert(!release(t));
         uint32_t get_args[]={device_at,3,GUEST_OUT};assert(!call(T_GET,3,get_args) && get(GUEST_OUT)==t);assert(!release(t));
