@@ -31,8 +31,14 @@ las restricciones del hilo de creacion de Windows.
 
 La fabrica publica un modo de adaptador virtual definido por el host; no afirma
 que esa enumeracion sea la del monitor del PC ni la de una swapchain de Switch.
-GetAdapterMonitor devuelve NULL. Identifier, MSAA/depth matching y conversiones no
-modeladas devuelven NOTAVAILABLE. CheckDeviceType valida el modo preparado.
+GetAdapterMonitor devuelve NULL. Identifier y conversiones no modeladas devuelven
+NOTAVAILABLE. CheckDeviceType valida el modo preparado.
+CheckDeviceMultiSampleType acepta solamente NONE para ARGB8 o D24S8, tras consultar
+el formato real al proveedor. Devuelve un nivel de calidad (indice 0); admite
+salida NULL y conserva la salida en fallos. Rechaza MSAA aunque la GPU lo soporte:
+el renderer aun no lo implementa. Windowed/fullscreen comparten estos formatos
+del adaptador virtual. CheckDepthStencilMatch acepta solo ARGB8+D24S8 y consulta
+ambos formatos antes de responder. No asigna imagenes ni promete otros pares.
 CheckDeviceFormat delega consultas a Vulkan para los formatos/usos implementados,
 con las mismas flags de imagen que usa su creacion; no asigna memoria para consultar.
 
@@ -73,6 +79,14 @@ capacidad/alias y cuatro fallos estrictos. Ahora prepara 85 metodos (67 previos 
 CMake ARM64 `fnv_native_d3d9_com` y `fnv_d3d9_vk_backend` pasan con -Werror.
 Ninguna de estas pruebas arranca Fallout ni ejecuta NVK en la consola.
 
+`local/vk-factory-queries01/validation.json` amplía la prueba a 81 callers y 57
+comprobaciones de fabrica. Cubre NONE color/depth, calidad/salida NULL, rechazo
+de los 16 modos MSAA, enum invalido, adapter y pares de profundidad incompatibles.
+Conserva los 26 draws, controles negativos, fallos y 141 submits/completions.
+ARM64 con -Werror vuelve a pasar. GetDeviceCaps sigue pendiente.
+
 Referencias primarias: [Direct3DCreate9](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-direct3dcreate9),
 [CreateDevice](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3d9-createdevice),
-[D3DPRESENT_PARAMETERS](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dpresent-parameters).
+[D3DPRESENT_PARAMETERS](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dpresent-parameters),
+[CheckDeviceMultiSampleType](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3d9-checkdevicemultisampletype),
+[CheckDepthStencilMatch](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3d9-checkdepthstencilmatch).

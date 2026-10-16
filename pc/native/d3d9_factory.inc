@@ -50,8 +50,29 @@ static void unavailable(unsigned count,int monitor){
 static void api_unavailable2(void){unavailable(2,0);}
 static void api_unavailable4(void){unavailable(4,0);}
 static void api_unavailable5(void){unavailable(5,0);}
-static void api_unavailable6(void){unavailable(6,0);}
-static void api_unavailable7(void){unavailable(7,0);}
+static uint32_t factory_surface_format(struct fnv_d3d9_com *c,uint32_t format,uint32_t usage){
+    uint32_t args[6]={0,1,c->factory.color_format,usage,1,format};
+    return c->factory.query?c->factory.query(c->factory.context,0,args,6,NULL,0):NOT_AVAILABLE;
+}
+static void api_depth_match(void){
+    struct fnv_d3d9_com *c=module();uint32_t args[6];for(unsigned i=0;i<6;++i)args[i]=fnv_cpu_argument_u32(i);
+    fnv_host_mutex_lock(&c->guard);factory_this(c,args[0]);uint32_t hr=NOT_AVAILABLE;
+    if(args[1])hr=FNV_D3D9_INVALIDCALL;
+    else if(args[2]==1 && args[3]==c->factory.color_format && args[4]==21 && args[5]==75){
+        hr=factory_surface_format(c,args[4],1);if(!hr)hr=factory_surface_format(c,args[5],2);
+    }
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,24);
+}
+static void api_multisample(void){
+    struct fnv_d3d9_com *c=module();uint32_t args[7];for(unsigned i=0;i<7;++i)args[i]=fnv_cpu_argument_u32(i);
+    unsigned char *out=args[6]?range(c,args[6],4,1):NULL;
+    fnv_host_mutex_lock(&c->guard);factory_this(c,args[0]);uint32_t hr=NOT_AVAILABLE;
+    if(args[1] || args[5]>16 || (args[6] && !out))hr=FNV_D3D9_INVALIDCALL;
+    else if(args[2]==1 && !args[5] && (args[3]==21 || args[3]==75)){
+        hr=factory_surface_format(c,args[3],args[3]==75?2:1);if(!hr && out)write32(out,1);
+    }
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,28);
+}
 static void api_adapter_monitor(void){unavailable(2,1);}
 static void api_create_device(void){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),type=fnv_cpu_argument_u32(2),focus=fnv_cpu_argument_u32(3),behavior=fnv_cpu_argument_u32(4),at=fnv_cpu_argument_u32(5),out_at=fnv_cpu_argument_u32(6);

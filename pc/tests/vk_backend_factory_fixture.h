@@ -1,4 +1,4 @@
-enum {F_IMPORT=65,F_COUNT,F_MODE_COUNT,F_ENUM,F_DISPLAY,F_TYPE,F_FORMAT,F_CAPS,F_DEVICE,F_PARENT,F_CREATION,F_DEVICE_CAPS,F_MONITOR,F_UNAVAILABLE};
+enum {F_IMPORT=65,F_COUNT,F_MODE_COUNT,F_ENUM,F_DISPLAY,F_TYPE,F_FORMAT,F_CAPS,F_DEVICE,F_PARENT,F_CREATION,F_DEVICE_CAPS,F_MONITOR,F_UNAVAILABLE,F_MSAA,F_DEPTH_MATCH};
 static uint32_t factory_public;
 static unsigned factory_checks;
 _Static_assert(sizeof(D3DCAPS9)==304,"D3DCAPS9 packed scalar ABI");
@@ -21,6 +21,18 @@ static void exercise_factory(void){
     memset(ptr(DATA),0xa5,320);uint32_t caps[]={factory,0,1,DATA};assert(call(F_CAPS,4,caps)==0x8876086au);
     for(unsigned i=0;i<320;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;
     uint32_t monitor[]={factory,0};assert(!call(F_MONITOR,2,monitor));uint32_t software[]={factory,0};assert(call(F_UNAVAILABLE,2,software)==0x8876086au);factory_checks+=2;
+    uint32_t msaa[]={factory,0,1,21,1,0,DATA};put(DATA,0xa5a5a5a5);put(DATA+4,0xa5a5a5a5);
+    assert(!call(F_MSAA,7,msaa) && get(DATA)==1 && get(DATA+4)==0xa5a5a5a5);factory_checks++;
+    msaa[3]=75;msaa[4]=0;msaa[6]=0;assert(!call(F_MSAA,7,msaa));factory_checks++;
+    msaa[6]=DATA;
+    for(unsigned samples=1;samples<=17;++samples){msaa[5]=samples;put(DATA,0xa5a5a5a5);
+        assert(call(F_MSAA,7,msaa)==(samples>16?FNV_VK_INVALID:0x8876086au) && get(DATA)==0xa5a5a5a5);factory_checks++;}
+    msaa[5]=0;msaa[1]=1;assert(call(F_MSAA,7,msaa)==FNV_VK_INVALID);factory_checks++;
+    msaa[1]=0;msaa[3]=22;assert(call(F_MSAA,7,msaa)==0x8876086au);factory_checks++;
+    uint32_t match[]={factory,0,1,21,21,75};assert(!call(F_DEPTH_MATCH,6,match));factory_checks++;
+    match[5]=71;assert(call(F_DEPTH_MATCH,6,match)==0x8876086au);factory_checks++;
+    match[5]=75;match[4]=22;assert(call(F_DEPTH_MATCH,6,match)==0x8876086au);factory_checks++;
+    match[4]=21;match[1]=1;assert(call(F_DEPTH_MATCH,6,match)==FNV_VK_INVALID);factory_checks++;
     const uint32_t present[14]={0,0,0,0,0,0,1,0,1,1,75,0,0,1};
     uint32_t create[]={factory,0,1,0x1234,0x46,DATA,GUEST_OUT};
     for(unsigned failure=0;failure<11;++failure){uint32_t params[14];memcpy(params,present,56);uint32_t args[7];memcpy(args,create,28);
