@@ -637,3 +637,20 @@ fail:
     if(failure)*failure=d->last;
     (void)destroy_storage(d);return hr;
 }
+
+uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *d,uint32_t usage,uint32_t type,uint32_t format){
+    if(!d)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=0x8876086au;VkFormat vk_format=VK_FORMAT_UNDEFINED;VkImageUsageFlags flags=0;
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(type==1 && usage==1 && format==21){vk_format=VK_FORMAT_B8G8R8A8_UNORM;flags=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
+    else if(type==1 && usage==2 && format==75){vk_format=VK_FORMAT_D24_UNORM_S8_UINT;flags=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
+    else if(type==3 && !(usage&~(512u|0x20000u)) && (format==21 || format==22 || format==23 || format==28 || format==50)){
+        vk_format=VK_FORMAT_R8G8B8A8_UNORM;flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        if(usage&0x20000u){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,vk_format,&props);if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))goto done;}
+    }
+    if(!flags)goto done;
+    VkImageFormatProperties caps;VkResult query=d->v.GetPhysicalDeviceImageFormatProperties(d->physical,vk_format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,flags,0,&caps);
+    if(query==VK_ERROR_FORMAT_NOT_SUPPORTED)goto done;
+    hr=result(d,query);if(!hr && !(caps.sampleCounts&VK_SAMPLE_COUNT_1_BIT))hr=0x8876086au;
+done:fnv_host_mutex_unlock(&d->guard);return hr;
+}

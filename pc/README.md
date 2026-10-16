@@ -40,7 +40,9 @@ Tambien crea modulos shader de un catalogo offline y declaraciones propias;
 constantes empaquetadas y copiadas a UBOs GPU por draw. El subconjunto inicial
 ya dibuja triangle lists/strips/fans texturizadas con depth, scissor, culling y
 blend color/alfa, con referencias
-retenidas hasta sus fences. Fabrica guest, catalogo del juego, otros estados,
+retenidas hasta sus fences. La [fabrica preparada](docs/native-d3d9-factory.md)
+ya enlaza Direct3DCreate9 y valida CreateDevice para un device fijo. Caps
+completas, catalogo del juego, otros estados,
 batching/caches y presentacion NVK siguen pendientes.
 
 ## Estado

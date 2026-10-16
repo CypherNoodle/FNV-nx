@@ -4,7 +4,7 @@
 #include "host_mutex.h"
 #include <stdlib.h>
 
-enum { DEVICE_SLOTS=119,METHODS=67,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4 };
+enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FACTORY_OBJECT=1016,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4 };
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
@@ -27,10 +27,12 @@ struct fnv_d3d9_com {
     unsigned char *objects;
     unsigned char *buffer_memory;struct span *free_spans;uint32_t free_count;
     int shaders[2],indices,declaration,textures[16],targets[4],depth_target;struct stream streams[16];
+    struct fnv_d3d9_factory_profile factory;uint32_t factory_refs,factory_created,creation[4];
     uint32_t tokens[METHODS],used,device_references;int in_scene;
     fnv_host_mutex guard;
 };
 static struct fnv_d3d9_com *active_com;
+static const unsigned char iid_factory[16]={0xca,0xcb,0xbd,0x81,0xd4,0x64,0x6d,0x42,0xae,0x8d,0xad,0x01,0x47,0xf4,0x27,0x5c};
 static const unsigned char iid_surface[16]={0x3A,0xAF,0xFB,0x0C,0xF6,0x9F,0x9A,0x42,0x99,0xB3,0xA2,0x79,0x6A,0xF8,0xB8,0x9B};
 static const unsigned char iid_texture[16]={0x27,0x12,0xC3,0x85,0xE5,0x3D,0x00,0x4F,0x9B,0x3A,0xF1,0x1A,0xC3,0x8C,0x18,0xB5};
 static const unsigned char iid_base_texture[16]={0x7E,0xA8,0x0C,0x58,0x3C,0x1D,0x54,0x4D,0x99,0x1D,0xB7,0xD3,0xE3,0xC2,0x98,0xCE};
@@ -63,6 +65,7 @@ static uint32_t resource_address(const struct fnv_d3d9_com *c,uint32_t index){re
 /* Return -1 for device, otherwise a live resource index. Failure unlocks before
  * unwinding to the CPU boundary. Guest pointer probes happen before locking. */
 static int object(struct fnv_d3d9_com *c,uint32_t at,int device_only) {
+    if(!device_only && c->config.factory && c->factory_refs && at==c->config.objects_address+FACTORY_OBJECT && read32(c->objects+FACTORY_OBJECT)==c->config.objects_address+FACTORY_VTABLE)return -2;
     if(at==device_address(c) && c->device_references && read32(c->objects+OBJECT_OFFSET-4)==c->config.objects_address)return -1;
     if(!device_only && at>=resource_address(c,0) && !((at-resource_address(c,0))&3)) {
         uint32_t index=(at-resource_address(c,0))/4;
@@ -102,14 +105,16 @@ static void clear_bindings(struct fnv_d3d9_com *c) {
     for(uint32_t i=0;i<c->used;i++){c->resources[i].pins=0;retire(c,(int)i);}
 }
 static void increment(struct fnv_d3d9_com *c,int index) {
+    if(index==-2){c->factory_refs++;return;}
     if(index<0){c->device_references++;c->config.backend.device_addref(c->config.backend.context);}
     else {if(!c->resources[index].references)c->device_references++;
         c->resources[index].references++;c->config.backend.addref(c->config.backend.context,c->resources[index].handle);}
 }
 static uint32_t decrement(struct fnv_d3d9_com *c,int index) {
-    if(index<0){c->config.backend.device_release(c->config.backend.context);if(!--c->device_references)clear_bindings(c);return c->device_references;}
+    if(index==-2)return --c->factory_refs;
+    if(index<0){c->config.backend.device_release(c->config.backend.context);if(!--c->device_references){clear_bindings(c);if(c->config.factory)c->factory_refs--;}return c->device_references;}
     struct resource *s=c->resources+index;c->config.backend.release(c->config.backend.context,s->handle);
-    if(!--s->references){c->device_references--;retire(c,index);if(!c->device_references)clear_bindings(c);}
+    if(!--s->references){c->device_references--;retire(c,index);if(!c->device_references){clear_bindings(c);if(c->config.factory)c->factory_refs--;}}
     return s->references;
 }
 static void api_query(void) {
@@ -118,7 +123,7 @@ static void api_query(void) {
     if(!out || !iid){fnv_cpu_return_u32(E_POINTER_VALUE,12);return;}
     unsigned char requested[16];memcpy(requested,iid,16);
     fnv_host_mutex_lock(&c->guard);int index=object(c,self,0);
-    const unsigned char *supported=index<0?iid_device:c->resources[index].kind==FNV_D3D9_VS?iid_vertex:
+    const unsigned char *supported=index==-2?iid_factory:index<0?iid_device:c->resources[index].kind==FNV_D3D9_VS?iid_vertex:
         c->resources[index].kind==FNV_D3D9_PS?iid_pixel:c->resources[index].kind==FNV_D3D9_VB?iid_vertex_buffer:
         c->resources[index].kind==FNV_D3D9_IB?iid_index_buffer:
         c->resources[index].kind==FNV_D3D9_DECL?iid_declaration:
@@ -127,7 +132,7 @@ static void api_query(void) {
     if(!memcmp(requested,iid_unknown,16) || !memcmp(requested,supported,16) ||
        (index>=0 && c->resources[index].kind==FNV_D3D9_TEXTURE2D && !memcmp(requested,iid_base_texture,16)) ||
        (index>=0 && (c->resources[index].kind==FNV_D3D9_VB || c->resources[index].kind==FNV_D3D9_IB || c->resources[index].kind==FNV_D3D9_TEXTURE2D || c->resources[index].kind==FNV_D3D9_SURFACE) && !memcmp(requested,iid_resource,16))) {
-        uint32_t refs=index<0?c->device_references:c->resources[index].references;
+        uint32_t refs=index==-2?c->factory_refs:index<0?c->device_references:c->resources[index].references;
         if(refs==UINT32_MAX){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 reference overflow",self);}
         increment(c,index);write32(out,self);result=0;
     }
@@ -135,7 +140,7 @@ static void api_query(void) {
 }
 static void api_addref(void) {
     uint32_t self=fnv_cpu_argument_u32(0);struct fnv_d3d9_com *c=module();fnv_host_mutex_lock(&c->guard);int index=object(c,self,0);
-    uint32_t refs=index<0?c->device_references:c->resources[index].references;
+    uint32_t refs=index==-2?c->factory_refs:index<0?c->device_references:c->resources[index].references;
     if(refs==UINT32_MAX){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 reference overflow",self);}
     increment(c,index);fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(refs+1,4);
 }
@@ -699,6 +704,7 @@ static void prefix##_gb(void){constant(stage,FNV_D3D9_BOOLEAN,1);}
 CONSTANTS(vertex,FNV_D3D9_VERTEX)
 CONSTANTS(pixel,FNV_D3D9_PIXEL)
 static void unsupported(void){invalid("D3D9 COM method pending",fnv_cpu_argument_u32(0));}
+#include "d3d9_factory.inc"
 static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_release,api_get_device,api_get_function,
     api_create_vertex,api_create_pixel,vertex_sf,vertex_gf,vertex_si,vertex_gi,vertex_sb,vertex_gb,
     pixel_sf,pixel_gf,pixel_si,pixel_gi,pixel_sb,pixel_gb,unsupported,
@@ -711,7 +717,10 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_set_viewport,api_get_viewport,api_set_scissor,api_get_scissor,
     api_create_color_surface,api_create_depth_surface,api_surface_desc,api_set_render_target,api_get_render_target,
     api_set_depth_target,api_get_depth_target,api_clear,
-    api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed};
+    api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
+    api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
+    api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
+    api_unavailable2,api_unavailable4,api_unavailable5,api_unavailable6,api_unavailable7,api_adapter_monitor,api_device_caps};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
@@ -736,7 +745,10 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     void *buffer_memory=NULL;if(cfg->buffer_bytes){r=fnv_cpu_prepare_memory(cpu,cfg->buffer_address,cfg->buffer_bytes,&buffer_memory);if(r)return r;}
     struct fnv_d3d9_com *c=calloc(1,sizeof(*c));if(!c)return FNV_CPU_NO_MEMORY;
     if(!fnv_host_mutex_init(&c->guard)){free(c);return FNV_CPU_NO_MEMORY;}
-    c->config=*cfg;c->cpu=cpu;c->objects=objects;c->buffer_memory=buffer_memory;
+    c->config=*cfg;if(cfg->factory){c->factory=*cfg->factory;c->config.factory=&c->factory;
+        if(!c->factory.width || !c->factory.height || c->factory.color_format!=21 || (c->factory.depth_format && c->factory.depth_format!=75) || !factory_prepared(cfg,&c->factory)) {dispose(c);return FNV_CPU_INVALID;}
+        c->factory_refs=1;}
+    c->cpu=cpu;c->objects=objects;c->buffer_memory=buffer_memory;
     c->free_spans=calloc((size_t)cfg->resource_capacity+2,sizeof(*c->free_spans));
     if(cfg->buffer_bytes && c->free_spans){c->free_spans[0]=(struct span){0,cfg->buffer_bytes};c->free_count=1;}
     c->shaders[0]=c->shaders[1]=c->indices=c->declaration=-1;for(unsigned i=0;i<16;i++){c->streams[i]=(struct stream){-1,0,0,1};c->textures[i]=-1;}
@@ -789,7 +801,18 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     for(unsigned i=0;i<8;i++)if(i!=2)write32(c->objects+surface_slots[i]*4,c->tokens[55+i]);
     const unsigned draw_slots[4]={41,42,81,82};
     for(unsigned i=0;i<4;i++)write32(c->objects+draw_slots[i]*4,c->tokens[63+i]);
+    if(cfg->factory){
+        const unsigned map[17]={0,1,2,78,68,79,69,70,71,72,73,82,81,80,74,83,75};
+        for(unsigned i=0;i<17;++i)write32(c->objects+FACTORY_VTABLE+i*4,c->tokens[map[i]]);
+        write32(c->objects+FACTORY_OBJECT,cfg->objects_address+FACTORY_VTABLE);
+        write32(c->objects+7*4,c->tokens[84]);write32(c->objects+6*4,c->tokens[76]);write32(c->objects+9*4,c->tokens[77]);
+    }
     write32(c->objects+OBJECT_OFFSET-4,cfg->objects_address);c->device_references=1;active_com=c;*out=c;return FNV_CPU_OK;
+}
+const struct fnv_cpu_export *fnv_d3d9_com_exports(const struct fnv_d3d9_com *c,size_t *count){
+    static const struct fnv_cpu_export exports[1]={{"d3d9.dll","Direct3DCreate9",0,0,api_direct3d9}};
+    if(count)*count=c && c==active_com && c->config.factory?1:0;
+    return c && c==active_com && c->config.factory?exports:NULL;
 }
 uint32_t fnv_d3d9_com_device(const struct fnv_d3d9_com *c){return c?device_address(c):0;}
 uint32_t fnv_d3d9_com_flush(struct fnv_d3d9_com *c,fnv_d3d9_constants_upload upload,void *ctx){

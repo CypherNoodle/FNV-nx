@@ -172,3 +172,9 @@ normal.vs.spv/normal.ps.spv del fixture de constantes. Verifica modulos shader
 Vulkan, declaraciones, UBOs y draws desde llamadas COM traducidas. Comprueba
 fallos, vida util y controles negativos de sampler, culling y blend. El catalogo offline del
 juego y su arranque siguen pendientes.
+
+El runner Vulkan ahora genera un PE con Direct3DCreate9 por nombre y un caller
+CALL [IAT]. Valida el [bridge de fabrica](../docs/native-d3d9-factory.md), entrega
+el device preparado a traves de CreateDevice y conserva los tests GPU. El runner
+COM previo mantiene sus regresiones sin habilitar la fabrica. Caps completas y
+presentacion no se simulan como terminadas.

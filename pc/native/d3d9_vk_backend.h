@@ -56,6 +56,9 @@ uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *,uintptr_t,uint32_t 
  * substitute for spirv-val, reflection or pair-interface validation offline.
  * Duplicate stage/tokens reject; copies remain owned until backend destroy. */
 uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *,enum fnv_d3d9_stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *);
+/* Supported logical D3D9 resource/usage -> actual Vulkan format query.
+ * Unsupported capabilities return D3DERR_NOTAVAILABLE; never allocate here. */
+uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *,uint32_t usage,uint32_t resource_type,uint32_t format);
 struct fnv_vk_vertex_input {uint32_t usage,index,location;};
 /* Trusted offline pair contract: descriptor set 1/3 binding 0 are VS/PS UBOs,
  * set 2 contains combined pixel samplers at their D3D sampler binding numbers.

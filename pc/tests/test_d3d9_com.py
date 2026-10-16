@@ -12,7 +12,7 @@ SLOTS=[(0,3),(1,1),(2,1),(3,2),(4,3),(91,3),(106,3),
     *[(n,4) for n in range(94,100)],*[(n,4) for n in range(109,115)],(92,2)]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_cases=4,extra_args=(),extra_inputs=(),extra_sources=(),extra_includes=(),extra_run_args=(),baseline_lifetime_checks=True):
+def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_cases=4,extra_args=(),extra_inputs=(),extra_sources=(),extra_includes=(),extra_run_args=(),baseline_lifetime_checks=True,factory_import=False):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private output directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -24,7 +24,7 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
     native=['cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
         'guest_memory.c','guest_memory.h','memory_horizon.c','memory_horizon.h','host_mutex.h',
-        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h']
+        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h','d3d9_factory.inc']
     slots=SLOTS if slots is None else slots
     modes=('normal','unknown','unsupported','stale','unregistered','parent','capacity','alias') if modes is None else modes
     inputs=[Path(__file__).resolve(),pc/'tests/d3d9_com_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',pc/'tools/shader_packages.py',
@@ -41,6 +41,13 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
         for key in sorted(unique):
             r=unique[key];f.write(struct.pack('<2I',int(r['stage']=='pixel'),r['bytes'])+r['code'])
     fixture=out/'fixture.exe';write_pe(fixture);raw=bytearray(fixture.read_bytes())
+    if factory_import:
+        struct.pack_into('<II',raw,0x98+104,0x1100,40)
+        struct.pack_into('<IIIII',raw,0x300,0x1140,0,0,0x1130,0x1180)
+        raw[0x330:0x33a]=b'd3d9.dll\0\0'
+        struct.pack_into('<II',raw,0x340,0x1160,0)
+        raw[0x360:0x372]=b'\0\0Direct3DCreate9\0'
+        struct.pack_into('<II',raw,0x380,0x1160,0)
     # Two complete text pages allow a full pipeline fixture without overlapping
     # data or depending on bytes beyond the declared PE section.
     if len(slots)>108:raise ValueError('Callers exceed the fixture text pages')
@@ -51,8 +58,12 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     struct.pack_into('<I',raw,0x98+224+36,0x60000020);functions={}
     for index,(slot,argc) in enumerate(slots):
         # COM stdcall: explicit this on stack, not ECX. Re-push caller args.
-        code=bytes.fromhex('8b4424048b10')+bytes([0xFF,0x74,0x24,argc*4])*argc
-        code+=bytes.fromhex('ff92')+struct.pack('<I',slot*4)+b'\xC2'+struct.pack('<H',argc*4)
+        if slot is None:
+            assert factory_import and argc==1
+            code=bytes.fromhex('ff742404ff15')+struct.pack('<I',0x401180)+bytes.fromhex('c20400')
+        else:
+            code=bytes.fromhex('8b4424048b10')+bytes([0xFF,0x74,0x24,argc*4])*argc
+            code+=bytes.fromhex('ff92')+struct.pack('<I',slot*4)+b'\xC2'+struct.pack('<H',argc*4)
         assert len(code)<64;at=0x401500+index*64;offset=at-0x401000+0x200
         raw[offset:offset+len(code)]=code
         functions[at]=dict(start=f'0x{at:08X}',end=at+len(code),size=len(code),name=f'sub_{at:08X}',section='.text',detection_method='entry_point',called_by=[])

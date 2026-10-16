@@ -2,6 +2,7 @@
 #define FNV_D3D9_COM_H
 #include "cpu_runtime.h"
 #include "d3d9_constants.h"
+#define FNV_D3D9_COM_METHOD_COUNT 85u
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
 enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE };
@@ -72,6 +73,15 @@ struct fnv_d3d9_shader_backend {
      * primitive/caps/ranges and owns all consumed state and resource versions. */
     uint32_t (*draw)(void *,int indexed,uint32_t primitive,uint32_t base_bits,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives);
 };
+/* Optional single prepared virtual-adapter factory. Dimensions/formats must
+ * match the provider's real implicit targets. No swapchain/caps are invented.
+ * Query callback runs under COM lock; 0=CheckDeviceFormat, 1=GetDeviceCaps.
+ * Output caps, when supported, are exactly 304 packed x86 D3DCAPS9 bytes. */
+struct fnv_d3d9_factory_profile {
+    uint32_t width,height,color_format,depth_format,refresh_hz;
+    void *context;
+    uint32_t (*query)(void *,uint32_t kind,const uint32_t *args,uint32_t count,void *out,uint32_t bytes);
+};
 struct fnv_d3d9_com_config {
     uint32_t objects_address,objects_bytes,resource_capacity;
     uint32_t vertex_floats,pixel_floats;
@@ -83,11 +93,14 @@ struct fnv_d3d9_com_config {
      * teardown. Separate from object/stack/image ranges. Zero disables buffers.
      * No kernel allocations or page reprotection per buffer or per lock. */
     uint32_t buffer_address,buffer_bytes;
+    const struct fnv_d3d9_factory_profile *factory;
 };
 /* One module for the single active flat-mapped CPU. Caller owns a dedicated
  * writable guest object range, disjoint from image/PEB/TEB/stack/data. Setup
- * precedes first attach. Not Direct3DCreate9/CreateDevice or a game launcher. */
+ * precedes first attach. Optional factory publishes the single prepared device;
+ * this is not a game launcher or a complete presentation implementation. */
 enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *,const struct fnv_d3d9_com_config *,struct fnv_d3d9_com **);
+const struct fnv_cpu_export *fnv_d3d9_com_exports(const struct fnv_d3d9_com *,size_t *count);
 uint32_t fnv_d3d9_com_device(const struct fnv_d3d9_com *);
 /* Detach all threads first; unregisters methods and releases owned references.
  * Must precede CPU destroy. The caller prevents concurrent attach/teardown. */

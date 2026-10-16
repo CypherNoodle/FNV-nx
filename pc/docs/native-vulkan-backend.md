@@ -128,12 +128,12 @@ Las barreras son conservadoras. No se atribuyen mejoras de FPS a este modulo.
 
 ## Prueba de integracion
 
-`test_d3d9_vk_backend.py` traduce 65 callers x86 propios usando el SDK del port
+`test_d3d9_vk_backend.py` traduce 79 callers x86 propios usando el SDK del port
 y ejecuta vtables de superficies, targets, Clear, viewport/scissor y escenas.
 Reutiliza codigo auxiliar del harness previo, pero nunca llama a su baseline
 NULLREF: comprueba que no se han creado sus objetos D3D9 Windows.
 
-Resultado final `local/vk-render-states-com02/validation.json`:
+Resultado final `local/vk-factory-com03/validation.json`:
 
 - 2.304 pixeles exactos de color: full clear, parche, copia de rectangulos y
   recorte viewport/scissor. 141 submissions y 141 completions reales en el tramo COM, incluidos transfers.
@@ -185,6 +185,9 @@ Resultado final `local/vk-render-states-com02/validation.json`:
 - Tres controles negativos en procesos separados: fuerza clamp, invierte culling
   o desactiva blend. Cada uno debe detectar un pixel incorrecto; se registra en
   negative_controls. Esas salidas anticipadas no prueban balance de handles.
+- Fabrica guest32: Direct3DCreate9 por IAT y CreateDevice con 32 comprobaciones
+  de parametros, identidad/parent y formato. Caps completas se rechazan con
+  salida intacta. La misma instancia despues ejecuta los 26 draws.
 - Nueve escenarios de fallo mediante dispatch proxy de test: allocation,
   ImageView, Fence, readback timeout, MapMemory, rama invalidate, Framebuffer,
   QueueSubmit y cuarentena ante fallo de DeviceWaitIdle. Los handles reales
@@ -210,8 +213,10 @@ propios del fixture anterior y sus normal.vs.spv/normal.ps.spv enlazados, con
 planes conocidos de 64/32 bytes. No es un runner generico para otra pareja. Resultados
 privados de desarrollo no son carpetas requeridas en la SD.
 
-Crear este dispositivo Vulkan **no implementa todavia** Direct3DCreate9 ni
-IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, catalogo/interfaz de shaders del juego, mas topologias,
+La [fabrica preparada](native-d3d9-factory.md) ya enlaza Direct3DCreate9 por IAT
+y publica una vez el device real tras validar CreateDevice. Es un adaptador
+virtual de tamano fijo; faltan caps completas, Present/Reset/NVK y recreacion.
+Permanecen pendientes catalogo/interfaz de shaders del juego, mas topologias,
 lineas/puntos, stencil y otros estados, formatos comprimidos, superficies de textura,
 cache de pipelines y swapchain/Present/Reset de NVK. Las pruebas graficas
 anteriores se conservan como pruebas separadas; este runner usa el proveedor
