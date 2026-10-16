@@ -151,3 +151,7 @@ conservando copias tras modificar buffers. Ver [alcance y limites](../docs/nativ
 un modelo Python; verifica RGBA, alpha, pitch, padding y errores sin escrituras.
 `test_d3d9_uniform_state.py` conecta tambien uploads y bindings de texturas con
 Vulkan. Ver [contrato y limites](../docs/native-vulkan-texture-upload.md).
+
+`test_vk_state.py` verifica el mapper C de profundidad y samplers a estructuras
+Vulkan. `test_d3d9_uniform_state.py` comprueba su conexion a estados COM con UV
+fuera de rango y un control negativo de clamp. Ver [subset y cobertura GPU](../docs/native-vulkan-state.md).

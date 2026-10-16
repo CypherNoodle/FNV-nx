@@ -61,6 +61,9 @@ static void geometry_frame(unsigned frame){
     unsigned char vb[80]={0};uint16_t ib[8];memcpy(ib,indices,16);
     unsigned shift=frame%4;
     for(unsigned i=0;i<4;++i)memcpy(vb+16+i*16,vertices+((i+shift)%4)*4,16);
+    /* Frame 1 wraps U+1; frame 2 mirrors U+2 (one complete mirror period).
+     * Incorrectly using clamp for every snapshot changes visible pixels. */
+    for(unsigned i=0;i<4;++i){float uv;memcpy(&uv,vb+16+i*16+8,4);uv+=(float)frame;memcpy(vb+16+i*16+8,&uv,4);}
     for(unsigned i=2;i<8;++i)ib[i]=(uint16_t)((ib[i]-1+4-shift)%4+1);
     geometry_upload_bytes(geometry_resources[0],vb,80);geometry_upload_bytes(geometry_resources[1],ib,16);
 }

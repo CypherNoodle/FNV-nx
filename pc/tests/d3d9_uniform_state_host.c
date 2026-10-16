@@ -5,6 +5,7 @@
 #include "uniform_fixture.h"
 #include "d3d9_geometry_gpu_fixture.h"
 #include "d3d9_texture_gpu_fixture.h"
+#include "d3d9_state_gpu_fixture.h"
 static struct fnv_uniform_state *uniform_state;
 static struct fnv_uniform_draw saved[3];
 static unsigned char preserved[3][2][64];
@@ -35,6 +36,8 @@ static void completed(void){
 #define FNV_VULKAN_COMPLETED() completed()
 #define FNV_VULKAN_GEOMETRY(i,v,b) do {memcpy(v,geometry_saved[i][0],sizeof(v));memcpy(b,geometry_saved[i][1],sizeof(b));} while(0)
 #define FNV_VULKAN_TEXTURE(i,t) do {memcpy(t,texture_saved[i],sizeof(t));} while(0)
+#define FNV_VULKAN_SAMPLER(i,s,c) state_sampler_vk(i,c,&s)
+#define FNV_VULKAN_DEPTH(i,d) do {assert(!fnv_d3d9_vk_depth(depth_variants+i,&d));} while(0)
 #define main vulkan_draw_main
 #include "vulkan_pipeline_host.c"
 #undef main
@@ -59,6 +62,7 @@ static uint32_t record_draw(void *ctx,int indexed,uint32_t primitive,uint32_t ba
     r=geometry_record(indexed,primitive,base,minv,vertices,start,primitives);
     if(r){assert(!fnv_uniform_state_cancel(uniform_state,draw.ticket));return r;}
     texture_record();
+    state_record();
     assert(recorded<3);saved[recorded]=draw;
     for(unsigned s=0;s<2;++s){assert(draw.bytes[s]<=64);memcpy(preserved[recorded][s],draw.data[s],draw.bytes[s]);}
     recorded++;return 0;
@@ -92,17 +96,19 @@ int main(int argc,char **argv){
         .create_buffer=geometry_create,.update_buffer=geometry_update,.bind_stream=geometry_stream,.bind_indices=geometry_indices,
         .create_declaration=geometry_create_decl,.bind_declaration=geometry_bind_decl,
         .create_texture=texture_create,.upload_texture=texture_upload,.bind_texture=texture_bind,
+        .state=state_provider,
         .device_release=device_release,.bind_shader=bind_uniform_shader,.upload_constants=upload_uniforms,.scene=scene_record,.draw=record_draw}};
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);
     struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(fnv_cpu_attach(cpu,&initial)==FNV_CPU_OK);
     uint32_t vs=make_shader(0),ps=make_shader(1),bind_args[]={device_at,vs};assert(!call(UNSUPPORTED,2,bind_args));
     bind_args[1]=ps;assert(!call(SET_PS,2,bind_args));
-    geometry_setup();geometry_frame(0);texture_setup();texture_frame(0);
+    geometry_setup();geometry_frame(0);texture_setup();texture_frame(0);state_setup();state_frame(0);
     uint32_t draw_args[]={device_at,4,UINT32_MAX,1,4,2,2};assert(!call(BEGIN,1,&device_at));
     constants_for_frame(0);fail_upload_once=1;assert(call(DRAW_INDEXED,7,draw_args)==FNV_D3D9_UPLOAD_FAILED && !recorded);
     /* Invalid index window must cancel its reserved constants slot. */
     draw_args[3]=2;assert(call(DRAW_INDEXED,7,draw_args)==FNV_D3D9_INVALIDCALL && !recorded);draw_args[3]=1;
-    for(unsigned i=0;i<3;++i){if(i){constants_for_frame(i);geometry_frame(i);texture_frame(i);}preserve_check();assert(!call(DRAW_INDEXED,7,draw_args));}
+    for(unsigned i=0;i<3;++i){if(i){constants_for_frame(i);geometry_frame(i);texture_frame(i);state_frame(i);}preserve_check();assert(!call(DRAW_INDEXED,7,draw_args));}
+    state_depth_disabled();
     geometry_poison();texture_poison();
     assert(!call(END,1,&device_at));assert(call(DRAW_INDEXED,7,draw_args)==FNV_D3D9_INVALIDCALL);
     assert(!call(BEGIN,1,&device_at));assert(call(DRAW_INDEXED,7,draw_args)==FNV_UNIFORM_BUSY);assert(!call(END,1,&device_at));
@@ -125,6 +131,7 @@ int main(int argc,char **argv){
     printf("{\"status\":\"PASS\",\"prepared_methods\":67,\"recorded_versions\":3,\"uploads_attempted\":%u,"
         "\"geometry_from_com\":true,\"geometry_versions\":3,\"geometry_updated_after_recording\":true,"
         "\"texture_from_com\":true,\"texture_versions\":3,\"texture_failed_uploads\":3,\"texture_modified_after_recording\":true,"
+        "\"depth_from_com\":true,\"samplers_from_com\":true,\"sampler_snapshots\":3,\"uv_outside_unit_range\":true,"
         "\"actual_gpu_fence_observed\":true,\"pixels_checked\":4096,\"gpu_rendered\":true,\"game_executed\":false}\n",upload_attempts);
     return 0;
 }

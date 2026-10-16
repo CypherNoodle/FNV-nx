@@ -60,6 +60,8 @@ Los snapshots CPU se conservan hasta fin del test: no son un cache/anillo
 general ni prueba de reciclado de texturas en vuelo. Sampler, estados, targets
 y pipeline siguen explicitos. El proveedor completo y presenter NVK siguen
 pendientes. No se ejecuta Fallout ni NVK/Switch. No hay nuevo NRO ni FPS del port.
+La [ampliacion de estados](native-vulkan-state.md) conecta tambien sampler y
+profundidad; los resultados texture-com-gpu02 anteriores conservan su alcance.
 
 ```powershell
 python pc/tests/test_texture_upload.py --output local/texture-unit --cc /tools/zig.exe cc

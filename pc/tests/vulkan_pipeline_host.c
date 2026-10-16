@@ -21,6 +21,12 @@
 #ifndef FNV_VULKAN_TEXTURE
 #define FNV_VULKAN_TEXTURE(i,t) ((void)0)
 #endif
+#ifndef FNV_VULKAN_SAMPLER
+#define FNV_VULKAN_SAMPLER(i,s,c) ((void)0)
+#endif
+#ifndef FNV_VULKAN_DEPTH
+#define FNV_VULKAN_DEPTH(i,d) ((void)0)
+#endif
 
 #define FUNCTIONS(X) \
  X(CreateInstance) X(DestroyInstance) X(EnumeratePhysicalDevices) \
@@ -153,7 +159,9 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     VkSamplerCreateInfo sci={.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,.magFilter=VK_FILTER_NEAREST,.minFilter=VK_FILTER_NEAREST,
         .mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST,.addressModeU=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         .addressModeV=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.maxLod=0};
-    VkSampler sampler;OK(vkCreateSampler(d,&sci,NULL,&sampler));
+    VkPhysicalDeviceProperties sampler_caps;vkGetPhysicalDeviceProperties(p,&sampler_caps);
+    VkSampler sampler[3];
+    for(unsigned i=0;i<3;++i){FNV_VULKAN_SAMPLER(i,sci,sampler_caps.limits.maxSamplerLodBias);OK(vkCreateSampler(d,&sci,NULL,sampler+i));}
     VkDescriptorPoolSize sizes[2]={{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,6},{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,3}};
     VkDescriptorPoolCreateInfo dpci={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,.maxSets=9,.poolSizeCount=2,.pPoolSizes=sizes};
     VkDescriptorPool pool;OK(vkCreateDescriptorPool(d,&dpci,NULL,&pool));
@@ -163,7 +171,7 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
             .descriptorPool=pool,.descriptorSetCount=3,.pSetLayouts=sets+1};
         OK(vkAllocateDescriptorSets(d,&ai,descriptors[i]));
         VkDescriptorBufferInfo buffers[2]={{constants[i*2].handle,0,uniform_sizes[0]},{constants[i*2+1].handle,0,uniform_sizes[1]}};
-        VkDescriptorImageInfo ii={sampler,tex[i].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo ii={sampler[i],tex[i].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet writes[3]={
             {.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[i][0],.descriptorCount=1,
              .descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,.pBufferInfo=&buffers[0]},
@@ -239,7 +247,8 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     }
     REQUIRE(draws==7);vkUnmapMemory(d,readback.memory);
     vkDestroyFence(d,fence,NULL);vkDestroyCommandPool(d,commands,NULL);vkDestroyDescriptorPool(d,pool,NULL);
-    vkDestroySampler(d,sampler,NULL);vkDestroyFramebuffer(d,fb,NULL);
+    for(unsigned i=0;i<3;++i)vkDestroySampler(d,sampler[i],NULL);
+    vkDestroyFramebuffer(d,fb,NULL);
     for(unsigned i=0;i<3;++i){free_image(d,tex[i]);free_buffer(d,upload[i]);}
     free_image(d,color);free_image(d,depth);
     for(unsigned i=0;i<3;++i){free_buffer(d,vb[i]);free_buffer(d,ib[i]);}
@@ -338,8 +347,10 @@ int main(int argc,char **argv) {
         .pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pDepthStencilState=&ds,
         .pColorBlendState=&bs,.layout=layout,.renderPass=pass};
     VkPipeline pipelines[2];
+    FNV_VULKAN_DEPTH(0,ds);
     OK(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&pci,NULL,&pipelines[0]));
     ds.depthTestEnable=ds.depthWriteEnable=VK_FALSE;
+    FNV_VULKAN_DEPTH(1,ds);
     OK(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&pci,NULL,&pipelines[1]));
     unsigned pixels=render_probe(device,selected,family,layout,sets,pass,pipelines,argc==4?argv[3]:NULL);
     for(int i=0;i<2;++i)vkDestroyPipeline(device,pipelines[i],NULL);

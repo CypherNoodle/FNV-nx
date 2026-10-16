@@ -28,7 +28,9 @@ reales en desktop. La [conexion de geometria](docs/native-vulkan-geometry.md)
 tambien lleva uploads y bindings VB/IB desde COM a Vulkan y valida sus accesos.
 La [conexion de texturas](docs/native-vulkan-texture-upload.md) agrega uploads
 ARGB8 y snapshots por draw, con parches/reintentos y conversion C para cinco
-formatos sin compresion. Sampler, estados y targets siguen explicitos;
+formatos sin compresion. La [conexion de estados](docs/native-vulkan-state.md)
+lleva profundidad y sampler desde COM a estructuras Vulkan, verificando UV
+fuera de 0..1. Seleccion de variantes, otros estados y targets siguen explicitos;
 no es todavia el proveedor completo de Switch. Los forks del driver se
 comparan con refs fijados en [revision Mesa](docs/mesa-switch-review.md).
 

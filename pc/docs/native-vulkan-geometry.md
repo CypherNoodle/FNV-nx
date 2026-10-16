@@ -60,6 +60,8 @@ copias CPU de geometria se conservan hasta terminar el test; no constituyen un
 anillo de recursos general ni una prueba de reciclado de recursos GPU.
 No se ejecuta Fallout, ni el driver NVK, ni hardware Switch en estos tests.
 No hay NRO grafico nuevo ni medidas de rendimiento del port PC.
+La [ampliacion de estados](native-vulkan-state.md) usa U+1/U+2 en este helper
+para comprobar wrap/mirror. Es un resultado posterior a geometry-com-gpu01.
 
 ```powershell
 python pc/tests/test_geometry_access.py --output local/geometry-unit --cc /tools/zig.exe cc

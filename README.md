@@ -37,6 +37,9 @@ el gestor general de recursos, estados y presenter del proveedor completo.
 La [textura desde COM](pc/docs/native-vulkan-texture-upload.md) tambien llega
 a Vulkan con versiones conservadas, parches y reintentos de upload. Es un
 fixture de integracion; aun no es el renderer del motor.
+La [profundidad y samplers](pc/docs/native-vulkan-state.md) ya proceden de
+estados COM en esa prueba, con UV fuera de rango y un control negativo que
+detecta el sampler incorrecto. Faltan otros estados y el proveedor general.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
