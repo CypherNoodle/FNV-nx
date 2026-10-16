@@ -21,6 +21,11 @@ parten de bibliotecas ARM ya existentes; tampoco reemplazan esta recompilacion.
 
 ## Interfaz grafica
 
+La [revision de Mesa Switch](mesa-switch-review.md) identifica los commits
+de danfromtico/NaGaa95 y la biblioteca conservada. La [ruta de constantes
+COM](native-vulkan-uniform-state.md) ya comprueba snapshots hasta un fence real
+en desktop; recursos, estados y presentacion Switch todavia deben conectarse.
+
 El punto de entrada PC sera la API D3D9: Direct3DCreate9 y las interfaces
 COM del dispositivo, recursos y swapchain. Las operaciones se traduciran a
 estado host y recursos host. Esta es una adaptacion de la estrategia de API

@@ -9,6 +9,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef FNV_VULKAN_SUBMITTED
+#define FNV_VULKAN_SUBMITTED() ((void)0)
+#endif
+#ifndef FNV_VULKAN_COMPLETED
+#define FNV_VULKAN_COMPLETED() ((void)0)
+#endif
 
 #define FUNCTIONS(X) \
  X(CreateInstance) X(DestroyInstance) X(EnumeratePhysicalDevices) \
@@ -199,7 +205,8 @@ static unsigned render_probe(VkDevice d,VkPhysicalDevice p,uint32_t family,VkPip
     VkFenceCreateInfo fenceci={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};VkFence fence;OK(vkCreateFence(d,&fenceci,NULL,&fence));
     VkQueue queue;vkGetDeviceQueue(d,family,0,&queue);
     VkSubmitInfo submit={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.commandBufferCount=1,.pCommandBuffers=&cmd};
-    OK(vkQueueSubmit(queue,1,&submit,fence));OK(vkWaitForFences(d,1,&fence,VK_TRUE,10000000000ull));
+    OK(vkQueueSubmit(queue,1,&submit,fence));FNV_VULKAN_SUBMITTED();
+    OK(vkWaitForFences(d,1,&fence,VK_TRUE,10000000000ull));FNV_VULKAN_COMPLETED();
     void *mapped;OK(vkMapMemory(d,readback.memory,0,4*4096,0,&mapped));
     unsigned pixels=0;const unsigned tones[4]={255,128,64,192};
     for(unsigned frame=0;frame<4;++frame)for(unsigned y=0;y<32;++y)for(unsigned x=0;x<32;++x){

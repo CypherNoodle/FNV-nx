@@ -29,6 +29,9 @@ copias temporales llega a 1.808/1.809 shaders traducibles; falta comprobar sus
 pares reales, cobertura MSAA y conexion al motor.
 Tambien pasa la [subida nativa de constantes float/INT/BOOL](pc/docs/native-vulkan-uniforms.md)
 con planes reflejados y dibujo Vulkan propio; el modulo ya compila para ARM64.
+La [prueba COM de constantes](pc/docs/native-vulkan-uniform-state.md) ya pasa
+por callers x86 recompilados y conserva tres versiones hasta un fence Vulkan
+real. Aun faltan recursos, estados y presenter del proveedor completo.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).

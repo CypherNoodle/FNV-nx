@@ -20,7 +20,13 @@ con shaders propios y dibujo desktop a 1x. Los 1.808/1.809 shaders aceptados
 por el traductor con copias temporales todavia no son cobertura grafica del juego.
 Los [planes UBO y el empaquetador nativo](docs/native-vulkan-uniforms.md) ya
 conservan float/INT/BOOL y pasan dibujos propios con registros dispersos;
-falta conectarlos a los callbacks del proveedor COM.
+su gestion desde callbacks COM se prueba en el fixture siguiente.
+
+La [prueba de bancos/versiones COM](docs/native-vulkan-uniform-state.md) ya
+ejecuta esos callbacks desde callers x86 traducidos, con pixeles y fence Vulkan
+reales en desktop. Geometria/texturas/estados siguen siendo el fixture propio;
+no es todavia el proveedor completo de Switch. Los forks del driver se
+comparan con refs fijados en [revision Mesa](docs/mesa-switch-review.md).
 
 ## Estado
 

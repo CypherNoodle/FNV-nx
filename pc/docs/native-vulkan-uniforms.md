@@ -109,3 +109,7 @@ La siguiente integracion es mantener estos bancos desde upload_constants,
 aplicar planes por shader y enlazar recursos/versiones del proveedor COM a
 Vulkan y al presenter NVK. CPU, arranque del motor y servicios Windows siguen
 siendo requisitos separados; este lote no requiere otra prueba de consola.
+
+La [gestion de bancos y versiones](native-vulkan-uniform-state.md) ya prueba
+los callbacks COM con snapshots conservados hasta un fence Vulkan real.
+Sigue pendiente el proveedor completo de recursos/estados y el presenter Switch.

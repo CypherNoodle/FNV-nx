@@ -135,3 +135,9 @@ incluidos INT/BOOL y registros dispersos. `inspect_shader_ctab.py` permite
 inspeccionar rangos declarados sin repararlos. Ver [contrato, pruebas y
 comandos](../docs/native-vulkan-uniforms.md). Las salidas son privadas y no se
 copian a la SD como carpetas de runtime.
+
+`test_uniform_state.py` valida bancos persistentes, snapshots y lotes con hilos.
+`test_d3d9_uniform_state.py` traduce callers COM propios y consume sus bloques
+en Vulkan, liberando el lote tras un fence real. Genera solo fixtures privados;
+ver [contrato y alcance](../docs/native-vulkan-uniform-state.md). Los dos forks
+de Mesa indicados por el usuario se revisan en [refs y procedencia](../docs/mesa-switch-review.md).

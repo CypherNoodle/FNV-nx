@@ -12,7 +12,7 @@ SLOTS=[(0,3),(1,1),(2,1),(3,2),(4,3),(91,3),(106,3),
     *[(n,4) for n in range(94,100)],*[(n,4) for n in range(109,115)],(92,2)]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_cases=4,extra_args=(),extra_inputs=()):
+def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_cases=4,extra_args=(),extra_inputs=(),extra_sources=(),extra_includes=(),extra_run_args=(),baseline_lifetime_checks=True):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private output directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -28,7 +28,7 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     slots=SLOTS if slots is None else slots
     modes=('normal','unknown','unsupported','stale','unregistered','parent','capacity','alias') if modes is None else modes
     inputs=[Path(__file__).resolve(),pc/'tests/d3d9_com_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',pc/'tools/shader_packages.py',
-        *[pc/'native'/n for n in native],*[Path(p) for p in (*extra_args,*extra_inputs)],*sorted(a.shaders.resolve().glob('*.sdp')),
+        *[pc/'native'/n for n in native],*[Path(p) for p in (*extra_args,*extra_inputs,*extra_sources)],*sorted(a.shaders.resolve().glob('*.sdp')),
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]
     frozen={p:sha(p) for p in inputs}
     unique={}
@@ -67,12 +67,13 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     command=[*a.cc,'-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable',
         '-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(sdk/'templates/runtime'),
         '-include',str(pc/'native/fnv_sdk_runtime.h'),str(generated),*[str(pc/'native'/n) for n in sources],
+        *['-I'+str(Path(p).resolve()) for p in extra_includes],*[str(Path(p).resolve()) for p in extra_sources],
         str(pc/'tests'/host_source),'-ld3d9','-luser32','-o',str(exe)]
     built=subprocess.run(command,capture_output=True,text=True);(out/'compiler.log').write_text(built.stdout+built.stderr)
     if built.returncode:raise RuntimeError(built.stderr)
     invocation=[str(exe),str(fixture),str(catalog)];result=None
     for mode in modes:
-        run=subprocess.run([*invocation,mode,*[str(p) for p in extra_args]],capture_output=True,text=True,timeout=60)
+        run=subprocess.run([*invocation,mode,*[str(p) for p in (*extra_args,*extra_run_args)]],capture_output=True,text=True,timeout=60)
         (out/(mode+'.log')).write_text(run.stdout+run.stderr)
         if run.returncode:raise RuntimeError(f'{mode}: exit {run.returncode}: '+run.stdout+run.stderr)
         parsed=json.loads(run.stdout.strip().splitlines()[-1])
@@ -80,7 +81,7 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
         if mode=='normal':result=parsed
     if any(sha(p)!=h for p,h in frozen.items()) or sdk_identity(sdk)!=sdk_hash:raise ValueError('Inputs changed')
     result.update(source_sha256={str(p):h for p,h in frozen.items()},sdk_sha256=sdk_hash,exe_sha256=sha(exe),
-        synthetic_functions=len(functions),strict_fault_cases=strict_fault_cases,parent_lifetime_checked=True,capacity_and_alias_checked=True,
+        synthetic_functions=len(functions),strict_fault_cases=strict_fault_cases,parent_lifetime_checked=baseline_lifetime_checks,capacity_and_alias_checked=baseline_lifetime_checks,
         native_engine_started=False,switch_hardware_tested=False,gpu_rendered=result.get('gpu_rendered',False))
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:v for k,v in result.items() if k!='source_sha256'},indent=2))
