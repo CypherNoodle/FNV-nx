@@ -75,7 +75,8 @@ fidelidad visual del scanout ni un frame del juego.
 traducidos, 57 consultas de fabrica, 26 draws, 141 submits/completions, controles
 negativos y escenarios de fallo de la ruta headless. SDK externo intacto.
 CMake ARM64 -Werror compila fnv_native_d3d9_com, fnv_d3d9_vk_backend y el nuevo
-fnv_d3d9_vk_horizon. El enlace NWindow aun no se ha ejecutado en Switch/NVK.
+fnv_d3d9_vk_horizon. En esa etapa el enlace NWindow aun no se habia ejecutado
+en Switch/NVK; el resultado HW posterior figura al final de este documento.
 
 Runner reutilizable: `pc/tests/test_d3d9_vk_present.py --headers <vulkan-headers>
 --output <carpeta-nueva> --cc <compilador>`. Sus resultados son privados de
@@ -105,9 +106,10 @@ La regresion NULLREF separada conserva 400 constantes concurrentes y 86 metodos.
 
 Faltan ventanas guest generales, swap effect COPY y rectangulos;
 Reset/recreacion y recuperacion de superficie;
-capacidades completas, catalogo del juego, batching/cache y prueba NVK en
-hardware. La [prueba conjunta Switch](switch-renderer-probe.md) ya se puede
-compilar para esa validacion. Esto no completa DX9 ni arranca Fallout desde EXE.
+capacidades completas, catalogo del juego, batching/cache y mas cobertura NVK en
+hardware. La [prueba conjunta Switch](switch-renderer-probe.md) ya paso su primer
+subconjunto: cuatro fases, cero errores en puntos GPU comprobados, 545 presents
+y destruccion normal. No completa DX9 ni arranca Fallout desde EXE.
 
 Referencias: [semaforos por imagen](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html),
 [AcquireNextImageKHR](https://docs.vulkan.org/refpages/latest/refpages/source/vkAcquireNextImageKHR.html),

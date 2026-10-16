@@ -46,7 +46,8 @@ completas, catalogo del juego, otros estados,
 batching/caches y validacion NVK siguen pendientes. La [ruta WSI inicial](docs/native-vulkan-presentation.md)
 ya presenta por COM desde x86 traducido en Vulkan Windows y compila el enlace
 NWindow. La [prueba conjunta Switch](docs/switch-renderer-probe.md) cubre esa ruta
-sin archivos del juego; faltan su resultado HW, Reset y el arranque del motor.
+sin archivos del juego y ya paso en hardware (cuatro fases, 545 presentaciones,
+salida limpia). Siguen pendientes Reset y el arranque del motor.
 
 ## Estado
 

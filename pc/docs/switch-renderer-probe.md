@@ -62,3 +62,21 @@ los binarios ni las dependencias al repositorio.
 Mesa local fijado en 606441c90e459028a50fca352daebfc20211f890, archivo libvulkan.a
 SHA256 5bd7bebe6997bc54582dea202064381a42d1351dd1bd63c3d06391f3e3b6b26c.
 La compilacion no confirma su funcionamiento en consola: hace falta este log HW.
+
+## Primera validacion en hardware: PASS
+
+El log recibido del usuario para pc-renderer-hw01 termina con PASS y
+destroy=00000000: cuatro fases, 16 puntos leidos de GPU sin errores, 3114
+llamadas traducidas y 545 presentaciones aceptadas. La ventana de 180 frames
+registra 135 draws, tres imagenes y modo FIFO. Los dos submits aun pendientes
+en esa ventana no son un error: al terminar la destruccion se completo normalmente.
+
+El log se conserva privado en local/hardware/pc-renderer-hw01 junto a su
+validation.json. SHA256 del log:
+7245918bf634adacea09d518e983cf2642f476b1c84d85c8f809ff3da5d8d290.
+NRO probado: 43b45ddee213b1014f75d74b0ac53a1d8d83e66e39abb2bd768dd2469cf30509.
+
+Esto valida el subconjunto sintetico DX9/COM/Vulkan/NVK descrito, no el juego,
+todo DX9, A8 (el probe usa ARGB8), ni la fidelidad del compositor por captura.
+El log no proporciona un benchmark del motor ni una confirmacion visual del
+usuario; los chequeos de imagen son los puntos fuente leidos por GPU.

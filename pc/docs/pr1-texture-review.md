@@ -3,16 +3,22 @@
 Revision de [PR 1](https://github.com/CypherNoodle/FNV-nx/pull/1), head
 bf3204c226c5543012a72c7cf10b98a68f25d3f3. Tres cambios de una linea; los blobs
 se verificaron exactamente antes de probarlos en una copia privada del trabajo
-actual de pc-port. No se ha fusionado ni modificado el PR.
+actual de pc-port. La revision inicial no modifico el PR. Posteriormente, por
+peticion del usuario, se agrego el fix del fixture: head actual
+02a31d3d5901e5c48fea1eb39a8d595ef4cb9939. El PR sigue abierto, sin fusionar.
 
-## Hallazgo P2: falta otra expectativa A8
+## Hallazgo P2 corregido en la rama del PR
 
 El cambio de produccion A8 a RGB=0 es correcto. Sin embargo,
-`pc/tests/vk_backend_textures_fixture.h:34` sigue asignando RGB=255 para A8.
-Con los tres cambios exactos del PR, test_d3d9_vk_backend.py aborta en
-check_texture, assertion memcmp(data,expected,bytes). Debe cambiarse alli
+`pc/tests/vk_backend_textures_fixture.h:34` seguia asignando RGB=255 para A8.
+Con los tres cambios originales del PR, test_d3d9_vk_backend.py abortaba en
+check_texture, assertion memcmp(data,expected,bytes). Hacia falta cambiar alli
 `format==3?255:v` por `format==3?0:v`, conservando alpha y el caso L8.
-Cambiar solamente el modelo de test_texture_upload.py no cubre esta regresion.
+Cambiar solamente el modelo de test_texture_upload.py no cubria esta regresion.
+El commit adicional del PR ya corrige esa expectativa. Su base exacta mas las
+cuatro lineas cambiadas pasa 81 callers, 26 draws, 141 submits/completions y los
+controles negativos. ARM64 -Werror y los 3000 casos/23 negativos tambien pasan.
+La descripcion del PR se actualizo con esta evidencia y los limites de cada test.
 
 La documentacion primaria [D3DFORMAT](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dformat)
 explica la excepcion A8: sus tres canales de color se inicializan a cero.
@@ -55,4 +61,6 @@ Evidencia privada: local/pr1-a8-hal02, pr1-a8-old-negative01, pr1-upload01,
 pr1-vk-exact01 (fallo reproducido), pr1-vk-reviewed01 (corregido) y
 local/pr1-review/backend-arm64.o. El parche complementario de una linea queda
 en la entrega local pc-renderer-hw01/pr1-additional-a8-test.patch; git apply
---check paso en una copia limpia del fixture. No cambia los tres blobs del PR.
+--check paso en una copia limpia del fixture. Esa linea ya esta incluida en el PR;
+no hace falta aplicarla de nuevo a su head actualizado. Los tres blobs originales
+del autor se conservan.
