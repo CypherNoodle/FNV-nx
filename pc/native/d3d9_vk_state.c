@@ -29,3 +29,22 @@ uint32_t fnv_d3d9_vk_sampler(const struct fnv_d3d9_sampler *s,uint32_t levels,fl
         .mipLodBias=bias,.maxAnisotropy=1,.minLod=0,.maxLod=s->mip?(float)(levels-1):0,.borderColor=border};
     *out=result;return 0;
 }
+
+static int blend_factor(uint32_t value,VkBlendFactor *out){
+    static const VkBlendFactor factors[11]={VK_BLEND_FACTOR_ZERO,VK_BLEND_FACTOR_ONE,VK_BLEND_FACTOR_SRC_COLOR,VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
+        VK_BLEND_FACTOR_SRC_ALPHA,VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,VK_BLEND_FACTOR_DST_ALPHA,VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,
+        VK_BLEND_FACTOR_DST_COLOR,VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR,VK_BLEND_FACTOR_SRC_ALPHA_SATURATE};
+    if(value>=1 && value<=11){*out=factors[value-1];return 1;}
+    if(value==14 || value==15){*out=value==14?VK_BLEND_FACTOR_CONSTANT_COLOR:VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;return 1;}
+    return 0;
+}
+uint32_t fnv_d3d9_vk_blend(const struct fnv_d3d9_blend *s,VkPipelineColorBlendAttachmentState *out,float constants[4]){
+    if(!s || !out || !constants || s->operation<1 || s->operation>5 || s->operation_alpha<1 || s->operation_alpha>5 || s->write_mask>15)return INVALID;
+    VkBlendFactor source,dest,source_alpha,dest_alpha;
+    if(!blend_factor(s->source,&source) || !blend_factor(s->destination,&dest) || !blend_factor(s->source_alpha,&source_alpha) || !blend_factor(s->destination_alpha,&dest_alpha))return INVALID;
+    VkPipelineColorBlendAttachmentState next={.blendEnable=s->enable!=0,.srcColorBlendFactor=source,.dstColorBlendFactor=dest,.colorBlendOp=(VkBlendOp)(s->operation-1),
+        .srcAlphaBlendFactor=s->separate_alpha?source_alpha:source,.dstAlphaBlendFactor=s->separate_alpha?dest_alpha:dest,
+        .alphaBlendOp=(VkBlendOp)((s->separate_alpha?s->operation_alpha:s->operation)-1),.colorWriteMask=s->write_mask};
+    const float color[4]={((s->constant>>16)&255)/255.f,((s->constant>>8)&255)/255.f,(s->constant&255)/255.f,(s->constant>>24)/255.f};
+    *out=next;memcpy(constants,color,sizeof(color));return 0;
+}

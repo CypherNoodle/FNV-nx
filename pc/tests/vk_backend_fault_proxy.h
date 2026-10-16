@@ -3,12 +3,16 @@
 static PFN_vkGetInstanceProcAddr original_gpa;
 static PFN_vkGetDeviceProcAddr original_gdpa;
 static unsigned fail_memory,fail_map,fail_flush,timeout_fence,fail_submit,fail_idle,invalidations,flushes;
-static unsigned fail_pipeline,live_Pipeline,fail_descriptors,force_clamp;
+static unsigned fail_pipeline,live_Pipeline,fail_descriptors,force_clamp,force_wrong_cull,force_wrong_blend;
 static PFN_vkCreateGraphicsPipelines original_pipelines;
 static PFN_vkDestroyPipeline original_destroy_pipeline;
 static PFN_vkAllocateDescriptorSets original_descriptor_sets;
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_pipelines(VkDevice d,VkPipelineCache cache,uint32_t n,const VkGraphicsPipelineCreateInfo *info,const VkAllocationCallbacks *a,VkPipeline *out){
-    assert(n==1);VkResult result=original_pipelines(d,cache,n,info,a,out);if(out[0])live_Pipeline++;
+    assert(n==1);VkGraphicsPipelineCreateInfo next=*info;VkPipelineRasterizationStateCreateInfo raster=*info->pRasterizationState;
+    VkPipelineColorBlendStateCreateInfo blend=*info->pColorBlendState;VkPipelineColorBlendAttachmentState attachment=*blend.pAttachments;
+    if(force_wrong_cull && raster.cullMode!=VK_CULL_MODE_NONE){raster.frontFace=raster.frontFace==VK_FRONT_FACE_CLOCKWISE?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;next.pRasterizationState=&raster;}
+    if(force_wrong_blend && attachment.blendEnable){attachment.blendEnable=VK_FALSE;blend.pAttachments=&attachment;next.pColorBlendState=&blend;}
+    VkResult result=original_pipelines(d,cache,n,&next,a,out);if(out[0])live_Pipeline++;
     if(!result && fail_pipeline){fail_pipeline--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return result;
 }
 static VKAPI_ATTR void VKAPI_CALL proxy_destroy_pipeline(VkDevice d,VkPipeline pipeline,const VkAllocationCallbacks *a){

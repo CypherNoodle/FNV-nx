@@ -71,14 +71,18 @@ las operaciones. Es el inicio del backend de produccion, aun sin ventana.
   y mascara de pixel samplers, sin suponer orden de declaracion. Layout fijo:
   set 1 binding 0 VS UBO; set 2 bindings sampler; set 3 binding 0 PS UBO.
   El host verifica linkage, tipos y descriptors de SPIR-V antes del registro.
-- DrawPrimitive/DrawIndexedPrimitive ejecutan triangle lists con shaders propios,
+- DrawPrimitive/DrawIndexedPrimitive ejecutan triangle lists, strips y fans con shaders propios,
   texturas, UBOs, vertex/index buffers, base vertex con signo y offsets. Valida
   rangos de indices/vertices, alineacion y caps antes de tocar la GPU. Requiere
-  scene activa, pareja registrada y CULL_NONE explicito. No implementa aun el
-  culling por defecto CCW, otras topologias ni fixed-function vertex processing.
+  scene activa y pareja registrada. CULL_NONE/CW/CCW estan implementados, incluido
+  el valor inicial CCW, con orientacion comprobada bajo viewport de altura negativa.
+  Lineas, puntos y fixed-function vertex processing siguen pendientes.
 - Profundidad enable/write/compare, sampler point/linear con wrap/mirror/clamp/
-  border limitado, viewport y scissor se aplican al pipeline. Sin blend, stencil,
-  anisotropia ni sRGB configurables. Los valores no soportados fallan.
+  border limitado, viewport y scissor se aplican al pipeline. Blend color/alfa con
+  factores comunes, factor constante ARGB, ADD/SUB/REVSUB/MIN/MAX, alfa separado
+  y mascara RGBA. Factores obsoletos BOTH* y dual-source se rechazan. Blend
+  consulta soporte del formato. Stencil, anisotropia y sRGB siguen pendientes.
+  Setters invalidos conservan el estado anterior.
 - Clear pendiente se envia antes del draw en la misma cola. Cada draw crea sus
   propios pipeline/descriptors/samplers/UBOs y ocupa un frame slot. Ring lleno
   devuelve BUSY sin esperas implicitas. Al retornar exito, bytes y recursos ya
@@ -129,10 +133,10 @@ y ejecuta vtables de superficies, targets, Clear, viewport/scissor y escenas.
 Reutiliza codigo auxiliar del harness previo, pero nunca llama a su baseline
 NULLREF: comprueba que no se han creado sus objetos D3D9 Windows.
 
-Resultado final `local/vk-draw-com03/validation.json`:
+Resultado final `local/vk-render-states-com02/validation.json`:
 
 - 2.304 pixeles exactos de color: full clear, parche, copia de rectangulos y
-  recorte viewport/scissor. 78 submissions y 78 completions reales en el tramo COM, incluidos transfers.
+  recorte viewport/scissor. 141 submissions y 141 completions reales en el tramo COM, incluidos transfers.
 - Dos slots ocupados y tercer lote BUSY sin perderlo. Libera/unbind superficies
   antes de completar: se retienen hasta ultimo lote, y sus IDs obsoletos se rechazan.
 - Presupuesto insuficiente y formato no soportado conservan estado/memoria.
@@ -160,7 +164,7 @@ Resultado final `local/vk-draw-com03/validation.json`:
 - Copia nativa de declaracion y roundtrip COM, rechazo de semantica duplicada,
   tipos packed pendientes e IDs obsoletos. Tres selecciones scaled comprobadas
   consultando caps; no es una prueba GPU de decodificacion de esos tres tipos.
-- Seis draws reales (cinco indexed y uno no indexed), 6.144 pixels BGRA8 exactos
+- Seis draws iniciales (cinco indexed y uno no indexed), 6.144 pixels BGRA8 exactos
   desde este backend: textura por cuadrantes, UBOs, vertex offset, StartIndex,
   BaseVertexIndex=-1, LEQUAL, depth deshabilitado y scissor. Mirror se comprueba
   con coordenadas que invierten U, no solo con un periodo equivalente a wrap.
@@ -173,9 +177,14 @@ Resultado final `local/vk-draw-com03/validation.json`:
 - Tres fallos de EndCommandBuffer/ResetFences/QueueSubmit en draws invalidan el
   backend. Idle desconocido conserva contexto y recursos; reintento de destroy
   tras confirmacion real libera los handles controlados.
-- Control negativo en proceso separado fuerza clamp en los samplers: detecta
-  pixel incorrecto. El runner exige esta deteccion (wrong_clamp_detected=true);
-  su salida anticipada no se presenta como prueba de balance de handles.
+- Veinte draws adicionales, 20.480 pixels de estados: seis casos con ambos
+  sentidos de triangulo y los tres modos de culling; strip/fan indexed y no
+  indexed; cinco operaciones de blend, alfa comun/separado, factor constante,
+  mascara R/B y SRCALPHASAT. Blend se compara con formulas independientes con
+  tolerancia de un nivel UNORM8; culling/topologias/mascara son exactos.
+- Tres controles negativos en procesos separados: fuerza clamp, invierte culling
+  o desactiva blend. Cada uno debe detectar un pixel incorrecto; se registra en
+  negative_controls. Esas salidas anticipadas no prueban balance de handles.
 - Nueve escenarios de fallo mediante dispatch proxy de test: allocation,
   ImageView, Fence, readback timeout, MapMemory, rama invalidate, Framebuffer,
   QueueSubmit y cuarentena ante fallo de DeviceWaitIdle. Los handles reales
@@ -203,7 +212,7 @@ privados de desarrollo no son carpetas requeridas en la SD.
 
 Crear este dispositivo Vulkan **no implementa todavia** Direct3DCreate9 ni
 IDirect3D9::CreateDevice guest. Faltan esa fabrica/caps, catalogo/interfaz de shaders del juego, mas topologias,
-culling, blend y otros estados, formatos comprimidos, superficies de textura,
+lineas/puntos, stencil y otros estados, formatos comprimidos, superficies de textura,
 cache de pipelines y swapchain/Present/Reset de NVK. Las pruebas graficas
 anteriores se conservan como pruebas separadas; este runner usa el proveedor
 propio para las operaciones descritas.
@@ -216,3 +225,8 @@ Semantica de Clear y scissor contrastada con documentacion primaria:
 La seleccion de formatos scaled se contrasto con [D3DDECLTYPE de Microsoft](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3ddecltype)
 y [vertex input de Vulkan](https://docs.vulkan.org/spec/latest/chapters/fxvertex.html).
 No se interpreta USCALED/SSCALED como normalizacion a 0..1.
+
+Culling y blending se contrastan con [D3DCULL](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dcull),
+[D3DBLEND](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dblend),
+[D3DBLENDOP](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dblendop)
+y [VkFrontFace](https://docs.vulkan.org/refpages/latest/refpages/source/VkFrontFace.html).

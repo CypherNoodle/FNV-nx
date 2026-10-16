@@ -67,7 +67,7 @@ struct fnv_vk_backend {
     uint32_t family;struct surface *surfaces;struct frame frames[3];
     struct buffer_resource *buffer_resources;struct stream_binding streams[16];uintptr_t indices;
     struct program_entry *programs;uint32_t program_count;uint64_t draws;
-    struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
+    struct fnv_d3d9_blend blend_state;struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
     struct shader_catalog *catalog;uint32_t catalog_count;
     struct shader_resource *shaders;struct declaration_resource *declarations;
     uintptr_t bound_shaders[2],declaration;struct fnv_uniform_state *uniforms;
@@ -610,6 +610,7 @@ uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     uint32_t max_uniform=d->properties.limits.maxUniformBufferRange;if(max_uniform>65536)max_uniform=65536;max_uniform&=~15u;
     struct fnv_uniform_config uc={256,224,cfg->frames*cfg->commands>64?64:cfg->frames*cfg->commands,max_uniform};
     hr=fnv_uniform_state_create(&uc,&d->uniforms);if(hr)goto fail;
+    d->blend_state=(struct fnv_d3d9_blend){0,2,1,1,0,2,1,1,15,0xffffffff};
     d->depth_state=(struct fnv_d3d9_depth){1,1,4};d->cull_mode=3;
     for(unsigned i=0;i<16;++i)d->sampler_state[i]=(struct fnv_d3d9_sampler){1,1,1,0,1,1,0,0,0,1};
     d->shaders=calloc(cfg->resource_capacity,sizeof(*d->shaders));d->declarations=calloc(cfg->resource_capacity,sizeof(*d->declarations));

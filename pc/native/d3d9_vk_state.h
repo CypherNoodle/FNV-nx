@@ -5,6 +5,12 @@
 /* Raw D3D9 DWORD state. Initial subset: Z buffer (no W), compare/write,
  * point/linear filters and wrap/mirror/clamp/border. No anisotropy, sRGB view,
  * max-mip remapping, stencil, depth bounds or dynamic state management. */
+struct fnv_d3d9_blend {
+    uint32_t enable,source,destination,operation,separate_alpha,source_alpha,destination_alpha,operation_alpha,write_mask,constant;
+};
+/* One color attachment. No dual-source or obsolete BOTH* blend factors.
+ * Both outputs must be valid/disjoint; neither changes on validation failure. */
+uint32_t fnv_d3d9_vk_blend(const struct fnv_d3d9_blend *,VkPipelineColorBlendAttachmentState *,float constants[4]);
 struct fnv_d3d9_depth { uint32_t enable,write,compare; };
 struct fnv_d3d9_sampler {
     uint32_t address_u,address_v,address_w,border,mag,min,mip,lod_bias_bits,max_mip,max_anisotropy;

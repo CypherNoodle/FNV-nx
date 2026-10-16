@@ -164,11 +164,11 @@ Ver [propiedad, sincronizacion y limites](../docs/native-vulkan-backend.md).
 El [backend Vulkan propio](../docs/native-vulkan-backend.md) integra ahora uploads
 versionados de texturas 2D por COM. `../tests/test_d3d9_vk_backend.py` verifica
 mipmaps, cinco conversiones sin compresion, bytes por transfer GPU, fallos y
-retencion por fences. Ademas verifica seis draws texturizados propios con UBOs,
-profundidad/scissor y sus pixels; no ejecuta una partida.
+retencion por fences. Ademas verifica 26 draws texturizados propios con UBOs,
+profundidad/scissor/culling/blend y sus pixels; no ejecuta una partida.
 
 El mismo runner requiere ahora `--linked-shaders` con los SPIR-V propios enlazados
 normal.vs.spv/normal.ps.spv del fixture de constantes. Verifica modulos shader
 Vulkan, declaraciones, UBOs y draws desde llamadas COM traducidas. Comprueba
-fallos, vida util y un control negativo de sampler. El catalogo offline del
+fallos, vida util y controles negativos de sampler, culling y blend. El catalogo offline del
 juego y su arranque siguen pendientes.

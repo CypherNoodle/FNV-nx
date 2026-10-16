@@ -38,7 +38,8 @@ targets, buffers de vertices/indices, texturas 2D, viewport/scissor y Clear con 
 y fences, sin NULLREF.
 Tambien crea modulos shader de un catalogo offline y declaraciones propias;
 constantes empaquetadas y copiadas a UBOs GPU por draw. El subconjunto inicial
-ya dibuja triangle lists texturizadas con depth y scissor, con referencias
+ya dibuja triangle lists/strips/fans texturizadas con depth, scissor, culling y
+blend color/alfa, con referencias
 retenidas hasta sus fences. Fabrica guest, catalogo del juego, otros estados,
 batching/caches y presentacion NVK siguen pendientes.
 

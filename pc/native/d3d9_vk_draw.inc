@@ -35,9 +35,18 @@ static uint32_t draw_state(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kin
         *handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;
         uint32_t *field=name==7?&d->depth_state.enable:name==14?&d->depth_state.write:name==23?&d->depth_state.compare:&d->cull_mode;
         if(get){values[0]=*field;return 0;}
-        if(name==22){if(values[0]!=1)return FNV_VK_INVALID;*field=1;return 0;}
+        if(name==22){if(values[0]<1 || values[0]>3)return FNV_VK_INVALID;*field=values[0];return 0;}
         struct fnv_d3d9_depth next=d->depth_state;if(name==7)next.enable=values[0];else if(name==14)next.write=values[0];else next.compare=values[0];
         VkPipelineDepthStencilStateCreateInfo test;uint32_t hr=fnv_d3d9_vk_depth(&next,&test);if(!hr)d->depth_state=next;return hr;
+    }
+    if(kind==FNV_D3D9_RENDER_STATE){
+        struct fnv_d3d9_blend next=d->blend_state;uint32_t *field=NULL;
+        switch(name){case 27:field=&next.enable;break;case 19:field=&next.source;break;case 20:field=&next.destination;break;case 171:field=&next.operation;break;
+            case 206:field=&next.separate_alpha;break;case 207:field=&next.source_alpha;break;case 208:field=&next.destination_alpha;break;case 209:field=&next.operation_alpha;break;
+            case 168:field=&next.write_mask;break;case 193:field=&next.constant;break;default:break;}
+        if(field){*handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;
+            if(get){values[0]=*field;return 0;}*field=values[0];if(name==27 || name==206)*field=*field!=0;
+            VkPipelineColorBlendAttachmentState attachment;float constants[4];uint32_t hr=fnv_d3d9_vk_blend(&next,&attachment,constants);if(!hr)d->blend_state=next;return hr;}
     }
     if(kind!=FNV_D3D9_SAMPLER_STATE)return FNV_VK_INVALID;
     *handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;if(sampler>=16 || name<1 || name>10)return FNV_VK_INVALID;
@@ -69,7 +78,7 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
     struct shader_resource *vs=find_shader(d,d->bound_shaders[0]),*ps=find_shader(d,d->bound_shaders[1]);
     struct declaration_resource *decl=find_declaration(d,d->declaration);struct surface *color=find(d,d->color),*depth=find(d,d->depth);
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
-    if(!d->in_scene || !vs || !ps || !decl || !color || primitive!=4 || d->cull_mode!=1 || (d->depth_state.enable && !depth))goto done;
+    if(!d->in_scene || !vs || !ps || !decl || !color || (primitive<4 || primitive>6) || (d->depth_state.enable && !depth))goto done;
     if(d->viewport[2]>d->properties.limits.maxViewportDimensions[0] || d->viewport[3]>d->properties.limits.maxViewportDimensions[1] ||
        (double)d->viewport[0]<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]<d->properties.limits.viewportBoundsRange[0] ||
        (double)d->viewport[0]+d->viewport[2]>d->properties.limits.viewportBoundsRange[1] || (double)d->viewport[1]+d->viewport[3]>d->properties.limits.viewportBoundsRange[1])goto done;
@@ -101,6 +110,9 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
             if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)){hr=FNV_VK_INVALID;goto done;}}
     }
     VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&d->depth_state,&depth_info);if(hr)goto done;
+    VkPipelineColorBlendAttachmentState blend_attachment;float blend_constants[4];hr=fnv_d3d9_vk_blend(&d->blend_state,&blend_attachment,blend_constants);if(hr)goto done;
+    if(blend_attachment.blendEnable){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,VK_FORMAT_B8G8R8A8_UNORM,&props);
+        if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)){hr=FNV_VK_INVALID;goto done;}}
     if((hr=flush_locked(d))!=0)goto done;
     for(unsigned i=0;i<d->config.frames;++i)if(!d->frames[i].pending){f=d->frames+i;break;}
     if(!f){hr=FNV_VK_BUSY;goto done;}
@@ -129,11 +141,11 @@ static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint
     VkPipelineShaderStageCreateInfo stages[2]={{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs->module,.pName="main"},
         {.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=ps->module,.pName="main"}};
     VkPipelineVertexInputStateCreateInfo vi={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=binding_count,.pVertexBindingDescriptions=bindings,.vertexAttributeDescriptionCount=program->count,.pVertexAttributeDescriptions=attributes};
-    VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+    VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=primitive==4?VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:primitive==5?VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP:VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN};
     VkPipelineViewportStateCreateInfo vp={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.pViewports=&viewport,.scissorCount=1,.pScissors=&scissor};
-    VkPipelineRasterizationStateCreateInfo rs={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.frontFace=VK_FRONT_FACE_CLOCKWISE,.lineWidth=1};
+    VkPipelineRasterizationStateCreateInfo rs={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=d->cull_mode==1?VK_CULL_MODE_NONE:VK_CULL_MODE_BACK_BIT,.frontFace=d->cull_mode==2?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE,.lineWidth=1};
     VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
-    VkPipelineColorBlendAttachmentState ba={.colorWriteMask=15};VkPipelineColorBlendStateCreateInfo bs={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};
+    VkPipelineColorBlendStateCreateInfo bs={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&blend_attachment};memcpy(bs.blendConstants,blend_constants,sizeof(blend_constants));
     VkGraphicsPipelineCreateInfo pci={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=stages,.pVertexInputState=&vi,.pInputAssemblyState=&ia,
         .pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pDepthStencilState=&depth_info,.pColorBlendState=&bs,.layout=r->layout,.renderPass=f->passes[0]};
     VkPipeline pipeline=VK_NULL_HANDLE;VkResult built=d->v.CreateGraphicsPipelines(d->device,VK_NULL_HANDLE,1,&pci,NULL,&pipeline);
