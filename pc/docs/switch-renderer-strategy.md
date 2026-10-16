@@ -3,6 +3,10 @@
 Revision del 16 de octubre de 2026. Xbox sigue pausado; estas decisiones son
 para el port nativo PC. Todavia no hay frames del motor PC en Switch que
 permitan afirmar una mejora de FPS.
+Estado posterior: el [proveedor Vulkan propio](native-vulkan-backend.md) ya
+crea dispositivos/superficies y ejecuta Clear por COM sin NULLREF. Draws y
+presentacion NVK aun pendientes. [Nuevas referencias FEX/PES13](runtime-reference-boundaries.md)
+no cambian la arquitectura activa.
 
 ## Referencias revisadas
 

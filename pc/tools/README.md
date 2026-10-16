@@ -155,3 +155,8 @@ Vulkan. Ver [contrato y limites](../docs/native-vulkan-texture-upload.md).
 `test_vk_state.py` verifica el mapper C de profundidad y samplers a estructuras
 Vulkan. `test_d3d9_uniform_state.py` comprueba su conexion a estados COM con UV
 fuera de rango y un control negativo de clamp. Ver [subset y cobertura GPU](../docs/native-vulkan-state.md).
+
+`test_d3d9_vk_backend.py` ejecuta callers x86 de targets/Clear contra el proveedor
+Vulkan propio. Comprueba pixeles, dos frames en vuelo, vida de recursos, limites
+y fallos con `vk_backend_fault_proxy.h`. No usa el dispositivo NULLREF anterior.
+Ver [propiedad, sincronizacion y limites](../docs/native-vulkan-backend.md).

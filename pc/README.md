@@ -33,6 +33,9 @@ lleva profundidad y sampler desde COM a estructuras Vulkan, verificando UV
 fuera de 0..1. Seleccion de variantes, otros estados y targets siguen explicitos;
 no es todavia el proveedor completo de Switch. Los forks del driver se
 comparan con refs fijados en [revision Mesa](docs/mesa-switch-review.md).
+El [proveedor Vulkan nativo](docs/native-vulkan-backend.md) ya atiende superficies,
+targets, viewport/scissor y Clear con objetos propios y fences, sin NULLREF.
+Su fabrica guest, recursos de draws y presentacion siguen pendientes.
 
 ## Estado
 
