@@ -43,7 +43,9 @@ blend color/alfa, con referencias
 retenidas hasta sus fences. La [fabrica preparada](docs/native-d3d9-factory.md)
 ya enlaza Direct3DCreate9 y valida CreateDevice para un device fijo. Caps
 completas, catalogo del juego, otros estados,
-batching/caches y presentacion NVK siguen pendientes.
+batching/caches y validacion NVK siguen pendientes. La [ruta WSI inicial](docs/native-vulkan-presentation.md)
+ya presenta en Vulkan Windows y compila el enlace NWindow; Present COM, Reset y
+la prueba de esta ruta en consola aun faltan.
 
 ## Estado
 

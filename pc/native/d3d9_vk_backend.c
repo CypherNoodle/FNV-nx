@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #define GLOBALS(X) X(CreateInstance)
+#define WSI_INSTANCE(X) X(DestroySurfaceKHR) X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR) X(GetPhysicalDeviceSurfaceFormatsKHR) X(GetPhysicalDeviceSurfacePresentModesKHR) X(GetPhysicalDeviceFeatures2)
+#define WSI_DEVICE(X) X(CreateSwapchainKHR) X(DestroySwapchainKHR) X(GetSwapchainImagesKHR) X(AcquireNextImageKHR) X(QueuePresentKHR) X(CreateSemaphore) X(DestroySemaphore) X(CmdCopyImage)
 #define INSTANCE(X) X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) \
  X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceImageFormatProperties) X(GetPhysicalDeviceFormatProperties) X(CreateDevice) X(GetDeviceProcAddr)
 #define DEVICE(X) X(DestroyDevice) X(DeviceWaitIdle) X(GetDeviceQueue) X(CreateImage) X(DestroyImage) \
@@ -18,7 +20,7 @@
  X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CreateSampler) X(DestroySampler) \
  X(CreateGraphicsPipelines) X(DestroyPipeline) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdDraw) X(CmdDrawIndexed)
 #define FIELD(n) PFN_vk##n n;
-struct dispatch { GLOBALS(FIELD) INSTANCE(FIELD) DEVICE(FIELD) };
+struct dispatch { GLOBALS(FIELD) INSTANCE(FIELD) DEVICE(FIELD) WSI_INSTANCE(FIELD) WSI_DEVICE(FIELD) };
 #undef FIELD
 struct surface {
     uintptr_t id;uint32_t refs,pins,width,height,depth,flag;
@@ -53,16 +55,18 @@ struct clear_command {
     VkClearRect rects[32];
 };
 struct frame {
-    VkCommandPool pool;VkCommandBuffer cmd;VkFence fence;int pending;
+    VkCommandPool pool;VkCommandBuffer cmd;VkFence fence;int pending;VkSemaphore acquired;VkFence acquire_fence;int acquire_pending;
     uint32_t count;struct clear_command *commands;
     VkRenderPass *passes;VkFramebuffer *buffers;
     uintptr_t read_surface;VkBuffer read_buffer;VkDeviceMemory read_memory;
     VkDeviceSize read_allocation;uint32_t read_coherent;
     struct draw_resources *draw;struct buffer_version *read_version;struct texture_version *read_texture;
 };
+struct wsi_image {VkImage image;VkSemaphore ready;VkFence presented;int pending;};
+struct wsi_state {VkSurfaceKHR surface;VkSwapchainKHR chain;uint32_t count;struct wsi_image images[8];VkPresentModeKHR mode;uint64_t presents,timeouts;};
 struct fnv_vk_backend {
     fnv_host_mutex guard;struct dispatch v;struct fnv_vk_config config;
-    VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;
+    VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;struct wsi_state wsi;
     VkPhysicalDeviceProperties properties;VkPhysicalDeviceMemoryProperties memory;
     uint32_t family;struct surface *surfaces;struct frame frames[3];
     struct buffer_resource *buffer_resources;struct stream_binding streams[16];uintptr_t indices;
@@ -357,6 +361,7 @@ static uint32_t flush_locked(struct fnv_vk_backend *d){
 #include "d3d9_vk_textures.inc"
 #include "d3d9_vk_shaders.inc"
 #include "d3d9_vk_draw.inc"
+#include "d3d9_vk_present.inc"
 static void addref(void *ctx,uintptr_t id){
     struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t *refs=NULL;
     struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);struct texture_resource *t=find_texture(d,id);
@@ -456,6 +461,7 @@ uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out)
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
     s.shader_catalog_entries=d->catalog_count;s.draws=d->draws;
+    s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->textures[i].id)s.live_textures++;
@@ -531,8 +537,10 @@ uint32_t fnv_vk_backend_read_buffer(struct fnv_vk_backend *d,uintptr_t id,uint32
 uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *d,uintptr_t id,uint32_t level,void *out,size_t bytes,uint64_t timeout){return read_resource(d,id,level,0,2,out,bytes,timeout);}
 static uint32_t destroy_storage(struct fnv_vk_backend *d){
     if(d->device){
-        if(d->v.DeviceWaitIdle){VkResult idle=d->v.DeviceWaitIdle(d->device);
+        VkResult idle=VK_SUCCESS;
+        if(d->v.DeviceWaitIdle){idle=d->v.DeviceWaitIdle(d->device);
             if(idle!=VK_SUCCESS && idle!=VK_ERROR_DEVICE_LOST && d->queue_touched){d->last=idle;d->lost=1;return FNV_VK_LOST;}}
+        uint32_t wsi_hr=destroy_wsi(d,idle==VK_ERROR_DEVICE_LOST);if(wsi_hr)return wsi_hr;
         for(uint32_t i=0;i<d->config.frames;++i){struct frame *f=d->frames+i;
             for(uint32_t j=0;j<d->config.commands;++j){
                 if(f->buffers && f->buffers[j])d->v.DestroyFramebuffer(d->device,f->buffers[j],NULL);
@@ -556,6 +564,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
         if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
     }
+    if(d->wsi.surface && d->v.DestroySurfaceKHR)d->v.DestroySurfaceKHR(d->instance,d->wsi.surface,NULL);
     if(d->instance && d->v.DestroyInstance)d->v.DestroyInstance(d->instance,NULL);
     for(uint32_t i=0;i<d->config.frames;++i){free(d->frames[i].commands);free(d->frames[i].passes);free(d->frames[i].buffers);}
     while(d->programs){struct program_entry *entry=d->programs;d->programs=entry->next;free(entry);}
@@ -570,22 +579,30 @@ uint32_t fnv_vk_backend_destroy(struct fnv_vk_backend *d){
     for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending && !d->lost)return FNV_VK_BUSY;
     return destroy_storage(d);
 }
-uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_config *cfg,struct fnv_vk_backend **out,VkResult *failure){
+static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_config *cfg,const struct fnv_vk_window *window,struct fnv_vk_backend **out,VkResult *failure){
     _Static_assert(sizeof(uintptr_t)>=8,"Host backend handles require 64-bit host");
     if(failure)*failure=VK_SUCCESS;
     if(!out)return FNV_VK_INVALID;
     *out=NULL;
     if(!gp || !cfg || !cfg->width || !cfg->height || cfg->frames<1 || cfg->frames>3 || cfg->commands<1 || cfg->commands>128 ||
        cfg->resource_capacity<2 || cfg->resource_capacity>256 || !cfg->memory_budget || cfg->auto_depth>1)return FNV_VK_INVALID;
+    if(window && (!window->extension || !window->create_surface || window->vsync>1))return FNV_VK_INVALID;
     struct fnv_vk_backend *d=calloc(1,sizeof(*d));if(!d)return FNV_VK_OOM;
     if(!fnv_host_mutex_init(&d->guard)){free(d);return FNV_VK_OOM;}
     d->config=*cfg;d->device_refs=1;uint32_t hr=FNV_VK_LOST;
     d->v.CreateInstance=(PFN_vkCreateInstance)gp(VK_NULL_HANDLE,"vkCreateInstance");if(!d->v.CreateInstance)goto fail;
     VkApplicationInfo app={.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO,.pApplicationName="FNV native D3D9 backend",.apiVersion=VK_API_VERSION_1_1};
     VkInstanceCreateInfo ici={.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,.pApplicationInfo=&app};
+    const char *instance_extensions[]={VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,window?window->extension:NULL};
+    if(window){ici.enabledExtensionCount=4;ici.ppEnabledExtensionNames=instance_extensions;}
     if((hr=result(d,d->v.CreateInstance(&ici,NULL,&d->instance)))!=0){d->instance=VK_NULL_HANDLE;goto fail;}
 #define LOAD_INSTANCE(n) d->v.n=(PFN_vk##n)gp(d->instance,"vk" #n);if(!d->v.n){hr=FNV_VK_LOST;goto fail;}
     INSTANCE(LOAD_INSTANCE)
+    if(window){WSI_INSTANCE(LOAD_INSTANCE)
+        VkSurfaceKHR surface=VK_NULL_HANDLE;VkResult r=window->create_surface(window->context,d->instance,gp,&surface);
+        if((hr=result(d,r))!=0)goto fail;
+        if(!surface){hr=FNV_VK_INVALID;goto fail;}d->wsi.surface=surface;
+    }
 #undef LOAD_INSTANCE
     uint32_t count=0;
     if((hr=result(d,d->v.EnumeratePhysicalDevices(d->instance,&count,NULL)))!=0)goto fail;
@@ -594,17 +611,26 @@ uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     if((hr=result(d,d->v.EnumeratePhysicalDevices(d->instance,&count,devices)))!=0)goto fail;
     for(uint32_t i=0;i<count && !d->physical;++i){
         VkPhysicalDeviceProperties props;d->v.GetPhysicalDeviceProperties(devices[i],&props);if(props.apiVersion<VK_API_VERSION_1_1)continue;
+        if(window){VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
+            VkPhysicalDeviceFeatures2 features={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,.pNext=&maintenance};d->v.GetPhysicalDeviceFeatures2(devices[i],&features);
+            if(!maintenance.swapchainMaintenance1)continue;}
         uint32_t n=0;d->v.GetPhysicalDeviceQueueFamilyProperties(devices[i],&n,NULL);if(!n || n>256)continue;
         VkQueueFamilyProperties queues[256];d->v.GetPhysicalDeviceQueueFamilyProperties(devices[i],&n,queues);
-        for(uint32_t j=0;j<n;++j)if(queues[j].queueCount && (queues[j].queueFlags&VK_QUEUE_GRAPHICS_BIT)){d->physical=devices[i];d->family=j;d->properties=props;break;}
+        for(uint32_t j=0;j<n;++j)if(queues[j].queueCount && (queues[j].queueFlags&VK_QUEUE_GRAPHICS_BIT)){
+            if(window){VkBool32 support=VK_FALSE;if((hr=result(d,d->v.GetPhysicalDeviceSurfaceSupportKHR(devices[i],j,d->wsi.surface,&support)))!=0)goto fail;if(!support)continue;}
+            d->physical=devices[i];d->family=j;d->properties=props;break;}
     }
     if(!d->physical){hr=FNV_VK_INVALID;goto fail;}
     d->v.GetPhysicalDeviceMemoryProperties(d->physical,&d->memory);
     float priority=1;VkDeviceQueueCreateInfo qci={.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,.queueFamilyIndex=d->family,.queueCount=1,.pQueuePriorities=&priority};
     VkDeviceCreateInfo dci={.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,.queueCreateInfoCount=1,.pQueueCreateInfos=&qci};
+    const char *device_extensions[]={VK_KHR_SWAPCHAIN_EXTENSION_NAME,VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME};
+    VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT,.swapchainMaintenance1=VK_TRUE};
+    if(window){dci.enabledExtensionCount=2;dci.ppEnabledExtensionNames=device_extensions;dci.pNext=&maintenance;}
     if((hr=result(d,d->v.CreateDevice(d->physical,&dci,NULL,&d->device)))!=0){d->device=VK_NULL_HANDLE;goto fail;}
 #define LOAD_DEVICE(n) d->v.n=(PFN_vk##n)d->v.GetDeviceProcAddr(d->device,"vk" #n);if(!d->v.n){hr=FNV_VK_LOST;goto fail;}
     DEVICE(LOAD_DEVICE)
+    if(window){WSI_DEVICE(LOAD_DEVICE)}
 #undef LOAD_DEVICE
     d->v.GetDeviceQueue(d->device,d->family,0,&d->queue);
     uint32_t max_uniform=d->properties.limits.maxUniformBufferRange;if(max_uniform>65536)max_uniform=65536;max_uniform&=~15u;
@@ -632,10 +658,15 @@ uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     d->scissor[2]=cfg->width;d->scissor[3]=cfg->height;
     if(cfg->auto_depth){if((hr=make_surface(d,1,cfg->width,cfg->height,0,0,&d->auto_depth))!=0)goto fail;
         pin(d,d->auto_depth,1);d->depth=d->auto_depth;pin(d,d->depth,1);}
+    if(window && (hr=create_wsi(d,window->vsync))!=0)goto fail;
     *out=d;return 0;
 fail:
     if(failure)*failure=d->last;
     (void)destroy_storage(d);return hr;
+}
+uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_config *cfg,struct fnv_vk_backend **out,VkResult *failure){return create_backend(gp,cfg,NULL,out,failure);}
+uint32_t fnv_vk_backend_create_window(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_config *cfg,const struct fnv_vk_window *window,struct fnv_vk_backend **out,VkResult *failure){
+    if(!window){if(out)*out=NULL;if(failure)*failure=VK_SUCCESS;return FNV_VK_INVALID;}return create_backend(gp,cfg,window,out,failure);
 }
 
 uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *d,uint32_t usage,uint32_t type,uint32_t format){

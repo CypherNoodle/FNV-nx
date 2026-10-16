@@ -43,7 +43,9 @@ detecta el sampler incorrecto. Faltan otros estados y el proveedor general.
 El [proveedor Vulkan propio](pc/docs/native-vulkan-backend.md) ya crea dispositivo,
 superficies, buffers de vertices/indices, texturas 2D, modulos shader, declaraciones y Clear desde COM sin un dispositivo D3D9 Windows, con dos envios
 en vuelo y retencion por fences. Ya ejecuta draws propios texturizados; aun no hay frames del juego ni
-presentacion NVK. La [fabrica DX9 inicial](pc/docs/native-d3d9-factory.md) ya
+presentacion NVK validada en hardware. La [primera ruta WSI](pc/docs/native-vulkan-presentation.md)
+ya presenta frames sinteticos en Vulkan Windows y compila el enlace NWindow ARM64;
+falta conectar Present COM y probarla en Switch. La [fabrica DX9 inicial](pc/docs/native-d3d9-factory.md) ya
 entrega el device preparado mediante Direct3DCreate9/CreateDevice; caps completas
 y recreacion siguen pendientes.
 

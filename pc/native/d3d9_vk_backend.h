@@ -17,6 +17,8 @@ struct fnv_vk_stats {
     uint32_t live_buffers,buffer_versions,live_textures,texture_versions;
     uint32_t live_shaders,live_declarations,shader_catalog_entries;
     uint64_t draws;
+    uint64_t presentation_requests,acquire_timeouts;
+    uint32_t swapchain_images,present_mode; /* Vulkan mode; valid with images. */
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
@@ -29,6 +31,25 @@ struct fnv_vk_stats {
  * No fake shader/draw provider: unsupported callback extensions remain null.
  * Backend methods serialize internally; no callbacks/reentry under its lock. */
 uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr,const struct fnv_vk_config *,struct fnv_vk_backend **,VkResult *failure);
+/* Optional native WSI. Caller owns the platform window until backend teardown;
+ * backend owns a successfully returned Vulkan surface. EXT maintenance1 is
+ * required so presentation completion is observed before semaphore teardown.
+ * One graphics/present queue, fixed extent, BGRA8, opaque, FIFO or IMMEDIATE.
+ * Platform callback must return NULL surface on failure; runs only at create. */
+struct fnv_vk_window {
+    const char *extension;
+    void *context;
+    VkResult (*create_surface)(void *,VkInstance,PFN_vkGetInstanceProcAddr,VkSurfaceKHR *);
+    uint32_t vsync;
+};
+uint32_t fnv_vk_backend_create_window(PFN_vkGetInstanceProcAddr,const struct fnv_vk_config *,const struct fnv_vk_window *,struct fnv_vk_backend **,VkResult *failure);
+/* Host presentation of the implicit backbuffer, outside Begin/EndScene.
+ * No CPU pixel readback, scaling, rects, guest HWND, Reset or automatic retry.
+ * Each WSI wait has the explicit finite timeout (UINT64_MAX rejects); the
+ * full command ring returns BUSY before
+ * acquisition. Caller poll/waits then retries. Surface loss/out-of-date stop
+ * this device (LOST), never recycle uncertain presentation synchronization. */
+uint32_t fnv_vk_backend_present(struct fnv_vk_backend *,uint64_t acquire_timeout_ns);
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *,struct fnv_d3d9_shader_backend *);
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *,struct fnv_vk_stats *);
 /* Clear queues owned commands; EndScene does not submit or observe fences.
