@@ -13,6 +13,7 @@ static void api_reset(void){
     fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);
     if(!c->config.factory || !c->factory_created || !c->config.reset_timeout_ns || !c->config.backend.reset){hr=0x8876086au;goto done;}
     if(c->creator!=(uintptr_t)&creator_marker)goto done;
+    if(c->recording){c->record_failed=1;goto done;}
     if(!out || c->in_scene)goto failure;
     values[8]=values[8]!=0;values[9]=values[9]!=0;
     if(values[8]){if(!values[0])values[0]=c->factory.width;if(!values[1])values[1]=c->factory.height;if(!values[2])values[2]=c->factory.color_format;}

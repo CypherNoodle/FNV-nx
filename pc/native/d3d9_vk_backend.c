@@ -409,18 +409,24 @@ static uint32_t get_target(void *ctx,int depth,uint32_t index,uintptr_t *out){
     struct surface *s=find(d,depth?d->depth:d->color);uint32_t hr=0x88760866u;
     if(s && d->device_refs){if(!s->refs)d->device_refs++;s->refs++;*out=s->id;hr=0;}fnv_host_mutex_unlock(&d->guard);return hr;
 }
-static uint32_t state(void *ctx,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get){
-    (void)sampler;(void)name;struct fnv_vk_backend *d=ctx;if(!values)return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
+static uint32_t state_locked(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get){
+    if(!values)return FNV_VK_INVALID;
+    if(d->lost || !d->device_refs)return FNV_VK_LOST;
+    uint32_t hr=FNV_VK_INVALID;
     int handled=0;hr=draw_state(d,kind,sampler,name,values,get,&handled);
-    if(handled){fnv_host_mutex_unlock(&d->guard);return hr;}
+    if(handled)return hr;
     if(kind==FNV_D3D9_VIEWPORT){struct surface *s=find(d,d->color);float min=0,max=0;if(!get){memcpy(&min,values+4,4);memcpy(&max,values+5,4);}
         if(get){memcpy(values,d->viewport,24);hr=0;}
         else if(s && values[2] && values[3] && values[0]<=s->width && values[2]<=s->width-values[0] && values[1]<=s->height && values[3]<=s->height-values[1] && isfinite(min) && isfinite(max) && min>=0 && max<=1 && min<=max){memcpy(d->viewport,values,24);hr=0;}
     }else if(kind==FNV_D3D9_SCISSOR){struct surface *s=find(d,d->color);if(get){memcpy(values,d->scissor,16);hr=0;}
         else if(s && values[0]<=values[2] && values[1]<=values[3] && values[2]<=s->width && values[3]<=s->height){memcpy(d->scissor,values,16);hr=0;}}
     else if(kind==FNV_D3D9_RENDER_STATE && name==174){if(get)values[0]=d->scissor_enabled;else d->scissor_enabled=values[0]!=0;hr=0;}
-    fnv_host_mutex_unlock(&d->guard);return hr;
+    return hr;
 }
+static uint32_t state(void *ctx,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get){
+    struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);uint32_t hr=state_locked(d,kind,sampler,name,values,get);fnv_host_mutex_unlock(&d->guard);return hr;
+}
+#include "d3d9_vk_state_blocks.inc"
 static int64_t signed32(uint32_t v){return v&0x80000000u?(int64_t)v-0x100000000ll:v;}
 static uint32_t clear(void *ctx,uint32_t count,const uint32_t *rects,uint32_t flags,uint32_t color,uint32_t z,uint32_t stencil){
     struct fnv_vk_backend *d=ctx;if(count>32 || (count && !rects) || !flags || (flags&~7u))return FNV_VK_INVALID;
@@ -461,7 +467,7 @@ void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_ba
     *out=(struct fnv_d3d9_shader_backend){.context=d,.create=create_shader,.bind_shader=bind_shader,.create_declaration=create_declaration,.bind_declaration=bind_declaration,.upload_constants=upload_constants,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
         .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
-        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.clear=clear,.scene=scene,.draw=draw,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
+        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.state_batch=state_batch,.clear=clear,.scene=scene,.draw=draw,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
 }
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;

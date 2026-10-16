@@ -68,6 +68,10 @@ La [conversion FVF](pc/docs/native-d3d9-fvf.md) ya genera declaraciones
 compatibles con el proveedor: 360 layouts contrastados con Windows y un
 draw XYZ/UV comprobado en Vulkan. El pipeline fijo completo sigue pendiente.
 
+Los [state blocks grabados](pc/docs/native-d3d9-stateblocks.md) ya conservan
+estados numericos y los restauran atomicamente con Capture/Apply. Pasan
+pruebas Windows/Vulkan y ARM64; los bloques completos ALL siguen pendientes.
+
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).
 Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-runtime.md).

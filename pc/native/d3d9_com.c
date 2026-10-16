@@ -5,17 +5,18 @@
 #include "d3d9_fvf.h"
 #include <stdlib.h>
 
-enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FACTORY_OBJECT=1016,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4 };
+enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FACTORY_OBJECT=1016,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4,BLOCK_VTABLE=(119+5+14+5+22+17)*4 };
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
+struct state_block {uint32_t count;struct fnv_d3d9_state_value entries[256];};
 struct resource {
     uintptr_t handle;uint32_t references,pins;struct code *code;enum fnv_d3d9_resource_kind kind;
     uint32_t data,size,usage,format,fvf,pool,locked,lock_offset,lock_bytes,lock_flags;
     uint64_t version;
     unsigned char *elements;uint32_t element_count;
     struct mip *mips;uint32_t levels,block,unit;
-    uint32_t surface_desc[8];
+    uint32_t surface_desc[8];struct state_block *snapshot;
 };
 struct span {uint32_t offset,bytes;};
 struct stream {int index;uint32_t offset,stride,frequency;};
@@ -29,11 +30,12 @@ struct fnv_d3d9_com {
     unsigned char *buffer_memory;struct span *free_spans;uint32_t free_count;
     int shaders[2],indices,declaration,textures[16],targets[4],depth_target;struct stream streams[16];
     struct fnv_d3d9_factory_profile factory;uint32_t factory_refs,factory_created,creation[4],present_params[14],reset_failed;uintptr_t creator;
-    uint32_t tokens[METHODS],used,device_references;int in_scene;
+    uint32_t tokens[METHODS],used,device_references;int in_scene;struct state_block *recording;int record_failed;
     fnv_host_mutex guard;
 };
 static struct fnv_d3d9_com *active_com;
 static _Thread_local unsigned char creator_marker;
+static const unsigned char iid_stateblock[16]={0xe5,0x4f,0x7c,0xb0,0x0d,0x31,0xa8,0x4b,0xa2,0x3c,0x4f,0x0f,0x20,0x6f,0x21,0x8b};
 static const unsigned char iid_factory[16]={0xca,0xcb,0xbd,0x81,0xd4,0x64,0x6d,0x42,0xae,0x8d,0xad,0x01,0x47,0xf4,0x27,0x5c};
 static const unsigned char iid_surface[16]={0x3A,0xAF,0xFB,0x0C,0xF6,0x9F,0x9A,0x42,0x99,0xB3,0xA2,0x79,0x6A,0xF8,0xB8,0x9B};
 static const unsigned char iid_texture[16]={0x27,0x12,0xC3,0x85,0xE5,0x3D,0x00,0x4F,0x9B,0x3A,0xF1,0x1A,0xC3,0x8C,0x18,0xB5};
@@ -52,6 +54,10 @@ static _Noreturn void invalid(const char *message,uint32_t address){recomp_unimp
 static struct fnv_d3d9_com *module(void) {
     if(!active_com || fnv_cpu_current()!=active_com->cpu)invalid("D3D9 module/context unavailable",0);
     return active_com;
+}
+static int reject_record(struct fnv_d3d9_com *c,unsigned argc){
+    if(!c->recording)return 0;
+    c->record_failed=1;fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(0x8876086au,argc*4);return 1;
 }
 static void *range(struct fnv_d3d9_com *c,uint32_t at,uint32_t bytes,int write_access) {
     if(!at)return NULL;
@@ -72,7 +78,7 @@ static int object(struct fnv_d3d9_com *c,uint32_t at,int device_only) {
     if(!device_only && at>=resource_address(c,0) && !((at-resource_address(c,0))&3)) {
         uint32_t index=(at-resource_address(c,0))/4;
         if(index<c->used && c->resources[index].references &&
-           read32(c->objects+OBJECT_OFFSET+index*4)==c->config.objects_address+(c->resources[index].kind<2?DEVICE_SLOTS*4:c->resources[index].kind==FNV_D3D9_DECL?DECL_VTABLE:c->resources[index].kind==FNV_D3D9_TEXTURE2D?TEXTURE_VTABLE:c->resources[index].kind==FNV_D3D9_SURFACE?SURFACE_VTABLE:BUFFER_VTABLE))return (int)index;
+           read32(c->objects+OBJECT_OFFSET+index*4)==c->config.objects_address+(c->resources[index].kind<2?DEVICE_SLOTS*4:c->resources[index].kind==FNV_D3D9_DECL?DECL_VTABLE:c->resources[index].kind==FNV_D3D9_TEXTURE2D?TEXTURE_VTABLE:c->resources[index].kind==FNV_D3D9_SURFACE?SURFACE_VTABLE:c->resources[index].kind==FNV_D3D9_STATEBLOCK?BLOCK_VTABLE:BUFFER_VTABLE))return (int)index;
     }
     fnv_host_mutex_unlock(&c->guard);invalid("D3D9 invalid/stale this pointer",at);
 }
@@ -88,7 +94,7 @@ static uint32_t allocate_shadow(struct fnv_d3d9_com *c,uint32_t bytes) {
 }
 static void retire(struct fnv_d3d9_com *c,int index) {
     struct resource *r=c->resources+index;if(r->references || r->pins)return;
-    r->handle=0;free(r->mips);r->mips=NULL;free(r->elements);r->elements=NULL;r->element_count=0;
+    r->handle=0;free(r->snapshot);r->snapshot=NULL;free(r->mips);r->mips=NULL;free(r->elements);r->elements=NULL;r->element_count=0;
     if(r->data) {
         struct span s={r->data-c->config.buffer_address,(r->size+15u)&~15u};uint32_t i=0;
         while(i<c->free_count && c->free_spans[i].offset<s.offset)i++;
@@ -110,12 +116,14 @@ static void increment(struct fnv_d3d9_com *c,int index) {
     if(index==-2){c->factory_refs++;return;}
     if(index<0){c->device_references++;c->config.backend.device_addref(c->config.backend.context);}
     else {if(!c->resources[index].references)c->device_references++;
-        c->resources[index].references++;c->config.backend.addref(c->config.backend.context,c->resources[index].handle);}
+        c->resources[index].references++;if(c->resources[index].kind!=FNV_D3D9_STATEBLOCK)c->config.backend.addref(c->config.backend.context,c->resources[index].handle);}
 }
 static uint32_t decrement(struct fnv_d3d9_com *c,int index) {
     if(index==-2)return --c->factory_refs;
     if(index<0){c->config.backend.device_release(c->config.backend.context);if(!--c->device_references){clear_bindings(c);if(c->config.factory)c->factory_refs--;}return c->device_references;}
-    struct resource *s=c->resources+index;c->config.backend.release(c->config.backend.context,s->handle);
+    struct resource *s=c->resources+index;
+    if(s->kind==FNV_D3D9_STATEBLOCK){if(s->references==1)c->config.backend.device_release(c->config.backend.context);}
+    else c->config.backend.release(c->config.backend.context,s->handle);
     if(!--s->references){c->device_references--;retire(c,index);if(!c->device_references){clear_bindings(c);if(c->config.factory)c->factory_refs--;}}
     return s->references;
 }
@@ -129,7 +137,7 @@ static void api_query(void) {
         c->resources[index].kind==FNV_D3D9_PS?iid_pixel:c->resources[index].kind==FNV_D3D9_VB?iid_vertex_buffer:
         c->resources[index].kind==FNV_D3D9_IB?iid_index_buffer:
         c->resources[index].kind==FNV_D3D9_DECL?iid_declaration:
-        c->resources[index].kind==FNV_D3D9_TEXTURE2D?iid_texture:iid_surface;
+        c->resources[index].kind==FNV_D3D9_TEXTURE2D?iid_texture:c->resources[index].kind==FNV_D3D9_STATEBLOCK?iid_stateblock:iid_surface;
     uint32_t result=E_NOINTERFACE_VALUE;write32(out,0);
     if(!memcmp(requested,iid_unknown,16) || !memcmp(requested,supported,16) ||
        (index>=0 && c->resources[index].kind==FNV_D3D9_TEXTURE2D && !memcmp(requested,iid_base_texture,16)) ||
@@ -232,7 +240,7 @@ static void shader_binding(enum fnv_d3d9_stage stage,int get) {
     unsigned char *out=get?range(c,at,4,1):NULL;
     if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,8);return;}
     if(!get && !c->config.backend.bind_shader)invalid("D3D9 shader binding provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,2))return;uint32_t result=0;
     if(get)get_binding(c,c->shaders[stage],out);
     else {int index=at?resource_kind(c,at,(enum fnv_d3d9_resource_kind)stage):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
@@ -325,7 +333,7 @@ static void stream_binding(int get) {
     struct fnv_d3d9_com *c=module();unsigned char *out=get?range(c,at,4,1):NULL,*off=get?range(c,offset,4,1):NULL,*step=get?range(c,stride,4,1):NULL;
     if(stream>=16 || (get && (!out || !off || !step))){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,20);return;}
     if(!get && !c->config.backend.bind_stream)invalid("D3D9 stream provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);struct stream *s=c->streams+stream;uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,5))return;struct stream *s=c->streams+stream;uint32_t result=0;
     if(get){get_binding(c,s->index,out);write32(off,s->offset);write32(step,s->stride);}
     else {int index=at?resource_kind(c,at,FNV_D3D9_VB):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
@@ -339,7 +347,7 @@ static void index_binding(int get) {
     uint32_t self=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1);struct fnv_d3d9_com *c=module();unsigned char *out=get?range(c,at,4,1):NULL;
     if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,8);return;}
     if(!get && !c->config.backend.bind_indices)invalid("D3D9 index provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,2))return;uint32_t result=0;
     if(get)get_binding(c,c->indices,out);
     else {int index=at?resource_kind(c,at,FNV_D3D9_IB):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
@@ -353,7 +361,7 @@ static void frequency(int get) {
     uint32_t self=fnv_cpu_argument_u32(0),stream=fnv_cpu_argument_u32(1),value=fnv_cpu_argument_u32(2);struct fnv_d3d9_com *c=module();unsigned char *out=get?range(c,value,4,1):NULL;
     if(stream>=16 || (get && !out)){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,12);return;}
     if(!get && !c->config.backend.stream_frequency)invalid("D3D9 frequency provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,3))return;uint32_t result=0;
     if(get)write32(out,c->streams[stream].frequency);
     else {result=c->config.backend.stream_frequency(c->config.backend.context,stream,value);if(!result)c->streams[stream].frequency=value;}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,12);
@@ -409,7 +417,7 @@ static void declaration_binding(int get) {
     unsigned char *out=get?range(c,at,4,1):NULL;
     if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,8);return;}
     if(!get && !c->config.backend.bind_declaration)invalid("D3D9 declaration binding provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,2))return;uint32_t result=0;
     if(get)get_binding(c,c->declaration,out);
     else {int index=at?resource_kind(c,at,FNV_D3D9_DECL):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
@@ -539,7 +547,7 @@ static void texture_binding(int get) {
     if(sampler>=16)invalid("D3D9 non-pixel texture sampler pending",sampler);
     if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,12);return;}
     if(!get && !c->config.backend.bind_texture)invalid("D3D9 texture binding provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,3))return;uint32_t result=0;
     if(get)get_binding(c,c->textures[sampler],out);
     else {int index=at?resource_kind(c,at,FNV_D3D9_TEXTURE2D):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
@@ -549,6 +557,7 @@ static void texture_binding(int get) {
 }
 static void api_set_texture(void){texture_binding(0);}
 static void api_get_texture(void){texture_binding(1);}
+#include "d3d9_state_blocks.inc"
 static void device_state(enum fnv_d3d9_state_kind kind,int get) {
     uint32_t self=fnv_cpu_argument_u32(0),sampler=0,name=0,values[6]={0},out_at=0,argc=2,words=1;
     struct fnv_d3d9_com *c=module();unsigned char *data=NULL;
@@ -565,7 +574,7 @@ static void device_state(enum fnv_d3d9_state_kind kind,int get) {
     }
     if(!c->config.backend.state)invalid("D3D9 device state provider pending",self);
     fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);
-    uint32_t result=c->config.backend.state(c->config.backend.context,kind,sampler,name,values,get);
+    uint32_t result=!get && c->recording?record_numeric(c,kind,sampler,name,values):c->config.backend.state(c->config.backend.context,kind,sampler,name,values,get);
     if(!result && get)for(uint32_t i=0;i<words;i++)write32(data+i*4,values[i]);
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,argc*4);
 }
@@ -629,7 +638,7 @@ static void target_binding(int depth,int get) {
     struct fnv_d3d9_com *c=module();unsigned char *out=get?range(c,at,4,1):NULL;
     if(slot>=4 || (get && !out)){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,argc*4);return;}
     if((get && (!c->config.backend.get_target || !c->config.backend.surface_desc)) || (!get && !c->config.backend.set_target))invalid("D3D9 target provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);int *binding=depth?&c->depth_target:c->targets+slot;uint32_t result;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,argc))return;int *binding=depth?&c->depth_target:c->targets+slot;uint32_t result;
     if(get) {
         write32(out,0);uintptr_t handle=0;int index=-1;result=c->config.backend.get_target(c->config.backend.context,depth,slot,&handle);
         if(!result)result=adopt_surface(c,handle,&index);
@@ -704,7 +713,7 @@ static void constant(enum fnv_d3d9_stage stage,enum fnv_d3d9_constant_kind kind,
     if(count>256){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,16);return;}
     void *data=count?range(c,at,count*width,get):NULL;
     if(count && !data){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,16);return;}
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,4))return;
     uint32_t result=get?fnv_d3d9_constants_get(c->constants,stage,kind,first,count,data):fnv_d3d9_constants_set(c->constants,stage,kind,first,count,data);
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,16);
 }
@@ -735,10 +744,10 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
     api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
     api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
-    api_unavailable2,api_unavailable4,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf};
+    api_unavailable2,api_unavailable4,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
-    free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
+    free(c->recording);free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
 }
 enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct fnv_d3d9_com_config *cfg,struct fnv_d3d9_com **out) {
     if(!out)return FNV_CPU_INVALID;
@@ -816,6 +825,9 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     for(unsigned i=0;i<8;i++)if(i!=2)write32(c->objects+surface_slots[i]*4,c->tokens[55+i]);
     const unsigned draw_slots[4]={41,42,81,82};
     for(unsigned i=0;i<4;i++)write32(c->objects+draw_slots[i]*4,c->tokens[63+i]);
+    for(unsigned i=0;i<4;i++)write32(c->objects+BLOCK_VTABLE+i*4,c->tokens[i]);
+    write32(c->objects+BLOCK_VTABLE+16,c->tokens[94]);write32(c->objects+BLOCK_VTABLE+20,c->tokens[95]);
+    write32(c->objects+59*4,c->tokens[96]);write32(c->objects+60*4,c->tokens[92]);write32(c->objects+61*4,c->tokens[93]);
     write32(c->objects+89*4,c->tokens[90]);write32(c->objects+90*4,c->tokens[91]);
     write32(c->objects+83*4,c->tokens[88]);write32(c->objects+84*4,c->tokens[89]);
     write32(c->objects+17*4,c->tokens[85]);

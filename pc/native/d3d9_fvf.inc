@@ -7,6 +7,7 @@ static void api_get_fvf(void){
 static void api_set_fvf(void){
     struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0),fvf=fnv_cpu_argument_u32(1);struct fnv_fvf_layout plan;
     uint32_t hr=fnv_d3d9_fvf_layout(fvf,&plan);fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);
+    if(reject_record(c,2))return;
     if(hr)goto done;
     if(!c->config.backend.create_declaration || !c->config.backend.bind_declaration){hr=0x8876086au;goto done;}
     /* Match the initial/null state and avoid replacing an already matching FVF. */

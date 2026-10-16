@@ -12,6 +12,10 @@ La suite GPU de escritorio cubre ambas llamadas y sus efectos sobre bindings.
 blending a declaraciones y conservan su identidad y vida. La conversion no
 sustituye los shaders del pipeline fijo que aun faltan.
 
+[State blocks numericos grabados](docs/native-d3d9-stateblocks.md) ya separan
+grabacion y estado actual, y restauran transacciones completas. No incluyen
+todavia bindings/constantes ni CreateStateBlock(ALL).
+
 Estado posterior: [Reset del dispositivo sano y tamano fijo](docs/native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.
 
 Esta rama trabaja en un port nativo de la version PC. Xbox permanece pausado.

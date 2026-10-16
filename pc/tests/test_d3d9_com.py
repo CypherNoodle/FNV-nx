@@ -24,7 +24,7 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
     native=['cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
         'guest_memory.c','guest_memory.h','memory_horizon.c','memory_horizon.h','host_mutex.h',
-        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h','d3d9_factory.inc','d3d9_fvf.h','d3d9_fvf.inc','d3d9_up.inc','d3d9_reset.inc']
+        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h','d3d9_factory.inc','d3d9_state_blocks.inc','d3d9_fvf.h','d3d9_fvf.inc','d3d9_up.inc','d3d9_reset.inc']
     slots=SLOTS if slots is None else slots
     modes=('normal','unknown','unsupported','stale','unregistered','parent','capacity','alias') if modes is None else modes
     inputs=[Path(__file__).resolve(),pc/'tests/d3d9_com_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',pc/'tools/shader_packages.py',
