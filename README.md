@@ -24,6 +24,9 @@ comprobar lectura del EXE y runtime en Switch. No ejecuta la entrada del motor.
 La [prueba grafica Vulkan propia](pc/docs/native-vulkan-shaders.md) ya convierte
 shaders D3D9 a SPIR-V y verifica textura y profundidad con 4.096 pixeles en
 la GPU del PC. Aun no es un frame de Fallout ni un renderer conectado en Switch.
+El adaptador propio ya restaura centroid en pares de prueba. La auditoria de
+copias temporales llega a 1.808/1.809 shaders traducibles; falta comprobar sus
+pares reales, cobertura MSAA y conexion al motor.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).
 Herramientas reutilizables y sus dependencias: [pc/tools/README.md](pc/tools/README.md).

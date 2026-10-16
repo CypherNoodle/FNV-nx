@@ -58,6 +58,11 @@ def inspect(data):
     for identifier, var in variables.items():
         item = {'id': identifier, 'name': names.get(identifier), **var}
         for d in decorations.get(identifier, []):
+            if d[0] in (14, 16, 17):
+                flag = {14: 'flat', 16: 'centroid', 17: 'sample'}[d[0]]
+                if len(d) != 1 or flag in item:
+                    raise ValueError('invalid/duplicate interpolation decoration')
+                item[flag] = True
             key = {11: 'builtin', 30: 'location', 33: 'binding', 34: 'set'}.get(d[0])
             if key:
                 if len(d) != 2 or key in item:

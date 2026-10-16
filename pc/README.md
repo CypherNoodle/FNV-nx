@@ -15,6 +15,9 @@ La ruta grafica elegida es Vulkan sobre Mesa/NVK; deko3d queda pausado.
 La [prueba Vulkan propia](docs/native-vulkan-shaders.md) verifica conversion
 SPIR-V, textura y profundidad en la GPU del PC. Su conexion al proveedor COM
 y al backend Switch sigue pendiente.
+El adaptador centroid propio conserva la declaracion en SPIR-V, comprobada
+con shaders propios y dibujo desktop a 1x. Los 1.808/1.809 shaders aceptados
+por el traductor con copias temporales todavia no son cobertura grafica del juego.
 
 ## Estado
 

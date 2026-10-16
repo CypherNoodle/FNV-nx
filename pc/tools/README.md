@@ -120,3 +120,10 @@ hashes y separa aceptacion de traduccion de cobertura dibujada.
 rechazos y 4.096 pixeles Vulkan en desktop. Ver [dependencias, comandos y
 limites](../docs/native-vulkan-shaders.md). No se copian herramientas, DLLs
 del PC ni carpetas de desarrollo a la SD.
+
+`translate_d3d9_pair.py` conserva las declaraciones centroid en un adaptador
+propio y las restaura como decoraciones del input SPIR-V despues del enlace.
+`test_spirv_centroid.py` cubre uno/dos varyings, rechazo y un fixture GPU propio.
+La auditoria `--centroid` acepta 1.808/1.809 copias temporales; ese recuento
+no representa pares enlazados ni shaders del juego dibujados. Ver los limites
+MSAA y comandos en el documento Vulkan anterior. No modifica MojoShader.
