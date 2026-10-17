@@ -3,6 +3,9 @@
 El proveedor ya admite [DXT1/3/5 como BC1/2/3](docs/native-vulkan-bc.md), con
 mipmaps y parches comprimidos comprobados mediante lecturas y draws GPU.
 La verificacion de esta ampliacion en NVK/Switch sigue pendiente.
+La [ruta actual de texturas](docs/native-vulkan-backend.md) agrupa en CPU los
+Unlock hasta el primer uso: varias escrituras de mip no envian varias copias
+GPU. Sus errores y reintentos se comprueban en el primer draw/readback.
 
 Los [draws UP desde memoria guest](docs/native-d3d9-up.md) usan versiones
 Vulkan transitorias, validan rangos y conservan los datos hasta sus fences.
@@ -14,7 +17,8 @@ sustituye los shaders del pipeline fijo que aun faltan.
 
 [State blocks grabados](docs/native-d3d9-stateblocks.md) ya separan
 grabacion y estado actual, y restauran transacciones completas. No incluyen
-todavia bindings ni CreateStateBlock(ALL). Las constantes FLOAT/INT/BOOL de
+todavia bindings de geometria ni CreateStateBlock(ALL). Los 16 slots
+de texturas y ambos shaders ya se restauran y conservan referencias internas. Las constantes FLOAT/INT/BOOL de
 VS/PS tambien se graban y capturan, contrastadas con Windows y draws Vulkan.
 
 Estado posterior: [Reset del dispositivo sano y tamano fijo](docs/native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.

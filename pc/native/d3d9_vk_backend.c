@@ -34,7 +34,7 @@ struct buffer_resource {
 };
 struct texture_version {VkImage image;VkImageView view;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,initialized;};
 struct texture_resource {
-    uintptr_t id;uint32_t refs,pins,width,height,levels,usage,format,pool;
+    uintptr_t id;uint32_t refs,pins,block_pins,width,height,levels,usage,format,pool;
     size_t bytes,offsets[16];unsigned char *shadow;struct texture_version *version;uint32_t dirty;
 };
 struct shader_catalog {
@@ -385,6 +385,7 @@ static void release(void *ctx,uintptr_t id){
     fnv_host_mutex_unlock(&d->guard);
 }
 static void device_addref(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);d->device_refs++;fnv_host_mutex_unlock(&d->guard);}
+static void resource_pin(void *ctx,uintptr_t id,int add){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct texture_resource *t=find_texture(d,id);if(t){if(add)t->block_pins++;else t->block_pins--;}pin(d,id,add);fnv_host_mutex_unlock(&d->guard);}
 static void device_release(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);if(d->device_refs && !--d->device_refs)close_device(d);fnv_host_mutex_unlock(&d->guard);}
 static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_t format,uint32_t samples,uint32_t quality,uint32_t flag,uintptr_t *out){
     struct fnv_vk_backend *d=ctx;if(!out || (depth!=0 && depth!=1) || format!=(depth?75u:21u) || samples || quality || (!depth && flag) || (depth && flag>1))return FNV_VK_INVALID;
@@ -467,7 +468,7 @@ void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_ba
     *out=(struct fnv_d3d9_shader_backend){.context=d,.create=create_shader,.bind_shader=bind_shader,.create_declaration=create_declaration,.bind_declaration=bind_declaration,.upload_constants=upload_constants,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
         .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
-        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.state_batch=state_batch,.clear=clear,.scene=scene,.draw=draw,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
+        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.state_batch=state_batch,.resource_pin=resource_pin,.clear=clear,.scene=scene,.draw=draw,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
 }
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;
@@ -497,8 +498,7 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     if(!d || !output)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);uint32_t level=offset;
     unsigned char *copy=NULL;struct frame *f=NULL;int held=0;
-    if(buffer_read==2){if(t && t->dirty){hr=texture_flush(d,t);if(hr)goto done;hr=FNV_VK_INVALID;}
-        if(!t || level>=t->levels || !t->version->initialized || texture_level_bytes(t,level)>output_bytes)goto done;}
+    if(buffer_read==2){if(!t || level>=t->levels || (!t->version->initialized && !t->dirty) || texture_level_bytes(t,level)>output_bytes)goto done;}
     else if(buffer_read){if(!b || !requested || offset>b->bytes || requested>b->bytes-offset || requested>output_bytes)goto done;}
     else if(!s || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
     size_t bytes=buffer_read==2?texture_level_bytes(t,level):buffer_read?requested:(size_t)s->width*s->height*4;
@@ -507,6 +507,9 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     copy=malloc(bytes);if(!copy){hr=FNV_VK_OOM;goto done;}
     pin(d,id,1);held=1;
     if((hr=wait_locked(d,timeout))!=0 || (hr=flush_locked(d))!=0 || (hr=wait_locked(d,timeout))!=0)goto done;
+    /* Validate the request first, then drain existing work before a lazy
+     * upload needs a command slot. Invalid reads never trigger uploads. */
+    if(buffer_read==2 && t->dirty){if((hr=texture_flush(d,t))!=0 || (hr=wait_locked(d,timeout))!=0)goto done;}
     if((hr=begin_frame(d,&f))!=0)goto done;
     f->read_surface=id;pin(d,id,1);
     VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=transfer_bytes,.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT};

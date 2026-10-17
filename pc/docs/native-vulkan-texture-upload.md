@@ -31,7 +31,7 @@ exclusivo al destino.
 | A8R8G8B8 (21) | BGRA a RGBA, conserva alpha |
 | X8R8G8B8 (22) | BGRA a RGBA, alpha 255 |
 | R5G6B5 (23) | Canales redondeados a UNORM8, alpha 255 |
-| A8 (28) | RGB 255 y alpha del origen |
+| A8 (28) | RGB 0 y alpha del origen |
 | L8 (50) | RGB luminancia y alpha 255 |
 
 RGB565 tiene cuantizacion a 8 bits; no garantiza equivalencia de filtrado con

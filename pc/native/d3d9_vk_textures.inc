@@ -62,6 +62,7 @@ done:fnv_host_mutex_unlock(&d->guard);return hr;
  * upload at its first use (draw or readback). A failure leaves the texture dirty. */
 static uint32_t texture_flush(struct fnv_vk_backend *d,struct texture_resource *t){
     uint32_t hr=0;struct texture_version *v=NULL;struct frame *f=NULL;
+    if(d->lost || !d->device_refs)return FNV_VK_LOST;
     if(!t->dirty)return 0;
     hr=make_texture_version(d,t,&v);if(hr)goto flushed;
     /* Explicit backpressure: no CPU wait or fabricated completion on upload. */
@@ -122,3 +123,4 @@ static uint32_t bind_texture(void *ctx,uint32_t sampler,uintptr_t id){
     else if(!id || find_texture(d,id)){uintptr_t old=d->texture_bindings[sampler];pin(d,id,1);d->texture_bindings[sampler]=id;pin(d,old,0);hr=0;}
     fnv_host_mutex_unlock(&d->guard);return hr;
 }
+

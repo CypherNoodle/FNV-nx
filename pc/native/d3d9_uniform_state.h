@@ -30,6 +30,10 @@ int fnv_uniform_state_upload(void *,enum fnv_d3d9_stage,enum fnv_d3d9_constant_k
  * across binds, even when COM has no dirty constants to upload again.
  */
 uint32_t fnv_uniform_state_bind(struct fnv_uniform_state *,enum fnv_d3d9_stage,const struct fnv_uniform_plan *);
+/* Atomically validate and copy selected VS/PS plans (mask bits 0/1).
+ * A nonzero validate_only leaves bindings unchanged; no allocation or wait.
+ * NULL selected plans unbind. Plans/entries must not alias private state. */
+uint32_t fnv_uniform_state_bind_batch(struct fnv_uniform_state *,uint32_t mask,const struct fnv_uniform_plan *const plans[2],int validate_only);
 /* Output unchanged on failure. On success, data is immutable until cancel
  * or a valid completion releases its ticket. Busy never spins or waits.
  */

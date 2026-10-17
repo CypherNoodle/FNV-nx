@@ -19,7 +19,7 @@ static void shader_rgba(void){
 static void exercise_render_states(uint32_t vb,uint32_t ib,uint32_t texture,const unsigned char restore[4]){
     set_render(174,0);set_render(7,0);set_render(27,0);draw_mirrored=0;
     uint32_t sampler[]={device_at,0,1,3};assert(!call(D_SAMPLER_SET,4,sampler));
-    const unsigned char white[4]={255,255,255,255};draw_texture(texture,white);assert(!fnv_vk_backend_wait(gpu,10000000000ull));draw_constants(0,.5f);draw_geometry(vb,ib,0);
+    const unsigned char white[4]={255,255,255,255};draw_texture(texture,white);texture_ready(texture);draw_constants(0,.5f);draw_geometry(vb,ib,0);
     const unsigned char red[4]={255,0,0,255},black[4]={0,0,0,255};
     for(unsigned reverse=0;reverse<2;++reverse){uint16_t indices[8]={0,0,1,2,3,1,3,4};
         if(reverse){indices[3]=3;indices[4]=2;indices[6]=4;indices[7]=3;}upload_buffer(ib,0,16,0,indices);
@@ -36,7 +36,7 @@ static void exercise_render_states(uint32_t vb,uint32_t ib,uint32_t texture,cons
         stream[3]=16;assert(!call(B_STREAM,5,stream));}
     draw_geometry(vb,ib,0);unsigned pitch;unsigned char *pixels=lock_texture(texture,0,0,0,&pitch);
     for(unsigned y=0;y<2;++y)for(unsigned x=0;x<2;++x){unsigned char *p=pixels+y*pitch+x*4;p[0]=32;p[1]=64;p[2]=128;p[3]=128;}
-    assert(!unlock_texture(texture,0) && !fnv_vk_backend_wait(gpu,10000000000ull));shader_rgba();set_render(27,1);set_render(19,2);set_render(20,2);
+    assert(!unlock_texture(texture,0));texture_ready(texture);shader_rgba();set_render(27,1);set_render(19,2);set_render(20,2);
     const unsigned char operations[5][4]={{192,160,192,160},{64,0,0,96},{0,32,128,0},{64,64,32,32},{128,96,160,128}};
     for(unsigned operation=1;operation<=5;++operation){set_render(171,operation);state_draw(4,1,0x204060a0,operations[operation-1],1);}
     set_render(171,1);set_render(19,5);set_render(20,6);
@@ -48,5 +48,5 @@ static void exercise_render_states(uint32_t vb,uint32_t ib,uint32_t texture,cons
     uint32_t get_blend[]={device_at,19,GUEST_OUT};assert(!call(GET_RENDER,3,get_blend) && get(GUEST_OUT)==11);invalid[1]=19;invalid[2]=12;
     assert(call(SET_RENDER,3,invalid)==FNV_VK_INVALID);assert(!call(GET_RENDER,3,get_blend) && get(GUEST_OUT)==11);
     set_render(27,0);set_render(19,2);set_render(20,1);set_render(171,1);set_render(193,0xffffffff);set_render(22,1);
-    sampler[3]=2;assert(!call(D_SAMPLER_SET,4,sampler));draw_mirrored=1;draw_texture(texture,restore);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
+    sampler[3]=2;assert(!call(D_SAMPLER_SET,4,sampler));draw_mirrored=1;draw_texture(texture,restore);texture_ready(texture);
 }

@@ -9,9 +9,9 @@ enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FAC
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
-struct state_block {uint32_t count;struct fnv_d3d9_state_value entries[256];struct fnv_d3d9_constant_snapshot constants;};
+struct state_block {uint32_t count,binding_mask;int bindings[18];struct fnv_d3d9_state_value entries[256];struct fnv_d3d9_constant_snapshot constants;};
 struct resource {
-    uintptr_t handle;uint32_t references,pins;struct code *code;enum fnv_d3d9_resource_kind kind;
+    uintptr_t handle;uint32_t references,pins,state_pins;struct code *code;enum fnv_d3d9_resource_kind kind;
     uint32_t data,size,usage,format,fvf,pool,locked,lock_offset,lock_bytes,lock_flags;
     uint64_t version;
     unsigned char *elements;uint32_t element_count;
@@ -92,9 +92,17 @@ static uint32_t allocate_shadow(struct fnv_d3d9_com *c,uint32_t bytes) {
     }
     return 0;
 }
+static int *block_slot(struct fnv_d3d9_com *c,unsigned slot){return slot<16?c->textures+slot:c->shaders+slot-16;}
+static uint32_t decrement(struct fnv_d3d9_com *,int);
+static void retire(struct fnv_d3d9_com *,int);
+static void free_stateblock(struct fnv_d3d9_com *c,struct state_block *b){
+    if(!b)return;
+    for(unsigned i=0;i<18;++i)if((b->binding_mask&(1u<<i)) && b->bindings[i]>=0){int index=b->bindings[i];c->config.backend.resource_pin(c->config.backend.context,c->resources[index].handle,0);c->resources[index].pins--;c->resources[index].state_pins--;retire(c,index);}
+    free(b);
+}
 static void retire(struct fnv_d3d9_com *c,int index) {
     struct resource *r=c->resources+index;if(r->references || r->pins)return;
-    r->handle=0;free(r->snapshot);r->snapshot=NULL;free(r->mips);r->mips=NULL;free(r->elements);r->elements=NULL;r->element_count=0;
+    r->handle=0;struct state_block *snapshot=r->snapshot;r->snapshot=NULL;free_stateblock(c,snapshot);free(r->mips);r->mips=NULL;free(r->elements);r->elements=NULL;r->element_count=0;
     if(r->data) {
         struct span s={r->data-c->config.buffer_address,(r->size+15u)&~15u};uint32_t i=0;
         while(i<c->free_count && c->free_spans[i].offset<s.offset)i++;
@@ -106,11 +114,12 @@ static void retire(struct fnv_d3d9_com *c,int index) {
         r->data=0;
     }
 }
+static void change_binding(struct fnv_d3d9_com *,int *,int);
 static void clear_bindings(struct fnv_d3d9_com *c) {
-    c->shaders[0]=c->shaders[1]=c->indices=c->declaration=-1;
-    for(unsigned i=0;i<16;i++){c->streams[i].index=-1;c->textures[i]=-1;}
-    c->depth_target=-1;for(unsigned i=0;i<4;i++)c->targets[i]=-1;
-    for(uint32_t i=0;i<c->used;i++){c->resources[i].pins=0;retire(c,(int)i);}
+    change_binding(c,c->shaders,-1);change_binding(c,c->shaders+1,-1);
+    change_binding(c,&c->indices,-1);change_binding(c,&c->declaration,-1);
+    for(unsigned i=0;i<16;i++){change_binding(c,&c->streams[i].index,-1);change_binding(c,c->textures+i,-1);}
+    change_binding(c,&c->depth_target,-1);for(unsigned i=0;i<4;i++)change_binding(c,c->targets+i,-1);
 }
 static void increment(struct fnv_d3d9_com *c,int index) {
     if(index==-2){c->factory_refs++;return;}
@@ -235,15 +244,17 @@ static void get_binding(struct fnv_d3d9_com *c,int index,unsigned char *out) {
     }
     increment(c,index);write32(out,resource_address(c,index));
 }
+static uint32_t record_binding(struct fnv_d3d9_com *,unsigned,int);
 static void shader_binding(enum fnv_d3d9_stage stage,int get) {
     uint32_t self=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1);struct fnv_d3d9_com *c=module();
     unsigned char *out=get?range(c,at,4,1):NULL;
     if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,8);return;}
     if(!get && !c->config.backend.bind_shader)invalid("D3D9 shader binding provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,2))return;uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
     if(get)get_binding(c,c->shaders[stage],out);
     else {int index=at?resource_kind(c,at,(enum fnv_d3d9_resource_kind)stage):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
+        else if(c->recording)result=record_binding(c,16+stage,index);
         else {result=c->config.backend.bind_shader(c->config.backend.context,stage,index<0?0:c->resources[index].handle);
             if(!result)change_binding(c,c->shaders+stage,index);}}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,8);
@@ -547,10 +558,11 @@ static void texture_binding(int get) {
     if(sampler>=16)invalid("D3D9 non-pixel texture sampler pending",sampler);
     if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,12);return;}
     if(!get && !c->config.backend.bind_texture)invalid("D3D9 texture binding provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,3))return;uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
     if(get)get_binding(c,c->textures[sampler],out);
     else {int index=at?resource_kind(c,at,FNV_D3D9_TEXTURE2D):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
+        else if(c->recording)result=record_binding(c,sampler,index);
         else {result=c->config.backend.bind_texture(c->config.backend.context,sampler,index<0?0:c->resources[index].handle);
             if(!result)change_binding(c,c->textures+sampler,index);}}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,12);
@@ -855,6 +867,9 @@ uint32_t fnv_d3d9_com_flush(struct fnv_d3d9_com *c,fnv_d3d9_constants_upload upl
 enum fnv_cpu_result fnv_d3d9_com_destroy(struct fnv_d3d9_com *c) {
     if(!c || c!=active_com)return FNV_CPU_INVALID;
     enum fnv_cpu_result r=fnv_cpu_unregister_native(c->cpu,c->tokens[0],METHODS);if(r)return r;
+    struct state_block *recording=c->recording;c->recording=NULL;free_stateblock(c,recording);
+    /* Drop state-block pins before the generic resource sweep. */
+    for(uint32_t i=0;i<c->used;i++)if(c->resources[i].kind==FNV_D3D9_STATEBLOCK)while(c->resources[i].references)decrement(c,(int)i);
     for(uint32_t i=0;i<c->used;i++)while(c->resources[i].references)decrement(c,(int)i);
     while(c->device_references)decrement(c,-1);
     memset(c->objects,0,c->config.objects_bytes);fnv_vm_release_reference(c->config.memory);active_com=NULL;dispose(c);return FNV_CPU_OK;

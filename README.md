@@ -69,7 +69,8 @@ compatibles con el proveedor: 360 layouts contrastados con Windows y un
 draw XYZ/UV comprobado en Vulkan. El pipeline fijo completo sigue pendiente.
 
 Los [state blocks grabados](pc/docs/native-d3d9-stateblocks.md) ya conservan
-estados numericos y constantes FLOAT/INT/BOOL de VS/PS con Capture/Apply. Pasan
+estados numericos, constantes FLOAT/INT/BOOL de VS/PS y bindings de texturas y shaders
+con Capture/Apply y retenciones internas. Pasan
 pruebas Windows/Vulkan y ARM64; los bloques completos ALL siguen pendientes.
 
 Diseno, estado verificable y pruebas: [pc/README.md](pc/README.md).

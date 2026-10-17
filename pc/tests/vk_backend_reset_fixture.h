@@ -36,6 +36,11 @@ static void exercise_reset(void){
     for(unsigned stage=0;stage<2;++stage){uint32_t function[]={shaders[stage],0,GUEST_OUT};assert(!call(GET_FUNCTION,3,function) && get(GUEST_OUT)==catalog[stage_index[stage]].size);assert(!release(shaders[stage]));reset_checks++;}
     assert(!release(managed) && !release(texture));assert(!stats().live_buffers && !stats().live_textures && !stats().live_shaders);
     HANDLE other=CreateThread(NULL,0,reset_other_thread,NULL,0,NULL);assert(other && WaitForSingleObject(other,10000)==WAIT_OBJECT_0);CloseHandle(other);assert(!call(F_COOPERATIVE,1,&device_at));reset_checks+=2;
+    /* Public-zero MANAGED textures survive Reset when a block retains them. */
+    uint32_t retained=make_texture(2,2,1,0,21,1),held_vs=make_shader(stage_index[0]),held_ps=make_shader(stage_index[1]);assert(!call(SB_BEGIN,1,&device_at));block_texture(0,retained);block_shader_set(0,held_vs);block_shader_set(1,held_ps);uint32_t block=end_block();assert(!release(held_vs) && !release(held_ps));assert(!release(retained));assert(!call(SB_APPLY,1,&block));
+    assert(!reset_call());uint32_t current[]={device_at,0,GUEST_OUT};assert(!call(T_GET,3,current) && !get(GUEST_OUT));assert(!call(SB_APPLY,1,&block));assert(!call(T_GET,3,current) && get(GUEST_OUT)==retained);assert(!release(retained));block_shader_is(0,held_vs);block_shader_is(1,held_ps);unsigned char vs_data[64],ps_data[32];assert(!fnv_vk_backend_read_uniforms(gpu,vs_data,64,ps_data,32));block_shader_set(0,0);block_shader_set(1,0);block_texture(0,0);assert(!release(block) && !stats().live_textures && !stats().live_shaders);reset_checks+=4;
+    /* A DEFAULT texture in a block still prevents Reset after public Release. */
+    retained=make_texture(2,2,1,0,21,0);assert(!call(SB_BEGIN,1,&device_at));block_texture(0,retained);block=end_block();assert(!release(retained));assert(reset_call()==FNV_VK_INVALID);assert(fnv_vk_backend_reset(gpu,10000000000ull)==FNV_VK_INVALID);assert(!release(block) && !stats().live_textures);assert(!reset_call());reset_checks+=3;
 }
 static void exercise_reset_timeout(const struct fnv_vk_config *cfg){
     struct fnv_vk_backend *d;struct fnv_d3d9_shader_backend b;VkResult reason;assert(!fnv_vk_backend_create(proxy_gpa,cfg,&d,&reason));fnv_vk_backend_callbacks(d,&b);

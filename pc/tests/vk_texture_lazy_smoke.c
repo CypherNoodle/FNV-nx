@@ -5,6 +5,9 @@
  *       ../native/d3d9_uniform_pack.c ../native/d3d9_geometry.c ../native/d3d9_vk_state.c -lvulkan -lpthread
  * Prints submissions per phase so the number of GPU uploads is visible. */
 #include "d3d9_vk_backend.h"
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +19,13 @@ static unsigned char rnd(void){seed=seed*1103515245u+12345u;return (unsigned cha
 
 int main(void){
     struct fnv_vk_config cfg={64,64,16,2,8,256u<<20,0};struct fnv_vk_backend *b=NULL;VkResult why=VK_SUCCESS;
-    uint32_t hr=fnv_vk_backend_create(vkGetInstanceProcAddr,&cfg,&b,&why);
+    PFN_vkGetInstanceProcAddr gpa;
+#ifdef _WIN32
+    HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);CHECK(loader);FARPROC raw=GetProcAddress(loader,"vkGetInstanceProcAddr");memcpy(&gpa,&raw,sizeof(gpa));
+#else
+    gpa=vkGetInstanceProcAddr;
+#endif
+    uint32_t hr=fnv_vk_backend_create(gpa,&cfg,&b,&why);
     if(hr){fprintf(stderr,"SKIP: no usable Vulkan device hr=%08x vk=%d\n",hr,(int)why);return 77;}
     struct fnv_d3d9_shader_backend p;memset(&p,0,sizeof(p));fnv_vk_backend_callbacks(b,&p);
     CHECK(p.create_texture && p.upload_texture);
@@ -32,7 +41,7 @@ int main(void){
             for(uint32_t i=0;i<bytes[l];++i)level[l][i]=rnd();
             CHECK(!p.upload_texture(p.context,bc,l,0,0,w,h,0,bw*8,level[l]));
         }
-        uint32_t after_unlocks=submissions(b);
+        uint32_t after_unlocks=submissions(b);CHECK(after_unlocks==before);
         printf("BC1: 7 level uploads -> %u submissions during Unlock\n",after_unlocks-before);
         for(unsigned l=0;l<7;++l){
             unsigned char *out=malloc(bytes[l]);
@@ -45,13 +54,14 @@ int main(void){
         CHECK(!p.upload_texture(p.context,bc,0,0,0,64,64,0,16*8,level[0]));
         unsigned char *out=malloc(bytes[0]);
         CHECK(!fnv_vk_backend_read_texture(b,bc,0,out,bytes[0],5000000000ull));CHECK(!memcmp(out,level[0],bytes[0]));
-        CHECK(!memcmp(level[1],level[1],1));free(out);
+        free(out);out=malloc(bytes[1]);CHECK(out);CHECK(!fnv_vk_backend_read_texture(b,bc,1,out,bytes[1],5000000000ull));CHECK(!memcmp(out,level[1],bytes[1]));free(out);
         /* Partial block-aligned patch on level 1 keeps the rest intact. */
         unsigned char patch[8];for(unsigned i=0;i<8;++i)patch[i]=rnd();
         CHECK(!p.upload_texture(p.context,bc,1,4,4,4,4,0,8,patch));
         out=malloc(bytes[1]);CHECK(!fnv_vk_backend_read_texture(b,bc,1,out,bytes[1],5000000000ull));
         memcpy(level[1]+(1*8+1)*8,patch,8);CHECK(!memcmp(out,level[1],bytes[1]));free(out);
         puts("BC1: overwrite and partial patch OK");
+        for(unsigned l=0;l<7;++l)free(level[l]);p.release(p.context,bc);
     }
 
     /* --- A8 8x8 single level: RGB must be 0, alpha is the source byte --- */
@@ -66,6 +76,12 @@ int main(void){
     uintptr_t blank=0;CHECK(!p.create_texture(p.context,4,4,1,0,21,1,&blank));
     CHECK(fnv_vk_backend_read_texture(b,blank,0,out,sizeof(out),1000000000ull)==FNV_VK_INVALID);
     puts("uninitialized texture readback rejected OK");
+    p.release(p.context,a8);p.release(p.context,blank);p.device_release(p.context);CHECK(!fnv_vk_backend_wait(b,5000000000ull));
+    struct fnv_vk_stats final;CHECK(!fnv_vk_backend_stats(b,&final));CHECK(!final.device_references && !final.live_textures && !final.allocated_bytes);CHECK(!fnv_vk_backend_destroy(b));
+#ifdef _WIN32
+    FreeLibrary(loader);
+#endif
     puts("PASS");
     return 0;
 }
+
