@@ -42,17 +42,23 @@ int fnv_uniform_state_upload(void *opaque,enum fnv_d3d9_stage stage,enum fnv_d3d
     if(count){memmove((uint32_t*)b.bits[kind]+first*width,bits,(size_t)count*width*4);s->stats.uploads++;}
     fnv_host_mutex_unlock(&s->lock);return 1;
 }
-uint32_t fnv_uniform_state_bind(struct fnv_uniform_state *s,enum fnv_d3d9_stage stage,const struct fnv_uniform_plan *plan){
-    if(!s || (unsigned)stage>1)return FNV_D3D9_INVALIDCALL;
-    fnv_host_mutex_lock(&s->lock);struct binding *b=&s->bindings[stage];
-    if(!plan){b->bound=0;fnv_host_mutex_unlock(&s->lock);return 0;}
-    struct fnv_uniform_banks bank=view(&s->banks[stage]);
-    uint32_t result=fnv_d3d9_uniform_pack(plan,&bank,s->storage+(size_t)s->slots*2*s->max_bytes,s->max_bytes);
-    if(!result){
-        b->plan=*plan;if(plan->count)memmove(b->entries,plan->entries,(size_t)plan->count*sizeof(*b->entries));
-        b->plan.entries=b->entries;b->bound=1;
+uint32_t fnv_uniform_state_bind_batch(struct fnv_uniform_state *s,uint32_t mask,const struct fnv_uniform_plan *const plans[2],int validate_only){
+    if(!s || mask>3 || (mask && !plans))return FNV_D3D9_INVALIDCALL;
+    fnv_host_mutex_lock(&s->lock);uint32_t result=0;
+    for(unsigned stage=0;stage<2;++stage)if((mask&(1u<<stage)) && plans[stage]){
+        struct fnv_uniform_banks bank=view(&s->banks[stage]);
+        result=fnv_d3d9_uniform_pack(plans[stage],&bank,s->storage+(size_t)s->slots*2*s->max_bytes,s->max_bytes);if(result)goto done;
     }
-    fnv_host_mutex_unlock(&s->lock);return result;
+    if(!validate_only)for(unsigned stage=0;stage<2;++stage)if(mask&(1u<<stage)){
+        struct binding *b=&s->bindings[stage];const struct fnv_uniform_plan *plan=plans[stage];
+        if(!plan){b->bound=0;continue;}
+        b->plan=*plan;if(plan->count)memmove(b->entries,plan->entries,(size_t)plan->count*sizeof(*b->entries));b->plan.entries=b->entries;b->bound=1;
+    }
+done:fnv_host_mutex_unlock(&s->lock);return result;
+}
+uint32_t fnv_uniform_state_bind(struct fnv_uniform_state *s,enum fnv_d3d9_stage stage,const struct fnv_uniform_plan *plan){
+    if((unsigned)stage>1)return FNV_D3D9_INVALIDCALL;
+    const struct fnv_uniform_plan *plans[2]={0};plans[stage]=plan;return fnv_uniform_state_bind_batch(s,1u<<stage,plans,0);
 }
 uint32_t fnv_uniform_state_prepare(struct fnv_uniform_state *s,struct fnv_uniform_draw *out){
     if(!s || !out)return FNV_D3D9_INVALIDCALL;

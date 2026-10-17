@@ -9,7 +9,7 @@ enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FAC
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
-struct state_block {uint32_t count,texture_mask;int textures[16];struct fnv_d3d9_state_value entries[256];struct fnv_d3d9_constant_snapshot constants;};
+struct state_block {uint32_t count,binding_mask;int bindings[18];struct fnv_d3d9_state_value entries[256];struct fnv_d3d9_constant_snapshot constants;};
 struct resource {
     uintptr_t handle;uint32_t references,pins,state_pins;struct code *code;enum fnv_d3d9_resource_kind kind;
     uint32_t data,size,usage,format,fvf,pool,locked,lock_offset,lock_bytes,lock_flags;
@@ -92,11 +92,12 @@ static uint32_t allocate_shadow(struct fnv_d3d9_com *c,uint32_t bytes) {
     }
     return 0;
 }
+static int *block_slot(struct fnv_d3d9_com *c,unsigned slot){return slot<16?c->textures+slot:c->shaders+slot-16;}
 static uint32_t decrement(struct fnv_d3d9_com *,int);
 static void retire(struct fnv_d3d9_com *,int);
 static void free_stateblock(struct fnv_d3d9_com *c,struct state_block *b){
     if(!b)return;
-    for(unsigned i=0;i<16;++i)if((b->texture_mask&(1u<<i)) && b->textures[i]>=0){int index=b->textures[i];c->config.backend.resource_pin(c->config.backend.context,c->resources[index].handle,0);c->resources[index].pins--;c->resources[index].state_pins--;retire(c,index);}
+    for(unsigned i=0;i<18;++i)if((b->binding_mask&(1u<<i)) && b->bindings[i]>=0){int index=b->bindings[i];c->config.backend.resource_pin(c->config.backend.context,c->resources[index].handle,0);c->resources[index].pins--;c->resources[index].state_pins--;retire(c,index);}
     free(b);
 }
 static void retire(struct fnv_d3d9_com *c,int index) {
@@ -243,15 +244,17 @@ static void get_binding(struct fnv_d3d9_com *c,int index,unsigned char *out) {
     }
     increment(c,index);write32(out,resource_address(c,index));
 }
+static uint32_t record_binding(struct fnv_d3d9_com *,unsigned,int);
 static void shader_binding(enum fnv_d3d9_stage stage,int get) {
     uint32_t self=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1);struct fnv_d3d9_com *c=module();
     unsigned char *out=get?range(c,at,4,1):NULL;
     if(get && !out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,8);return;}
     if(!get && !c->config.backend.bind_shader)invalid("D3D9 shader binding provider pending",self);
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,2))return;uint32_t result=0;
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);uint32_t result=0;
     if(get)get_binding(c,c->shaders[stage],out);
     else {int index=at?resource_kind(c,at,(enum fnv_d3d9_resource_kind)stage):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
+        else if(c->recording)result=record_binding(c,16+stage,index);
         else {result=c->config.backend.bind_shader(c->config.backend.context,stage,index<0?0:c->resources[index].handle);
             if(!result)change_binding(c,c->shaders+stage,index);}}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,8);
@@ -549,7 +552,6 @@ static void api_texture_unlock(void) {
         if(!result){m->locked=0;if(!(m->flags&0x10))r->version++;}}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,8);
 }
-static uint32_t record_texture(struct fnv_d3d9_com *,unsigned,int);
 static void texture_binding(int get) {
     uint32_t self=fnv_cpu_argument_u32(0),sampler=fnv_cpu_argument_u32(1),at=fnv_cpu_argument_u32(2);struct fnv_d3d9_com *c=module();
     unsigned char *out=get?range(c,at,4,1):NULL;
@@ -560,7 +562,7 @@ static void texture_binding(int get) {
     if(get)get_binding(c,c->textures[sampler],out);
     else {int index=at?resource_kind(c,at,FNV_D3D9_TEXTURE2D):-1;
         if(at && index<0)result=FNV_D3D9_INVALIDCALL;
-        else if(c->recording)result=record_texture(c,sampler,index);
+        else if(c->recording)result=record_binding(c,sampler,index);
         else {result=c->config.backend.bind_texture(c->config.backend.context,sampler,index<0?0:c->resources[index].handle);
             if(!result)change_binding(c,c->textures+sampler,index);}}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,12);

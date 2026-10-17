@@ -6,7 +6,7 @@
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
 enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE,FNV_D3D9_STATEBLOCK };
-enum fnv_d3d9_state_kind { FNV_D3D9_RENDER_STATE,FNV_D3D9_SAMPLER_STATE,FNV_D3D9_VIEWPORT,FNV_D3D9_SCISSOR,FNV_D3D9_TEXTURE_BINDING };
+enum fnv_d3d9_state_kind { FNV_D3D9_RENDER_STATE,FNV_D3D9_SAMPLER_STATE,FNV_D3D9_VIEWPORT,FNV_D3D9_SCISSOR,FNV_D3D9_TEXTURE_BINDING,FNV_D3D9_SHADER_BINDING };
 struct fnv_d3d9_state_value {enum fnv_d3d9_state_kind kind;uint32_t sampler,name,values[6];};
 struct fnv_d3d9_shader_code { const void *bytes;uint32_t size; };
 /* Provider owns a real prepared device, initially with one transferred
@@ -85,11 +85,12 @@ struct fnv_d3d9_shader_backend {
     uint32_t (*draw_up)(void *,int indexed,uint32_t primitive,uint32_t minimum,uint32_t vertices,uint32_t primitives,const void *indices,uint32_t format,const void *vertices_data,uint32_t stride,uint32_t vertex_bytes,uint32_t index_bytes);
     uint32_t (*reset)(void *,uint64_t wait_timeout_ns);
     uint32_t (*cooperative)(void *);
-    /* State transactions, max 272 entries: 0 apply atomically,
+    /* State transactions, max 274 entries: 0 apply atomically,
      * 1 capture values atomically, 2 validate without changing state.
      * TEXTURE_BINDING uses sampler 0..15, name=0 and a host handle encoded
      * low/high DWORDs in values[0..1]. Private IDs, never guest pointers.
-     * Capture does not acquire public resource references. */
+     * Capture does not acquire public resource references. SHADER_BINDING uses
+     * sampler=VS/PS stage (0/1), same handle encoding, name=0. */
     uint32_t (*state_batch)(void *,struct fnv_d3d9_state_value *,uint32_t count,uint32_t operation);
     /* Internal retention for state-block resources, no public COM/device ref.
      * Called only with a live ID; pin counts are bounded by COM block capacity.

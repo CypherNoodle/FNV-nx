@@ -14,8 +14,8 @@ sustituye los shaders del pipeline fijo que aun faltan.
 
 [State blocks grabados](docs/native-d3d9-stateblocks.md) ya separan
 grabacion y estado actual, y restauran transacciones completas. No incluyen
-todavia bindings de shaders/geometria ni CreateStateBlock(ALL). Los 16 slots
-de texturas ya se restauran y conservan referencias internas. Las constantes FLOAT/INT/BOOL de
+todavia bindings de geometria ni CreateStateBlock(ALL). Los 16 slots
+de texturas y ambos shaders ya se restauran y conservan referencias internas. Las constantes FLOAT/INT/BOOL de
 VS/PS tambien se graban y capturan, contrastadas con Windows y draws Vulkan.
 
 Estado posterior: [Reset del dispositivo sano y tamano fijo](docs/native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.

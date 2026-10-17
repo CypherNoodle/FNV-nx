@@ -22,6 +22,7 @@ static void exercise_block_constants(void){
     assert(!release(block));draw_constants(0,.5f);stateblock_checks+=5;
 }
 #include "vk_backend_stateblock_textures_fixture.h"
+#include "vk_backend_stateblock_shaders_fixture.h"
 static void exercise_stateblocks(uint32_t vb,uint32_t ib,uint32_t texture){
     const unsigned char white[4]={255,255,255,255};draw_texture(texture,white);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
     up_bind_original(vb,ib);draw_geometry(vb,ib,0);draw_constants(0,.5f);draw_mirrored=0;set_render(7,0);set_render(174,0);set_render(22,1);set_render(168,15);set_render(27,0);
@@ -40,15 +41,15 @@ static void exercise_stateblocks(uint32_t vb,uint32_t ib,uint32_t texture){
     set_render(168,15);assert(!call(SB_CAPTURE,1,&block));set_render(168,0);set_render(22,2);assert(!call(SB_APPLY,1,&block) && render_value(168)==15 && render_value(22)==1);stateblock_checks++;
     assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw));assert(!call(END,1,&device_at));state_draw_pixels(red,0);stateblock_pixel_checks+=1024;render_state_pixel_checks-=1024;
     exercise_block_constants();
-    exercise_block_textures(texture);
+    exercise_block_textures(texture);exercise_block_shaders();
     assert(!call(SB_BEGIN,1,&device_at));assert(call(SB_CAPTURE,1,&block)==FNV_VK_INVALID && call(SB_APPLY,1,&block)==FNV_VK_INVALID);uint32_t empty=end_block();assert(!call(SB_CAPTURE,1,&empty) && !call(SB_APPLY,1,&empty) && !release(empty));stateblock_checks+=2;
     assert(!call(SB_BEGIN,1,&device_at));
-    uint32_t texture_args[]={device_at,0,texture};assert(!call(T_BIND,3,texture_args));uint32_t unsupported_shader[]={device_at,0};assert(call(S_VS_BIND,2,unsupported_shader)==0x8876086au);uint32_t end[]={device_at,GUEST_OUT};put(GUEST_OUT,0xa5);assert(call(SB_END,2,end)==0x8876086au && !get(GUEST_OUT));stateblock_checks++;
+    uint32_t texture_args[]={device_at,0,texture};assert(!call(T_BIND,3,texture_args));uint32_t unsupported_shader[]={device_at,0};assert(call(S_DECL_BIND,2,unsupported_shader)==0x8876086au);uint32_t end[]={device_at,GUEST_OUT};put(GUEST_OUT,0xa5);assert(call(SB_END,2,end)==0x8876086au && !get(GUEST_OUT));stateblock_checks++;
     uint32_t create[]={device_at,1,GUEST_OUT};assert(call(SB_CREATE,3,create)==0x8876086au && !get(GUEST_OUT));stateblock_checks++;
-    const unsigned unsupported_methods[7]={S_VS_BIND,S_PS_BIND,S_DECL_BIND,B_STREAM,B_INDICES,B_FREQ,FVF_SET};
-    const unsigned argument_counts[7]={2,2,2,5,2,3,2};
-    uint32_t arguments[7][5]={{device_at,0},{device_at,0},{device_at,0},{device_at,0,vb,16,16},{device_at,ib},{device_at,0,1},{device_at,0x102}};
-    for(unsigned i=0;i<7;++i){assert(!call(SB_BEGIN,1,&device_at));set_render(168,0);assert(call(unsupported_methods[i],argument_counts[i],arguments[i])==0x8876086au);
+    const unsigned unsupported_methods[5]={S_DECL_BIND,B_STREAM,B_INDICES,B_FREQ,FVF_SET};
+    const unsigned argument_counts[5]={2,5,2,3,2};
+    uint32_t arguments[5][5]={{device_at,0},{device_at,0,vb,16,16},{device_at,ib},{device_at,0,1},{device_at,0x102}};
+    for(unsigned i=0;i<5;++i){assert(!call(SB_BEGIN,1,&device_at));set_render(168,0);assert(call(unsupported_methods[i],argument_counts[i],arguments[i])==0x8876086au);
         assert(call(SB_END,2,end)==0x8876086au && !get(GUEST_OUT) && render_value(168)==15);stateblock_checks++;}
     /* Capacity failure keeps the recorder available for a retry. */
     uint32_t held[32];unsigned held_count=0;
