@@ -1,3 +1,16 @@
+static struct fnv_d3d9_state_value texture_entry(struct fnv_d3d9_com *c,unsigned sampler,int index){
+    uint64_t id=index<0?0:c->resources[index].handle;
+    return (struct fnv_d3d9_state_value){.kind=FNV_D3D9_TEXTURE_BINDING,.sampler=sampler,.values={(uint32_t)id,(uint32_t)(id>>32)}};
+}
+static uint32_t record_texture(struct fnv_d3d9_com *c,unsigned sampler,int index){
+    if(!c->config.backend.resource_pin){c->record_failed=1;return 0x8876086au;}
+    struct state_block *b=c->recording;struct fnv_d3d9_state_value entry=texture_entry(c,sampler,index);
+    uint32_t hr=c->config.backend.state_batch(c->config.backend.context,&entry,1,2);if(hr)return hr;
+    int old=b->texture_mask&(1u<<sampler)?b->textures[sampler]:-1;
+    if(index!=old){if(index>=0){c->config.backend.resource_pin(c->config.backend.context,c->resources[index].handle,1);c->resources[index].pins++;c->resources[index].state_pins++;}
+        if(old>=0){c->config.backend.resource_pin(c->config.backend.context,c->resources[old].handle,0);c->resources[old].pins--;c->resources[old].state_pins--;retire(c,old);}}
+    b->textures[sampler]=index;b->texture_mask|=1u<<sampler;return 0;
+}
 static uint32_t record_numeric(struct fnv_d3d9_com *c,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,const uint32_t values[6]){
     struct fnv_d3d9_state_value entry={.kind=kind,.sampler=sampler,.name=name};memcpy(entry.values,values,24);
     uint32_t hr=c->config.backend.state_batch(c->config.backend.context,&entry,1,2);if(hr)return hr;
@@ -16,7 +29,7 @@ static void api_end_stateblock(void){
     uint32_t hr=FNV_D3D9_INVALIDCALL;
     if(!c->recording || !out)goto done;
     write32(out,0);
-    if(c->record_failed){free(c->recording);c->recording=NULL;c->record_failed=0;hr=0x8876086au;goto done;}
+    if(c->record_failed){struct state_block *discard=c->recording;c->recording=NULL;free_stateblock(c,discard);c->record_failed=0;hr=0x8876086au;goto done;}
     uint32_t index=0;while(index<c->used && c->resources[index].handle)index++;
     hr=FNV_D3D9_OUTOFMEMORY;if(index==c->config.resource_capacity || c->device_references==UINT32_MAX)goto done;
     c->resources[index]=(struct resource){.handle=(uintptr_t)c->recording,.kind=FNV_D3D9_STATEBLOCK,.references=1,.snapshot=c->recording};
@@ -31,7 +44,16 @@ static void stateblock_operation(uint32_t operation){
         /* All mask validation precedes the numeric transaction. Under the
          * module lock, the following constant commit cannot fail validation. */
         hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,2);
-        if(!hr)hr=c->config.backend.state_batch(c->config.backend.context,b->entries,b->count,operation);
+        struct fnv_d3d9_state_value entries[272];uint32_t count=b->count;memcpy(entries,b->entries,count*sizeof(*entries));
+        if(operation==0)for(unsigned i=0;i<16;++i)if(b->texture_mask&(1u<<i))entries[count++]=texture_entry(c,i,b->textures[i]);
+        if(!hr)hr=c->config.backend.state_batch(c->config.backend.context,entries,count,operation);
+        if(!hr){
+            if(operation==1){
+                memcpy(b->entries,entries,b->count*sizeof(*entries));
+                for(unsigned i=0;i<16;++i)if((b->texture_mask&(1u<<i)) && c->textures[i]!=b->textures[i] && c->textures[i]>=0){int index=c->textures[i];c->config.backend.resource_pin(c->config.backend.context,c->resources[index].handle,1);c->resources[index].pins++;c->resources[index].state_pins++;}
+                for(unsigned i=0;i<16;++i)if((b->texture_mask&(1u<<i)) && c->textures[i]!=b->textures[i]){int old=b->textures[i];b->textures[i]=c->textures[i];if(old>=0){c->config.backend.resource_pin(c->config.backend.context,c->resources[old].handle,0);c->resources[old].pins--;c->resources[old].state_pins--;retire(c,old);}}
+            }else for(unsigned i=0;i<16;++i)if(b->texture_mask&(1u<<i))change_binding(c,c->textures+i,b->textures[i]);
+        }
         if(!hr)hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,operation);
     }
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,4);
