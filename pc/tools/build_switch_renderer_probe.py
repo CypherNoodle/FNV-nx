@@ -16,7 +16,8 @@ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def build(a):
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve();proof=json.loads(a.fixture_validation.read_text());fixture=a.fixture_validation.resolve().parent
     if out.exists():raise ValueError('Use a fresh output directory')
-    if proof['status']!='PASS' or proof['native_engine_started'] or proof['synthetic_functions']!=82:raise ValueError('Require accepted 82-caller own fixture')
+    if proof['status']!='PASS' or proof['native_engine_started'] or proof['synthetic_functions']!=93:raise ValueError('Require accepted 93-caller own fixture')
+    if not proof.get('shared_probe_checks') or proof.get('probe_groups')!=9 or proof.get('probe_pixels')!=10240 or proof.get('probe_draws')!=9:raise ValueError('Require accepted combined probe checks')
     if proof.get('translated_com_present',{}).get('com_wsi_presents')!=4:raise ValueError('Require accepted translated COM Present')
     if proof.get('generated_source_sha256')!=sha(fixture/'generated.c') or proof.get('fixture_sha256')!=sha(fixture/'fixture.exe'):raise ValueError('Synthetic callers differ from tested inputs')
     sdk=a.sdk.resolve();nx=a.devkitpro.resolve()/'libnx';port=a.devkitpro.resolve()/'portlibs/switch/lib'
@@ -34,7 +35,11 @@ def build(a):
     for name in ('normal.vs.spv','normal.ps.spv'):
         path=linked/name
         if proof['source_sha256'].get(str(path))!=sha(path):raise ValueError('Shader differs from accepted COM fixture: '+name)
-    files=[*sources,catalog,a.fixture_validation.resolve(),Path(__file__).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),
+    shared=pc/'switch/renderer_probe_checks.h'
+    if proof['source_sha256'].get(str(shared))!=sha(shared):raise ValueError('Combined checks differ from accepted desktop test')
+    for source in sources:
+        if source.parent==pc/'native' and source.name!='d3d9_vk_horizon.c' and proof['source_sha256'].get(str(source))!=sha(source):raise ValueError('Native source differs from accepted desktop test: '+source.name)
+    files=[*sources,shared,catalog,a.fixture_validation.resolve(),Path(__file__).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),
         linked/'normal.vs.spv',linked/'normal.ps.spv',a.mesa.resolve(),a.cc.resolve(),a.nm.resolve(),a.readelf.resolve(),a.elf2nro.resolve(),a.nacptool.resolve(),a.icon.resolve(),nx/'switch.specs',nx/'switch.ld',nx/'lib/libnx.a',
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]
     files.extend(sorted(port.glob('*.a')))
@@ -63,7 +68,7 @@ def build(a):
     if any(len(p:=line.split())>=2 and p[1]=='U' for line in undefined):raise ValueError('Unresolved strong symbols')
     elf_info=run([a.readelf,'-h','-l','-d',elf],'elf-headers')
     if 'AArch64' not in elf_info or 'DYN' not in elf_info:raise ValueError('Wrong ELF')
-    run([a.nacptool,'--create','FNV PC Renderer Probe','FNV-nx','pc-renderer-hw01',nacp],'nacp')
+    run([a.nacptool,'--create','FNV PC Renderer Probe','FNV-nx','pc-renderer-hw02',nacp],'nacp')
     run([a.elf2nro,elf,nro,'--nacp='+str(nacp),'--icon='+str(a.icon)],'nro')
     raw=nro.read_bytes();size=struct.unpack_from('<I',raw,24)[0]
     if raw[16:20]!=b'NRO0' or raw[size:size+4]!=b'ASET':raise ValueError('Invalid NRO')
@@ -71,8 +76,8 @@ def build(a):
         offset,length=struct.unpack_from('<II',raw,at)
         if offset+length>size:raise ValueError('NRO segment out of bounds')
     if any(sha(Path(p))!=h for p,h in frozen.items()):raise ValueError('Inputs changed')
-    result=dict(status='PASS',build='pc-renderer-hw01',nro_sha256=sha(nro),nro_bytes=len(raw),elf_sha256=sha(elf),source_sha256=frozen,
-        generated_game_code_embedded=False,game_files_embedded=False,engine_execution_enabled=False,switch_hardware_tested=False,static_vulkan=True,translated_com_present=True)
+    result=dict(status='PASS',build='pc-renderer-hw02',nro_sha256=sha(nro),nro_bytes=len(raw),elf_sha256=sha(elf),source_sha256=frozen,
+        generated_game_code_embedded=False,game_files_embedded=False,engine_execution_enabled=False,switch_hardware_tested=False,static_vulkan=True,translated_com_present=True,probe_groups=9,probe_pixels=10240,probe_draws=9,shared_probe_checks=True)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k!='source_sha256'},indent=2))
 
 if __name__=='__main__':

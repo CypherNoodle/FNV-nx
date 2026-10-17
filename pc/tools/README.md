@@ -195,3 +195,10 @@ juego. Windows carga Vulkan del sistema; Linux enlaza Vulkan/pthread. Verifica
 siete mips BC1, parches, A8, cero submits por Unlock, cola llena al leer,
 peticiones invalidas y teardown. Guarda hashes de fuentes, ejecutables y logs.
 No es una prueba de FPS ni de hardware Switch.
+
+### Probe Switch conjunto hw02
+
+`build_switch_renderer_probe.py` usa la prueba aceptada de
+`pc/tests/test_renderer_probe_checks.py`, con 93 callers y checks compartidos
+en `pc/switch/renderer_probe_checks.h`. El builder rechaza fuentes, shaders o
+callers distintos de los verificados. [Uso y cobertura](../docs/switch-renderer-probe.md).

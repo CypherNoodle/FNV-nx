@@ -47,7 +47,9 @@ La [primera ruta WSI](pc/docs/native-vulkan-presentation.md)
 ya presenta frames sinteticos en Vulkan Windows y compila el enlace NWindow ARM64;
 Present COM tambien pasa con callers x86 traducidos. La [prueba conjunta para Switch](pc/docs/switch-renderer-probe.md)
 ya paso en hardware para su subconjunto sintetico: cuatro fases sin errores de
-pixels comprobados y 545 presentaciones. Aun no arranca Fallout. La [fabrica DX9 inicial](pc/docs/native-d3d9-factory.md) ya
+pixels comprobados y 545 presentaciones. El nuevo hw02 agrupa Reset, BC, UP,
+FVF y state blocks con las mismas comprobaciones de escritorio; falta probar
+esta ampliacion en consola. Aun no arranca Fallout. La [fabrica DX9 inicial](pc/docs/native-d3d9-factory.md) ya
 entrega el device preparado mediante Direct3DCreate9/CreateDevice; caps completas
 y recreacion siguen pendientes.
 
