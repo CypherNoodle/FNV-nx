@@ -9,7 +9,7 @@ static void block_texture(unsigned sampler,uint32_t texture){uint32_t args[]={de
 static void block_texture_is(unsigned sampler,uint32_t texture){uint32_t args[]={device_at,sampler,GUEST_OUT};assert(!call(T_GET,3,args) && get(GUEST_OUT)==texture);if(texture)assert(!release(texture));texture_block_checks++;}
 static void exercise_block_textures(uint32_t original){
     uint32_t a=make_texture(2,2,1,0,21,1),b=make_texture(2,2,1,0,21,1);uintptr_t native_b=texture_id;
-    const unsigned char gray_a[4]={37,37,37,37},gray_b[4]={93,93,93,93};draw_texture(a,gray_a);draw_texture(b,gray_b);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
+    const unsigned char gray_a[4]={37,37,37,37},gray_b[4]={93,93,93,93};draw_texture(a,gray_a);draw_texture(b,gray_b);texture_ready(a);texture_ready(b);
     assert(!call(SB_BEGIN,1,&device_at));for(unsigned i=0;i<16;++i)block_texture(i,a);block_texture(15,0);block_texture(0,b);block_texture(0,a);
     /* Before End, current bindings still contain only the original at slot 0. */
     for(unsigned i=0;i<16;++i){uint32_t args[]={device_at,i,GUEST_OUT};assert(!call(T_GET,3,args) && get(GUEST_OUT)==(i?0:original));if(!i)release(original);texture_block_checks++;}

@@ -57,11 +57,45 @@ static uint32_t create_texture(void *ctx,uint32_t w,uint32_t h,uint32_t levels,u
     t.id=++d->next_id;t.refs=1;*slot=t;d->device_refs++;*out=t.id;
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
+/* Build and upload one immutable GPU version from the CPU shadow. Caller holds the
+ * backend lock. Called lazily, so many Lock/Unlock calls on a texture cost a single
+ * upload at its first use (draw or readback). A failure leaves the texture dirty. */
+static uint32_t texture_flush(struct fnv_vk_backend *d,struct texture_resource *t){
+    uint32_t hr=0;struct texture_version *v=NULL;struct frame *f=NULL;
+    if(d->lost || !d->device_refs)return FNV_VK_LOST;
+    if(!t->dirty)return 0;
+    hr=make_texture_version(d,t,&v);if(hr)goto flushed;
+    /* Explicit backpressure: no CPU wait or fabricated completion on upload. */
+    hr=begin_frame(d,&f);if(hr)goto flushed;
+    VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=t->bytes,.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT};
+    VkBuffer buffer=VK_NULL_HANDLE;hr=result(d,d->v.CreateBuffer(d->device,&ci,NULL,&buffer));if(!hr)f->read_buffer=buffer;
+    if(!hr){VkMemoryRequirements req;d->v.GetBufferMemoryRequirements(d->device,f->read_buffer,&req);
+        hr=allocate(d,req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,&f->read_memory,&f->read_coherent);
+        if(!hr){f->read_allocation=req.size;hr=result(d,d->v.BindBufferMemory(d->device,f->read_buffer,f->read_memory,0));}}
+    void *mapped=NULL;if(!hr)hr=result(d,d->v.MapMemory(d->device,f->read_memory,0,VK_WHOLE_SIZE,0,&mapped));
+    if(!hr){memcpy(mapped,t->shadow,t->bytes);
+        if(!f->read_coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=f->read_memory,.offset=0,.size=VK_WHOLE_SIZE};
+            hr=result(d,d->v.FlushMappedMemoryRanges(d->device,1,&range));}
+        d->v.UnmapMemory(d->device,f->read_memory);}
+    if(hr){retire_frame(d,f);f=NULL;goto flushed;}
+    f->read_texture=v;v->refs++;f->read_surface=t->id;pin(d,t->id,1);
+    VkMemoryBarrier host={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_HOST_WRITE_BIT,.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT};
+    d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_HOST_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,1,&host,0,NULL,0,NULL);
+    texture_barrier(d,f->cmd,v,VK_IMAGE_LAYOUT_UNDEFINED,0,VK_ACCESS_TRANSFER_WRITE_BIT,t->levels);
+    VkBufferImageCopy copies[16];memset(copies,0,sizeof(copies));
+    for(uint32_t i=0;i<t->levels;++i){copies[i].bufferOffset=t->offsets[i];copies[i].imageSubresource=(VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT,i,0,1};
+        copies[i].imageExtent=(VkExtent3D){mip_size(t->width,i),mip_size(t->height,i),1};}
+    d->v.CmdCopyBufferToImage(f->cmd,f->read_buffer,v->image,VK_IMAGE_LAYOUT_GENERAL,t->levels,copies);
+    texture_barrier(d,f->cmd,v,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_TRANSFER_READ_BIT,t->levels);
+    hr=submit_frame(d,f);if(hr){d->lost=1;goto flushed;}
+    v->initialized=1;struct texture_version *old=t->version;t->version=v;v=NULL;release_texture_version(d,old);t->dirty=0;
+flushed:release_texture_version(d,v);return hr;
+}
 static uint32_t upload_texture(void *ctx,uintptr_t id,uint32_t level,uint32_t left,uint32_t top,uint32_t width,uint32_t height,uint32_t flags,uint32_t pitch,const void *data){
     struct fnv_vk_backend *d=ctx;
     if(!data || !width || !height || (flags&~(0x800u|0x2000u)))return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);
-    unsigned char *candidate=NULL;struct texture_version *v=NULL;struct frame *f=NULL;
+    unsigned char *candidate=NULL;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(!t || level>=t->levels || ((flags&0x2000u) && (level || !(t->usage&512) || left || top || width!=t->width || height!=t->height)))goto done;
     candidate=malloc(t->bytes);if(!candidate){hr=FNV_VK_OOM;goto done;}
@@ -79,33 +113,8 @@ static uint32_t upload_texture(void *ctx,uintptr_t id,uint32_t level,uint32_t le
         size_t destination_pitch=(size_t)((patch.width+3)/4)*block;
         for(uint32_t y=0;y<rows;++y)memcpy(candidate+t->offsets[level]+(top/4+y)*destination_pitch+(left/4)*block,(const unsigned char*)data+(size_t)y*pitch,row);
     }else {hr=fnv_d3d9_texture_rgba8(&patch,candidate+t->offsets[level],t->bytes-t->offsets[level],patch.width*4);if(hr)goto done;}
-    hr=make_texture_version(d,t,&v);if(hr)goto done;
-    /* Explicit backpressure: no CPU wait or fabricated completion on upload. */
-    hr=begin_frame(d,&f);if(hr)goto done;
-    VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=t->bytes,.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT};
-    VkBuffer buffer=VK_NULL_HANDLE;hr=result(d,d->v.CreateBuffer(d->device,&ci,NULL,&buffer));if(!hr)f->read_buffer=buffer;
-    if(!hr){VkMemoryRequirements req;d->v.GetBufferMemoryRequirements(d->device,f->read_buffer,&req);
-        hr=allocate(d,req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,&f->read_memory,&f->read_coherent);
-        if(!hr){f->read_allocation=req.size;hr=result(d,d->v.BindBufferMemory(d->device,f->read_buffer,f->read_memory,0));}}
-    void *mapped=NULL;if(!hr)hr=result(d,d->v.MapMemory(d->device,f->read_memory,0,VK_WHOLE_SIZE,0,&mapped));
-    if(!hr){memcpy(mapped,candidate,t->bytes);
-        if(!f->read_coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=f->read_memory,.offset=0,.size=VK_WHOLE_SIZE};
-            hr=result(d,d->v.FlushMappedMemoryRanges(d->device,1,&range));}
-        d->v.UnmapMemory(d->device,f->read_memory);}
-    if(hr){retire_frame(d,f);f=NULL;goto done;}
-    f->read_texture=v;v->refs++;f->read_surface=id;pin(d,id,1);
-    VkMemoryBarrier host={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_HOST_WRITE_BIT,.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT};
-    d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_HOST_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,1,&host,0,NULL,0,NULL);
-    texture_barrier(d,f->cmd,v,VK_IMAGE_LAYOUT_UNDEFINED,0,VK_ACCESS_TRANSFER_WRITE_BIT,t->levels);
-    VkBufferImageCopy copies[16];memset(copies,0,sizeof(copies));
-    for(uint32_t i=0;i<t->levels;++i){copies[i].bufferOffset=t->offsets[i];copies[i].imageSubresource=(VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT,i,0,1};
-        copies[i].imageExtent=(VkExtent3D){mip_size(t->width,i),mip_size(t->height,i),1};}
-    d->v.CmdCopyBufferToImage(f->cmd,f->read_buffer,v->image,VK_IMAGE_LAYOUT_GENERAL,t->levels,copies);
-    texture_barrier(d,f->cmd,v,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_TRANSFER_READ_BIT,t->levels);
-    hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}
-    v->initialized=1;struct texture_version *old=t->version;t->version=v;v=NULL;release_texture_version(d,old);
-    free(t->shadow);t->shadow=candidate;candidate=NULL;
-done:release_texture_version(d,v);free(candidate);fnv_host_mutex_unlock(&d->guard);return hr;
+    free(t->shadow);t->shadow=candidate;candidate=NULL;t->dirty=1;hr=0;
+done:free(candidate);fnv_host_mutex_unlock(&d->guard);return hr;
 }
 static uint32_t bind_texture(void *ctx,uint32_t sampler,uintptr_t id){
     struct fnv_vk_backend *d=ctx;if(sampler>=16)return FNV_VK_INVALID;
@@ -114,3 +123,4 @@ static uint32_t bind_texture(void *ctx,uint32_t sampler,uintptr_t id){
     else if(!id || find_texture(d,id)){uintptr_t old=d->texture_bindings[sampler];pin(d,id,1);d->texture_bindings[sampler]=id;pin(d,old,0);hr=0;}
     fnv_host_mutex_unlock(&d->guard);return hr;
 }
+

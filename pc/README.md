@@ -3,6 +3,9 @@
 El proveedor ya admite [DXT1/3/5 como BC1/2/3](docs/native-vulkan-bc.md), con
 mipmaps y parches comprimidos comprobados mediante lecturas y draws GPU.
 La verificacion de esta ampliacion en NVK/Switch sigue pendiente.
+La [ruta actual de texturas](docs/native-vulkan-backend.md) agrupa en CPU los
+Unlock hasta el primer uso: varias escrituras de mip no envian varias copias
+GPU. Sus errores y reintentos se comprueban en el primer draw/readback.
 
 Los [draws UP desde memoria guest](docs/native-d3d9-up.md) usan versiones
 Vulkan transitorias, validan rangos y conservan los datos hasta sus fences.

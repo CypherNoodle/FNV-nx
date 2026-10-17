@@ -13,8 +13,8 @@ static void exercise_bc_transfers(void){
             if(!level)memcpy(base,expected,bytes);
         }
         const uint32_t rectangle[4]={8,4,12,8};memcpy(ptr(DATA),rectangle,16);unsigned char *p=lock_texture(texture,0,DATA,0,&pitch);memset(p,0xab,unit);
-        uint64_t allocated=stats().allocated_bytes;fail_Image=1;assert(unlock_texture(texture,0)==FNV_VK_OOM);assert(stats().allocated_bytes==allocated);
-        check_texture(id,0,base,6*unit);memset(base+5*unit,0xab,unit);assert(!unlock_texture(texture,0));check_texture(id,0,base,6*unit);bc_transfer_checks+=2;
+        assert(!unlock_texture(texture,0));uint64_t allocated=stats().allocated_bytes;fail_Image=1;unsigned char failed[96];memset(failed,0xcd,sizeof(failed));assert(fnv_vk_backend_read_texture(gpu,id,0,failed,6*unit,10000000000ull)==FNV_VK_OOM);assert(stats().allocated_bytes==allocated);for(unsigned j=0;j<96;++j)assert(failed[j]==0xcd);
+        memset(base+5*unit,0xab,unit);check_texture(id,0,base,6*unit);bc_transfer_checks+=2;
         unsigned char small[96];memset(small,0xcd,sizeof(small));assert(fnv_vk_backend_read_texture(gpu,id,0,small,6*unit-1,1)==FNV_VK_INVALID);for(unsigned i=0;i<96;++i)assert(small[i]==0xcd);
         const unsigned char block[16]={0};assert(provider.upload_texture(gpu,id,0,1,0,4,4,0,unit,block)==FNV_VK_INVALID);
         assert(provider.upload_texture(gpu,id,0,0,0,4,4,0,unit-1,block)==FNV_VK_INVALID);
@@ -35,7 +35,7 @@ static void exercise_bc_draws(uint32_t vb,uint32_t ib,uint32_t restore){
             if(format==1){memset(b,(int)(block*0x55),8);expected[block][3]=(unsigned char)(block*85);}
             if(format==2){b[0]=255;b[1]=0;const unsigned indices[4]={0,1,2,7};uint64_t bits=0;for(unsigned i=0;i<16;++i)bits|=(uint64_t)indices[block]<<(i*3);for(unsigned i=0;i<6;++i)b[i+2]=(unsigned char)(bits>>(i*8));const unsigned alpha[4]={255,0,219,36};expected[block][3]=(unsigned char)alpha[block];}
         }
-        assert(!unlock_texture(texture,0) && !fnv_vk_backend_wait(gpu,10000000000ull));uint32_t bind[]={device_at,0,texture};assert(!call(T_BIND,3,bind));clear_color(0xff112233);
+        assert(!unlock_texture(texture,0));texture_ready(texture);uint32_t bind[]={device_at,0,texture};assert(!call(T_BIND,3,bind));clear_color(0xff112233);
         /* Linear capability must be checked for BC, not the RGBA8 fallback. */
         hide_bc_linear=1;sampler[2]=5;sampler[3]=2;assert(!call(D_SAMPLER_SET,4,sampler));assert(!call(BEGIN,1,&device_at));
         uint32_t rejected[]={device_at,4,UINT32_MAX,1,4,2,2};assert(call(D_INDEXED,7,rejected)==FNV_VK_INVALID);assert(!call(END,1,&device_at));hide_bc_linear=0;

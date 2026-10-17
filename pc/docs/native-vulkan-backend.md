@@ -1,3 +1,32 @@
+## Subidas de textura diferidas (PR #3)
+
+La ruta activa conserva UnlockRect en CPU: convierte/parchea el shadow propio
+y marca la textura pendiente. La primera utilizacion en un draw o readback
+crea una version Vulkan y sube la cadena de mips una sola vez, aunque haya
+varios Unlock entre usos. Un error conserva el shadow y la marca pendiente;
+el reintento corresponde al siguiente uso, no a repetir un Unlock ya exitoso.
+Los draws enviados conservan sus versiones anteriores hasta sus fences.
+
+El readback valida primero nivel y capacidad. Drena trabajo anterior con el
+timeout del llamador antes de subir la textura; una peticion invalida no crea
+trabajo GPU. Una textura que nunca recibio datos sigue sin poder leerse.
+El test del PR se amplio para comprobar cero submits por Unlock, todos los
+mips, parches, A8 y liberacion completa. Las pruebas de fallos ahora inyectan
+allocation/map/submit en el primer uso, donde realmente ocurren.
+
+La subida aun usa un submit por textura sucia, no un batch de transferencias.
+Varios primeros usos pueden llenar el anillo antes de un draw; BUSY requiere
+poll/wait y reintento por el host, segun el contrato actual del proveedor.
+Aun no es un dispositivo D3D9 general conectado al juego. No se atribuye una
+mejora de FPS en Switch a este cambio sin una medicion de hardware.
+
+Pruebas: test_vulkan_lazy_texture.py y test_d3d9_vk_backend.py. Los helpers
+texture_ready de la suite fuerzan transferencias solo para preparar datos de
+prueba de forma determinista; no pertenecen a la ruta de produccion. El caso
+independiente de siete mips comprueba el ahorro real de submits en Unlock.
+Los apartados historicos de subida inmediata que siguen describen la base
+anterior y deben interpretarse junto a esta actualizacion.
+
 # Proveedor D3D9 propio: dispositivo, superficies, buffers y texturas Vulkan
 
 Estado posterior: [Reset del dispositivo sano y tamano fijo](native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.

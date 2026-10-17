@@ -185,3 +185,13 @@ NVK y NWindow en hardware. Incluye solamente callers sinteticos y shaders propio
 no usa el AOT ni los archivos del juego. Ver
 [dependencias, comprobaciones e instrucciones](../docs/switch-renderer-probe.md).
 
+
+### Verificar transferencias de textura diferidas
+
+`python pc/tests/test_vulkan_lazy_texture.py --headers <vulkan-headers> --output <nueva-carpeta> --cc <compilador>`
+
+Compila dos tests del proveedor real, sin SDK de recompilacion ni datos del
+juego. Windows carga Vulkan del sistema; Linux enlaza Vulkan/pthread. Verifica
+siete mips BC1, parches, A8, cero submits por Unlock, cola llena al leer,
+peticiones invalidas y teardown. Guarda hashes de fuentes, ejecutables y logs.
+No es una prueba de FPS ni de hardware Switch.

@@ -24,7 +24,7 @@ static void exercise_block_constants(void){
 #include "vk_backend_stateblock_textures_fixture.h"
 #include "vk_backend_stateblock_shaders_fixture.h"
 static void exercise_stateblocks(uint32_t vb,uint32_t ib,uint32_t texture){
-    const unsigned char white[4]={255,255,255,255};draw_texture(texture,white);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
+    const unsigned char white[4]={255,255,255,255};draw_texture(texture,white);texture_ready(texture);
     up_bind_original(vb,ib);draw_geometry(vb,ib,0);draw_constants(0,.5f);draw_mirrored=0;set_render(7,0);set_render(174,0);set_render(22,1);set_render(168,15);set_render(27,0);
     uint64_t parents=stats().device_references;assert(!call(SB_BEGIN,1,&device_at));assert(call(SB_BEGIN,1,&device_at)==FNV_VK_INVALID);stateblock_checks++;
     set_render(168,4);set_render(168,0);set_render(22,1);uint32_t sampler[]={device_at,0,1,3};assert(!call(D_SAMPLER_SET,4,sampler));
@@ -63,5 +63,5 @@ static void exercise_stateblocks(uint32_t vb,uint32_t ib,uint32_t texture){
     struct fnv_d3d9_state_value saved[2];memcpy(saved,batch,sizeof(saved));batch[1].name=0xffffffffu;memcpy(saved,batch,sizeof(saved));assert(provider.state_batch(gpu,batch,2,1)==FNV_VK_INVALID && !memcmp(saved,batch,sizeof(saved)));stateblock_checks++;
     assert(!release(block) && stats().device_references==parents);stateblock_checks++;
     sampler[3]=2;assert(!call(D_SAMPLER_SET,4,sampler));draw_geometry(vb,ib,1);draw_mirrored=1;
-    const unsigned char restore[4]={21,67,139,233};draw_texture(texture,restore);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
+    const unsigned char restore[4]={21,67,139,233};draw_texture(texture,restore);texture_ready(texture);
 }

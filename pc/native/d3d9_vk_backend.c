@@ -35,7 +35,7 @@ struct buffer_resource {
 struct texture_version {VkImage image;VkImageView view;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,initialized;};
 struct texture_resource {
     uintptr_t id;uint32_t refs,pins,block_pins,width,height,levels,usage,format,pool;
-    size_t bytes,offsets[16];unsigned char *shadow;struct texture_version *version;
+    size_t bytes,offsets[16];unsigned char *shadow;struct texture_version *version;uint32_t dirty;
 };
 struct shader_catalog {
     struct shader_catalog *next;enum fnv_d3d9_stage stage;uint32_t code_bytes,spirv_bytes;
@@ -498,7 +498,7 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     if(!d || !output)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);uint32_t level=offset;
     unsigned char *copy=NULL;struct frame *f=NULL;int held=0;
-    if(buffer_read==2){if(!t || level>=t->levels || !t->version->initialized || texture_level_bytes(t,level)>output_bytes)goto done;}
+    if(buffer_read==2){if(!t || level>=t->levels || (!t->version->initialized && !t->dirty) || texture_level_bytes(t,level)>output_bytes)goto done;}
     else if(buffer_read){if(!b || !requested || offset>b->bytes || requested>b->bytes-offset || requested>output_bytes)goto done;}
     else if(!s || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
     size_t bytes=buffer_read==2?texture_level_bytes(t,level):buffer_read?requested:(size_t)s->width*s->height*4;
@@ -507,6 +507,9 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     copy=malloc(bytes);if(!copy){hr=FNV_VK_OOM;goto done;}
     pin(d,id,1);held=1;
     if((hr=wait_locked(d,timeout))!=0 || (hr=flush_locked(d))!=0 || (hr=wait_locked(d,timeout))!=0)goto done;
+    /* Validate the request first, then drain existing work before a lazy
+     * upload needs a command slot. Invalid reads never trigger uploads. */
+    if(buffer_read==2 && t->dirty){if((hr=texture_flush(d,t))!=0 || (hr=wait_locked(d,timeout))!=0)goto done;}
     if((hr=begin_frame(d,&f))!=0)goto done;
     f->read_surface=id;pin(d,id,1);
     VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=transfer_bytes,.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT};

@@ -40,7 +40,7 @@ static void exercise_draws(void){
     uint32_t vb=make_buffer(0,96,0,1,0),ib=make_buffer(1,16,0,1,101);
     uint32_t stream[]={device_at,0,vb,16,16},index[]={device_at,ib};assert(!call(B_STREAM,5,stream) && !call(B_INDICES,2,index));draw_geometry(vb,ib,0);
     uint32_t texture=make_texture(2,2,1,0,21,1),texture_bind[]={device_at,0,texture};assert(!call(T_BIND,3,texture_bind));
-    const unsigned char first[4]={255,128,64,192},second[4]={21,67,139,233};draw_texture(texture,first);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
+    const unsigned char first[4]={255,128,64,192},second[4]={21,67,139,233};draw_texture(texture,first);texture_ready(texture);
     uint32_t render[]={device_at,22,1};assert(!call(SET_RENDER,3,render));
     uint32_t clear[]={device_at,0,0,7,0xff000000,0x3f800000,0};assert(!call(CLEAR,7,clear));assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
     draw_constants(0,.75f);uint32_t draw_args[]={device_at,4,UINT32_MAX,1,4,2,2};
@@ -59,7 +59,7 @@ static void exercise_draws(void){
     assert(!call(D_INDEXED,7,draw_args));assert(stats().pending_frames==1 && stats().draws==1 && stats().buffer_versions==4);
     /* Change every mutable source before observing the draw's fence. */
     unsigned char zero_vb[96]={0},zero_ib[16]={0};upload_buffer(vb,0,96,0,zero_vb);upload_buffer(ib,0,16,0,zero_ib);
-    assert(stats().buffer_versions==6);draw_texture(texture,second);assert(stats().texture_versions==2 && stats().pending_frames==2);
+    assert(stats().buffer_versions==6);draw_texture(texture,second);assert(stats().texture_versions==1 && stats().pending_frames==1);
     draw_constants(1,.25f);assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID); /* zero indices violate MinVertexIndex */
     draw_geometry(vb,ib,1);assert(call(D_INDEXED,7,draw_args)==FNV_VK_BUSY);
     assert(!call(END,1,&device_at) && stats().pending_frames==2);draw_pixels(0,first,0);
@@ -101,7 +101,7 @@ static void exercise_draw_submit_faults(const struct fnv_vk_config *cfg,const ch
         assert(!b.create_declaration(gpu,elements,3,&decl) && !b.bind_declaration(gpu,decl));
         float data[24]={0};assert(!b.create_buffer(gpu,FNV_D3D9_VB,96,0,0,1,&vb));assert(!b.update_buffer(gpu,vb,0,96,0,data));assert(!b.bind_stream(gpu,0,vb,0,16));
         const unsigned char pixels[16]={0};assert(!b.create_texture(gpu,2,2,1,0,21,1,&texture));assert(!b.upload_texture(gpu,texture,0,0,0,2,2,0,8,pixels));assert(!b.bind_texture(gpu,0,texture));
-        assert(!fnv_vk_backend_wait(gpu,10000000000ull));uint32_t values[6]={1};assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,22,values,0));assert(!b.scene(gpu,1));
+        unsigned char uploaded[16];assert(!fnv_vk_backend_read_texture(gpu,texture,0,uploaded,16,10000000000ull));uint32_t values[6]={1};assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,22,values,0));assert(!b.scene(gpu,1));
         if(fault==0)fail_end=1;else if(fault==1)fail_reset=1;else fail_submit=1;
         assert(b.draw(gpu,0,4,0,0,0,0,2)==(fault==2?FNV_VK_LOST:FNV_VK_OOM));assert(fnv_vk_backend_poll(gpu)==FNV_VK_LOST);
         assert(!stats().draws && live_Pipeline==1);b.release(gpu,shaders[0]);b.release(gpu,shaders[1]);b.release(gpu,decl);b.release(gpu,vb);b.release(gpu,texture);b.device_release(gpu);

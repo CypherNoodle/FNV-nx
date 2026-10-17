@@ -8,7 +8,7 @@ static void up_bindings_cleared(unsigned indexed,uint32_t expected_index){
 static void up_pixels(void){const unsigned char red[4]={255,0,0,255};state_draw_pixels(red,0);up_pixel_checks+=1024;render_state_pixel_checks-=1024;}
 static void exercise_up(uint32_t vb,uint32_t ib,uint32_t texture){
     set_render(174,0);set_render(7,0);set_render(27,0);set_render(22,1);draw_constants(0,.5f);
-    const unsigned char white[4]={255,255,255,255};draw_texture(texture,white);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
+    const unsigned char white[4]={255,255,255,255};draw_texture(texture,white);texture_ready(texture);
     enum {VERTEX_DATA=DATA+512,INDEX_DATA=DATA+1024};
     const float corners[16]={-1,1,0,0,1,1,1,0,1,-1,1,1,-1,-1,0,1};
     uint32_t args[]={device_at,4,1,4,2,INDEX_DATA,101,VERTEX_DATA,16};uint32_t direct[]={device_at,4,2,VERTEX_DATA,16};
@@ -33,5 +33,5 @@ static void exercise_up(uint32_t vb,uint32_t ib,uint32_t texture){
     assert(!call(U_INDEXED,9,args));assert(!call(U_INDEXED,9,args));assert(call(U_INDEXED,9,args)==FNV_VK_BUSY);up_checks++;
     memset(ptr(VERTEX_DATA),0,128);memset(ptr(INDEX_DATA),0,32);assert(!call(END,1,&device_at));up_pixels();
     up_bind_original(vb,ib);draw_geometry(vb,ib,1);draw_mirrored=1;
-    const unsigned char restore[4]={21,67,139,233};draw_texture(texture,restore);assert(!fnv_vk_backend_wait(gpu,10000000000ull));
+    const unsigned char restore[4]={21,67,139,233};draw_texture(texture,restore);texture_ready(texture);
 }
