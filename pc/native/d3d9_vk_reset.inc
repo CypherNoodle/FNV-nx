@@ -12,7 +12,7 @@ uint32_t fnv_vk_backend_reset(struct fnv_vk_backend *d,uint64_t timeout){
     if(d->in_scene || d->next_id>UINTPTR_MAX-2)goto done;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){
         if(d->surfaces[i].refs || (d->buffer_resources[i].refs && !d->buffer_resources[i].pool) ||
-           (d->textures[i].refs && !d->textures[i].pool))goto done;
+           ((d->textures[i].refs || d->textures[i].block_pins) && !d->textures[i].pool))goto done;
     }
     struct surface *old_color=find(d,d->back),*old_depth=find(d,d->auto_depth);
     if(!old_color || (d->config.auto_depth && !old_depth))goto done;

@@ -34,7 +34,7 @@ struct buffer_resource {
 };
 struct texture_version {VkImage image;VkImageView view;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,initialized;};
 struct texture_resource {
-    uintptr_t id;uint32_t refs,pins,width,height,levels,usage,format,pool;
+    uintptr_t id;uint32_t refs,pins,block_pins,width,height,levels,usage,format,pool;
     size_t bytes,offsets[16];unsigned char *shadow;struct texture_version *version;
 };
 struct shader_catalog {
@@ -385,6 +385,7 @@ static void release(void *ctx,uintptr_t id){
     fnv_host_mutex_unlock(&d->guard);
 }
 static void device_addref(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);d->device_refs++;fnv_host_mutex_unlock(&d->guard);}
+static void resource_pin(void *ctx,uintptr_t id,int add){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);struct texture_resource *t=find_texture(d,id);if(t){if(add)t->block_pins++;else t->block_pins--;}pin(d,id,add);fnv_host_mutex_unlock(&d->guard);}
 static void device_release(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);if(d->device_refs && !--d->device_refs)close_device(d);fnv_host_mutex_unlock(&d->guard);}
 static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_t format,uint32_t samples,uint32_t quality,uint32_t flag,uintptr_t *out){
     struct fnv_vk_backend *d=ctx;if(!out || (depth!=0 && depth!=1) || format!=(depth?75u:21u) || samples || quality || (!depth && flag) || (depth && flag>1))return FNV_VK_INVALID;
@@ -467,7 +468,7 @@ void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_ba
     *out=(struct fnv_d3d9_shader_backend){.context=d,.create=create_shader,.bind_shader=bind_shader,.create_declaration=create_declaration,.bind_declaration=bind_declaration,.upload_constants=upload_constants,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
         .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
-        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.state_batch=state_batch,.clear=clear,.scene=scene,.draw=draw,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
+        .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.state_batch=state_batch,.resource_pin=resource_pin,.clear=clear,.scene=scene,.draw=draw,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
 }
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;

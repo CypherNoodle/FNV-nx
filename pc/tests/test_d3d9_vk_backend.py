@@ -8,7 +8,7 @@ from test_d3d9_com import test,SLOTS
 
 def run(args):
     pc=Path(__file__).resolve().parents[1];headers=args.headers.resolve();linked=args.linked_shaders.resolve()
-    extra=[Path(__file__).resolve(),pc/'native/d3d9_factory.inc',pc/'native/d3d9_reset.inc',pc/'native/d3d9_vk_state_blocks.inc',pc/'native/d3d9_vk_up.inc',pc/'native/d3d9_vk_reset.inc',pc/'native/d3d9_vk_present.inc',pc/'native/d3d9_vk_draw.inc',pc/'native/d3d9_geometry.h',pc/'native/d3d9_vk_state.h',pc/'native/d3d9_vk_shaders.inc',pc/'native/d3d9_uniform_state.h',pc/'native/d3d9_uniform_pack.h',pc/'native/d3d9_vk_textures.inc',pc/'native/d3d9_texture_upload.h',pc/'native/d3d9_vk_backend.h',pc/'native/host_mutex.h',pc/'tests/vk_backend_fault_proxy.h',pc/'tests/vk_backend_buffers_fixture.h',pc/'tests/vk_backend_textures_fixture.h',pc/'tests/vk_backend_shaders_fixture.h',pc/'tests/vk_backend_draw_fixture.h',pc/'tests/vk_backend_render_states_fixture.h',pc/'tests/vk_backend_factory_fixture.h',pc/'tests/vk_backend_com_present_fixture.h',pc/'tests/vk_backend_reset_fixture.h',pc/'tests/vk_backend_bc_fixture.h',pc/'tests/vk_backend_up_fixture.h',pc/'tests/vk_backend_fvf_fixture.h',pc/'tests/vk_backend_stateblocks_fixture.h',
+    extra=[Path(__file__).resolve(),pc/'native/d3d9_factory.inc',pc/'native/d3d9_reset.inc',pc/'native/d3d9_vk_state_blocks.inc',pc/'native/d3d9_vk_up.inc',pc/'native/d3d9_vk_reset.inc',pc/'native/d3d9_vk_present.inc',pc/'native/d3d9_vk_draw.inc',pc/'native/d3d9_geometry.h',pc/'native/d3d9_vk_state.h',pc/'native/d3d9_vk_shaders.inc',pc/'native/d3d9_uniform_state.h',pc/'native/d3d9_uniform_pack.h',pc/'native/d3d9_vk_textures.inc',pc/'native/d3d9_texture_upload.h',pc/'native/d3d9_vk_backend.h',pc/'native/host_mutex.h',pc/'tests/vk_backend_fault_proxy.h',pc/'tests/vk_backend_buffers_fixture.h',pc/'tests/vk_backend_textures_fixture.h',pc/'tests/vk_backend_shaders_fixture.h',pc/'tests/vk_backend_draw_fixture.h',pc/'tests/vk_backend_render_states_fixture.h',pc/'tests/vk_backend_factory_fixture.h',pc/'tests/vk_backend_com_present_fixture.h',pc/'tests/vk_backend_reset_fixture.h',pc/'tests/vk_backend_bc_fixture.h',pc/'tests/vk_backend_up_fixture.h',pc/'tests/vk_backend_fvf_fixture.h',pc/'tests/vk_backend_stateblocks_fixture.h',pc/'tests/vk_backend_stateblock_textures_fixture.h',
            Path(os.environ['SystemRoot'])/'System32/vulkan-1.dll',
            *sorted((headers/'vulkan').glob('*.h')),*sorted((headers/'vk_video').glob('*.h'))]
     test(args,host_source='d3d9_vk_backend_host.c',slots=SLOTS+[(28,9),(29,9),(12,2),(37,3),(38,3),(39,2),(40,2),(43,7),(10,1),(47,2),(48,2),
@@ -16,16 +16,17 @@ def run(args):
         extra_sources=(pc/'native/d3d9_vk_backend.c',pc/'native/d3d9_texture_upload.c',pc/'native/d3d9_uniform_state.c',pc/'native/d3d9_uniform_pack.c',pc/'native/d3d9_geometry.c',pc/'native/d3d9_vk_state.c'),extra_includes=(headers,),baseline_lifetime_checks=False,factory_import=True)
     report=json.loads((args.output/'validation.json').read_text());assert report['native_vulkan_backend'] and report['desktop_d3d9_used'] is False
     wsi=json.loads((args.output/'present.log').read_text().strip().splitlines()[-1])
-    assert wsi['com_wsi_presents']==4 and wsi['com_present_checks']==9 and wsi['submissions']==wsi['completions']==235
+    assert wsi['com_wsi_presents']==4 and wsi['com_present_checks']==9 and wsi['submissions']==wsi['completions']==243
     report['translated_com_present']={k:wsi[k] for k in ('com_wsi_presents','com_present_checks','submissions','completions')}
     for result in (report,wsi):
-        assert result['reset_checks']==28 and result['successful_resets']==4 and result['reset_timeout_checked']
+        assert result['reset_checks']==35 and result['successful_resets']==6 and result['reset_timeout_checked']
     assert report['pixel_checks']==2304 and report['submissions']==report['completions'] and report['frames_in_flight']==2
     assert report['fault_scenarios']==9 and report['unknown_completion_quarantined'] and report['all_gpu_handles_released'] and report['noncoherent_invalidation_checked']
     assert report['factory_import_bound'] and report['prepared_create_device'] and report['factory_checks']>=57 and report['caps_complete'] is False
-    assert report['draws']==42 and report['render_state_pixel_checks']==20480
+    assert report['draws']==44 and report['render_state_pixel_checks']==20480
     assert report['bc_pixel_checks']==3072 and report['bc_transfer_checks']==30
-    assert report['stateblock_checks']==29 and report['stateblock_pixel_checks']==4096
+    assert report['stateblock_checks']==29 and report['stateblock_pixel_checks']==6144
+    assert report['texture_block_checks']==51
     assert report['fvf_checks']==43 and report['fvf_pixel_checks']==1024
     assert report['up_pixel_checks']==7168 and report['up_checks']==22
     assert report['draw_submit_faults']==3
