@@ -12,9 +12,10 @@ La suite GPU de escritorio cubre ambas llamadas y sus efectos sobre bindings.
 blending a declaraciones y conservan su identidad y vida. La conversion no
 sustituye los shaders del pipeline fijo que aun faltan.
 
-[State blocks numericos grabados](docs/native-d3d9-stateblocks.md) ya separan
+[State blocks grabados](docs/native-d3d9-stateblocks.md) ya separan
 grabacion y estado actual, y restauran transacciones completas. No incluyen
-todavia bindings/constantes ni CreateStateBlock(ALL).
+todavia bindings ni CreateStateBlock(ALL). Las constantes FLOAT/INT/BOOL de
+VS/PS tambien se graban y capturan, contrastadas con Windows y draws Vulkan.
 
 Estado posterior: [Reset del dispositivo sano y tamano fijo](docs/native-d3d9-reset.md) ya implementado y probado en escritorio. La recuperacion de superficies perdidas y el cambio de resolucion siguen pendientes.
 

@@ -6,6 +6,7 @@
 #include <stdio.h>
 static void ok(HRESULT hr){assert(SUCCEEDED(hr));}
 static DWORD cull(IDirect3DDevice9 *d){DWORD v=0;ok(IDirect3DDevice9_GetRenderState(d,D3DRS_CULLMODE,&v));return v;}
+#include "stateblock_constants_oracle.h"
 int main(void){
     WNDCLASSW wc={0};wc.lpfnWndProc=DefWindowProcW;wc.hInstance=GetModuleHandleW(NULL);wc.lpszClassName=L"FNVStateBlockReference";assert(RegisterClassW(&wc));
     HWND w=CreateWindowExW(0,wc.lpszClassName,L"FNV stateblock reference",WS_POPUP,0,0,32,32,NULL,NULL,wc.hInstance,NULL);assert(w);
@@ -18,6 +19,6 @@ int main(void){
     ok(IDirect3DDevice9_BeginStateBlock(d));assert(IDirect3DStateBlock9_Capture(b)==D3DERR_INVALIDCALL);IDirect3DStateBlock9 *empty=NULL;ok(IDirect3DDevice9_EndStateBlock(d,&empty));ok(IDirect3DStateBlock9_Apply(empty));ok(IDirect3DStateBlock9_Capture(empty));IDirect3DStateBlock9_Release(empty);
     IDirect3DDevice9 *parent=NULL;ok(IDirect3DStateBlock9_GetDevice(b,&parent));assert(parent==d);IDirect3DDevice9_Release(parent);
     IDirect3DStateBlock9 *queried=NULL;ok(IDirect3DStateBlock9_QueryInterface(b,&IID_IDirect3DStateBlock9,(void**)&queried));assert(queried==b);IDirect3DStateBlock9_Release(queried);
-    IDirect3DStateBlock9_Release(b);assert(!IDirect3DDevice9_Release(d));assert(!IDirect3D9_Release(api));DestroyWindow(w);UnregisterClassW(wc.lpszClassName,wc.hInstance);
-    puts("{\"status\":\"PASS\",\"windows_hal_reference\":true,\"stateblock_semantics_checked\":true}");return 0;
+    IDirect3DStateBlock9_Release(b);constant_blocks(d);assert(!IDirect3DDevice9_Release(d));assert(!IDirect3D9_Release(api));DestroyWindow(w);UnregisterClassW(wc.lpszClassName,wc.hInstance);
+    printf("{\"status\":\"PASS\",\"windows_hal_reference\":true,\"stateblock_semantics_checked\":true,\"constant_bank_comparisons\":%u,\"constant_blocks\":64,\"snapshot_negatives\":4}\n",snapshot_checks);return 0;
 }

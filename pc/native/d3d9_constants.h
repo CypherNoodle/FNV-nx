@@ -8,6 +8,15 @@
 enum fnv_d3d9_stage { FNV_D3D9_VERTEX,FNV_D3D9_PIXEL };
 enum fnv_d3d9_constant_kind { FNV_D3D9_FLOAT,FNV_D3D9_INTEGER,FNV_D3D9_BOOLEAN };
 struct fnv_d3d9_constants;
+/* Selection masks and owned register bits for recorded state blocks. A zeroed
+ * snapshot selects nothing. BOOL values retain their opaque 32-bit contents. */
+struct fnv_d3d9_constant_snapshot {
+    uint64_t mask[2][3][4];uint32_t floats[2][256][4],integers[2][16][4],booleans[2][16];
+};
+uint32_t fnv_d3d9_constants_record(struct fnv_d3d9_constants *,struct fnv_d3d9_constant_snapshot *,enum fnv_d3d9_stage,enum fnv_d3d9_constant_kind,uint32_t first,uint32_t count,const void *bits);
+/* 0 apply selected values and mark changes dirty, 1 capture selected values,
+ * 2 validate masks only. Invalid masks leave banks and snapshot untouched. */
+uint32_t fnv_d3d9_constants_snapshot(struct fnv_d3d9_constants *,struct fnv_d3d9_constant_snapshot *,uint32_t operation);
 /* Global API register banks, not shader-local DEF/DEFI/DEFB constants.
  * Float/INT vectors are opaque 4x32-bit values; BOOL registers are 32 bits.
  * Limits must agree with the eventual advertised device caps/profile. */

@@ -27,7 +27,13 @@ done:fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,8);
 }
 static void stateblock_operation(uint32_t operation){
     struct fnv_d3d9_com *c=module();fnv_host_mutex_lock(&c->guard);int index=resource_kind(c,fnv_cpu_argument_u32(0),FNV_D3D9_STATEBLOCK);uint32_t hr=FNV_D3D9_INVALIDCALL;
-    if(index>=0 && !c->recording){struct state_block *b=c->resources[index].snapshot;hr=c->config.backend.state_batch(c->config.backend.context,b->entries,b->count,operation);}
+    if(index>=0 && !c->recording){struct state_block *b=c->resources[index].snapshot;
+        /* All mask validation precedes the numeric transaction. Under the
+         * module lock, the following constant commit cannot fail validation. */
+        hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,2);
+        if(!hr)hr=c->config.backend.state_batch(c->config.backend.context,b->entries,b->count,operation);
+        if(!hr)hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,operation);
+    }
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,4);
 }
 static void api_capture_stateblock(void){stateblock_operation(1);}

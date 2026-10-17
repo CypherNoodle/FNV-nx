@@ -9,7 +9,7 @@ enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FAC
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
-struct state_block {uint32_t count;struct fnv_d3d9_state_value entries[256];};
+struct state_block {uint32_t count;struct fnv_d3d9_state_value entries[256];struct fnv_d3d9_constant_snapshot constants;};
 struct resource {
     uintptr_t handle;uint32_t references,pins;struct code *code;enum fnv_d3d9_resource_kind kind;
     uint32_t data,size,usage,format,fvf,pool,locked,lock_offset,lock_bytes,lock_flags;
@@ -713,8 +713,9 @@ static void constant(enum fnv_d3d9_stage stage,enum fnv_d3d9_constant_kind kind,
     if(count>256){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,16);return;}
     void *data=count?range(c,at,count*width,get):NULL;
     if(count && !data){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,16);return;}
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);if(!get && reject_record(c,4))return;
-    uint32_t result=get?fnv_d3d9_constants_get(c->constants,stage,kind,first,count,data):fnv_d3d9_constants_set(c->constants,stage,kind,first,count,data);
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);
+    uint32_t result=!get && c->recording?fnv_d3d9_constants_record(c->constants,&c->recording->constants,stage,kind,first,count,data):
+        get?fnv_d3d9_constants_get(c->constants,stage,kind,first,count,data):fnv_d3d9_constants_set(c->constants,stage,kind,first,count,data);
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,16);
 }
 #define CONSTANTS(prefix,stage) \

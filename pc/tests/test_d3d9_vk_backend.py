@@ -16,16 +16,16 @@ def run(args):
         extra_sources=(pc/'native/d3d9_vk_backend.c',pc/'native/d3d9_texture_upload.c',pc/'native/d3d9_uniform_state.c',pc/'native/d3d9_uniform_pack.c',pc/'native/d3d9_geometry.c',pc/'native/d3d9_vk_state.c'),extra_includes=(headers,),baseline_lifetime_checks=False,factory_import=True)
     report=json.loads((args.output/'validation.json').read_text());assert report['native_vulkan_backend'] and report['desktop_d3d9_used'] is False
     wsi=json.loads((args.output/'present.log').read_text().strip().splitlines()[-1])
-    assert wsi['com_wsi_presents']==4 and wsi['com_present_checks']==9 and wsi['submissions']==wsi['completions']==229
+    assert wsi['com_wsi_presents']==4 and wsi['com_present_checks']==9 and wsi['submissions']==wsi['completions']==235
     report['translated_com_present']={k:wsi[k] for k in ('com_wsi_presents','com_present_checks','submissions','completions')}
     for result in (report,wsi):
         assert result['reset_checks']==28 and result['successful_resets']==4 and result['reset_timeout_checked']
     assert report['pixel_checks']==2304 and report['submissions']==report['completions'] and report['frames_in_flight']==2
     assert report['fault_scenarios']==9 and report['unknown_completion_quarantined'] and report['all_gpu_handles_released'] and report['noncoherent_invalidation_checked']
     assert report['factory_import_bound'] and report['prepared_create_device'] and report['factory_checks']>=57 and report['caps_complete'] is False
-    assert report['draws']==40 and report['render_state_pixel_checks']==20480
+    assert report['draws']==42 and report['render_state_pixel_checks']==20480
     assert report['bc_pixel_checks']==3072 and report['bc_transfer_checks']==30
-    assert report['stateblock_checks']==25 and report['stateblock_pixel_checks']==2048
+    assert report['stateblock_checks']==29 and report['stateblock_pixel_checks']==4096
     assert report['fvf_checks']==43 and report['fvf_pixel_checks']==1024
     assert report['up_pixel_checks']==7168 and report['up_checks']==22
     assert report['draw_submit_faults']==3

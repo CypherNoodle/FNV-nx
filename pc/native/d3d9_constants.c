@@ -15,6 +15,30 @@ static struct bank *select_bank(struct fnv_d3d9_constants *c,enum fnv_d3d9_stage
     if(first>b->count || count>b->count-first)return NULL;
     return b;
 }
+static uint32_t *snapshot_data(struct fnv_d3d9_constant_snapshot *p,unsigned stage,unsigned kind){
+    return kind==0?&p->floats[stage][0][0]:kind==1?&p->integers[stage][0][0]:p->booleans[stage];
+}
+uint32_t fnv_d3d9_constants_record(struct fnv_d3d9_constants *c,struct fnv_d3d9_constant_snapshot *p,enum fnv_d3d9_stage stage,enum fnv_d3d9_constant_kind kind,uint32_t first,uint32_t count,const void *bits){
+    struct bank *b=select_bank(c,stage,kind,first,count,bits);if(!b || !p)return FNV_D3D9_INVALIDCALL;
+    uint32_t *data=snapshot_data(p,stage,kind);
+    if(count)memmove(data+first*b->width,bits,(size_t)count*b->width*4);
+    for(uint32_t i=0;i<count;++i)p->mask[stage][kind][(first+i)/64]|=UINT64_C(1)<<((first+i)&63);
+    return 0;
+}
+uint32_t fnv_d3d9_constants_snapshot(struct fnv_d3d9_constants *c,struct fnv_d3d9_constant_snapshot *p,uint32_t operation){
+    if(!c || !p || operation>2)return FNV_D3D9_INVALIDCALL;
+    fnv_host_mutex_lock(&c->guard);
+    for(unsigned s=0;s<2;++s)for(unsigned k=0;k<3;++k)for(unsigned i=c->banks[s][k].count;i<256;++i){
+        if(p->mask[s][k][i/64]&(UINT64_C(1)<<(i&63))){fnv_host_mutex_unlock(&c->guard);return FNV_D3D9_INVALIDCALL;}
+    }
+    if(operation!=2)for(unsigned s=0;s<2;++s)for(unsigned k=0;k<3;++k){struct bank *b=&c->banks[s][k];uint32_t *data=snapshot_data(p,s,k);
+        for(uint32_t i=0;i<b->count;++i)if(p->mask[s][k][i/64]&(UINT64_C(1)<<(i&63))){
+            if(operation==1)memcpy(data+i*b->width,b->data+i*b->width,b->width*4);
+            else if(memcmp(b->data+i*b->width,data+i*b->width,b->width*4)){memcpy(b->data+i*b->width,data+i*b->width,b->width*4);dirty(b,i);}
+        }
+    }
+    fnv_host_mutex_unlock(&c->guard);return 0;
+}
 uint32_t fnv_d3d9_constants_create(uint32_t vf,uint32_t pf,struct fnv_d3d9_constants **out) {
     if(!out)return FNV_D3D9_INVALIDCALL;
     *out=NULL;if(!vf || vf>256 || !pf || pf>224)return FNV_D3D9_INVALIDCALL;
