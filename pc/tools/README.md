@@ -249,6 +249,11 @@ CRLF de forma explicita; valida primero todos los inputs y rechaza rutas fuera
 del repo, binarios y CR sueltos. Excluye third_party/local/dist. Ejecutarlo antes
 de congelar hashes, no despues. test_line_endings.py comprueba esos contratos.
 
+fetch_minimp3.py descarga/verifica headers CC0 externos fijados para el decoder
+MP3 nativo; no toca Steam ni genera carpetas SD. test_mp3_stream.py verifica
+conversion de frecuencia y streaming/rewind/cola sobre pistas privadas;
+ver [contrato MP3](../docs/native-mp3.md). No es audio del motor funcionando.
+
 build_horizon_media.py verifica la compilacion y enlace parcial de controles
 HID/XInput y PCM/audout. Requiere validation.json del test_windows_xinput.py;
 ver [contrato y limites](../docs/native-input-audio.md). No ejecuta el motor.

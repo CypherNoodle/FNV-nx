@@ -1,17 +1,18 @@
 # Puentes nativos de audio y video (pendientes)
 
 Ya existe [salida PCM y XInput](native-input-audio.md), con backend audout/HID
-compilado para Horizon. Los codecs y su enlace al motor siguen pendientes.
+compilado para Horizon. Tambien existe [MP3 streaming nativo](native-mp3.md).
+Vorbis/Bink y el enlace de estos componentes al motor siguen pendientes.
 
 ## MP3 y formatos encontrados
 
 El inventario de solo lectura de esta instalacion encontro 247 archivos sueltos
 con extension .mp3 y un .bik. Dos muestras MP3 tienen cabecera ID3; no es un
 inventario de audio dentro de BSA ni una validacion completa de todos los frames.
-Se necesita MP3 ademas de Vorbis y audio Bink. FFmpeg puede unificar codecs;
-mpg123 o minimp3 son alternativas nativas para MP3. No se agrego un decoder aun.
-El mezclador debe convertir frecuencia/canales a stereo 48000 s16; la cola actual
-no remuestrea. Evitar reproducir 44100 Hz como 48000: cambia velocidad y tono.
+MP3 ya tiene decoder minimp3 y conversion streaming a stereo 48000 s16, con
+pruebas reales de pistas a 44,1/48 kHz. La cola no remuestrea: esa conversion
+ocurre antes en pcm_convert. Vorbis y audio Bink siguen pendientes; FFmpeg es
+una opcion para Bink. Los bridges de audio Windows tampoco estan implementados.
 
 WINMM importa mmioOpenA/Descend/Close/Read/Ascend/GetInfo/Advance y timeGetTime;
 ole32 incluye CoCreateInstance. DSOUND usa ordinal 11; DINPUT8 importa

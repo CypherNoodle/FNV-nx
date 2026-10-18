@@ -1,9 +1,10 @@
 # Controles y salida PCM nativos
 
 Implementados como proveedores opcionales. No hay motor PC arrancado ni audio
-del juego por este cambio. DirectInput, DirectSound COM, Vorbis/Bink/MP3 y las
+del juego por este cambio. DirectInput, DirectSound COM, Vorbis/Bink y las
 interfaces de reproduccion Windows siguen pendientes; no se anuncian exports
 exitosos ficticios para ocultar esas dependencias.
+El [decoder MP3](native-mp3.md) ya entrega PCM, separado del puente del motor.
 
 ## XInput
 
@@ -48,7 +49,8 @@ debe entregar PCM antes de abrir para evitar silencio inicial y mantener la cola
 Solo un propietario audout; no mezclar con otro usuario/SDL que use esa sesion.
 En close se detiene/junta el hilo y se cierra el servicio antes de liberar DMA.
 Si close falla, retiene objeto/cola: caller no debe liberarlos.
-La cola debe vivir hasta que el backend cierre. No hay mixer 3D ni resampler aun.
+La cola debe vivir hasta que el backend cierre. No hay mixer 3D; el resampler
+MP3 corre antes de esta cola, no dentro del backend audout.
 
 ## Verificacion
 
