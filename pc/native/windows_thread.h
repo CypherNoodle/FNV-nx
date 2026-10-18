@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 14u
+#define FNV_WINDOWS_THREAD_EXPORTS 16u
 struct fnv_windows_process;
 struct fnv_guest_memory;
 struct fnv_windows_config {
@@ -16,6 +16,9 @@ struct fnv_windows_config {
      * Caller owns committed backing within cpu.memory until process destroy.
      * Fixed budget; no host pointers are returned to guest code. */
     uint32_t heap_address,heap_bytes,heap_capacity;
+    /* Private heaps reserve from memory (Virtual* pool). Zero disables them.
+     * Ceiling per growable heap and number of live private heaps. */
+    uint32_t private_heap_reserve,private_heap_limit;
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;

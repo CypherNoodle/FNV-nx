@@ -12,7 +12,7 @@ NAMES=['GetProcessHeap','HeapAlloc','HeapReAlloc','HeapFree','HeapSize','HeapVal
 ARGS=[0,3,4,3,3,3,0,1]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a):
+def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',)):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -21,7 +21,7 @@ def test(a):
     from prepare_aot_image import prepare
     from run_aot_analysis import sdk_identity
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
-    frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_heap_host.c',pc/'tests/pe_fixture.py',
+    frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_heap_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',*extra_inputs,
         *[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
         'windows_thread.c','windows_thread.h','windows_heap.inc','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
@@ -48,19 +48,20 @@ def test(a):
     command=[*a.cc,'-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable',
         '-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(sdk/'templates/runtime'),'-include',str(pc/'native/fnv_sdk_runtime.h'),str(generated),
         *[str(pc/'native'/n) for n in ('cpu_runtime.c','pe_image.c','windows_thread.c','guest_memory.c','memory_horizon.c','windows_memory.c')],
-        str(pc/'tests/windows_heap_host.c'),'-o',str(out/'heap-test.exe')]
+        str(pc/'tests'/host_source),'-o',str(out/'heap-test.exe')]
     built=subprocess.run(command,capture_output=True,text=True);(out/'compiler.log').write_text(built.stdout+built.stderr)
     if built.returncode:raise RuntimeError(built.stderr)
     invocation=[str(out/'heap-test.exe'),str(exe)]
     run=subprocess.run(invocation,capture_output=True,text=True,timeout=45);(out/'host.log').write_text(run.stdout+run.stderr)
     if run.returncode:raise RuntimeError(f'Memory bridge exit {run.returncode}: '+run.stdout+run.stderr)
     result=json.loads(run.stdout.strip().splitlines()[-1])
-    child=subprocess.run([*invocation,'--strict-flags'],capture_output=True,text=True,timeout=15)
-    (out/'strict.log').write_text(child.stdout+child.stderr)
-    assert child.returncode==0 and 'strict PASS' in child.stdout
+    for mode in strict_modes:
+        child=subprocess.run([*invocation,mode],capture_output=True,text=True,timeout=15)
+        (out/(mode+'.log')).write_text(child.stdout+child.stderr)
+        assert child.returncode==0 and 'strict PASS' in child.stdout,(mode,child.returncode,child.stderr)
     assert all(sha(p)==h for p,h in frozen.items()) and sdk_identity(sdk)==sdk_hash
     result.update(source_sha256={str(p):h for p,h in frozen.items()},sdk_sha256=sdk_hash,synthetic_functions=len(functions),
-        strict_flag_stops=1,exe_sha256=sha(out/'heap-test.exe'),switch_hardware_tested=False)
+        strict_flag_stops=len(strict_modes),exe_sha256=sha(out/'heap-test.exe'),switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:v for k,v in result.items() if k!='source_sha256'},indent=2))
 

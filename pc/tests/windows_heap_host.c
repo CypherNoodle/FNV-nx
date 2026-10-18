@@ -6,7 +6,9 @@
 #undef NDEBUG
 #include <assert.h>
 #define BASE 0x400000u
+#ifndef ARENA
 #define ARENA 0x200000u
+#endif
 #define HEAP_BASE (BASE+0x40000u)
 #define HEAP_BYTES 0x100000u
 enum {PROCESS_HEAP,ALLOC,REALLOC,FREE,HEAP_SIZE,VALIDATE,GET_ERROR,SET_ERROR};
@@ -15,8 +17,8 @@ static struct fnv_windows_process *process;
 static uint32_t read32(uint32_t at){unsigned char *p=arena+at-BASE;return p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
 static void write32(uint32_t at,uint32_t value){for(unsigned i=0;i<4;++i)arena[at-BASE+i]=(unsigned char)(value>>(i*8));}
 static uint32_t call(unsigned api,uint32_t a,uint32_t b,uint32_t c,uint32_t d){
-    const unsigned argc[]={0,3,4,3,3,3,0,1};struct fnv_cpu_state s,got;
-    assert(fnv_cpu_get_state(&s)==FNV_CPU_OK);s.gpr[4]=BASE+0x1BF00;assert(fnv_cpu_set_state(&s)==FNV_CPU_OK);
+    const unsigned argc[]={0,3,4,3,3,3,0,1,3,1};struct fnv_cpu_state s,got;
+    assert(fnv_cpu_get_state(&s)==FNV_CPU_OK);s.gpr[4]=read32(s.fs_base+4)-256;assert(fnv_cpu_set_state(&s)==FNV_CPU_OK);
     uint32_t values[]={0x401500,a,b,c,d};for(unsigned i=0;i<5;++i)write32(s.gpr[4]+i*4,values[i]);
     struct fnv_cpu_fault fault;enum fnv_cpu_result r=fnv_cpu_execute(0x401500+api*32,&fault);
     if(r!=FNV_CPU_OK)fprintf(stderr,"heap API %u fault: %s\n",api,fault.text);

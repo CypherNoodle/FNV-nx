@@ -16,6 +16,10 @@ struct windows_thread {
     unsigned char *teb, *expansion;
 };
 struct heap_block {uint32_t address,bytes,span;};
+struct heap_store {
+    struct heap_block *blocks;uint32_t count,address,bytes,committed,fixed;
+    struct heap_store *next;
+};
 struct fnv_windows_process {
     struct fnv_windows_config config;
     struct fnv_cpu_runtime *cpu;
@@ -23,8 +27,8 @@ struct fnv_windows_process {
     uint32_t allocated[FNV_WINDOWS_TLS_SLOTS/32];
     atomic_flag guard;
     fnv_host_mutex heap_guard;
-    struct heap_block *heap_blocks;
-    uint32_t heap_count;
+    struct heap_store heap,*private_heaps;
+    uint32_t private_heap_count,heap_native_fault;
 };
 static RECOMP_TLS struct windows_thread current;
 static void lock(struct fnv_windows_process *p) {
@@ -151,6 +155,8 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","HeapFree",0,0,api_heap_free},
     {"kernel32.dll","HeapSize",0,0,api_heap_size},
     {"kernel32.dll","HeapValidate",0,0,api_heap_validate},
+    {"kernel32.dll","HeapCreate",0,0,api_heap_create},
+    {"kernel32.dll","HeapDestroy",0,0,api_heap_destroy},
 };
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {
     if(!out)return FNV_CPU_INVALID;
@@ -177,11 +183,11 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     if(!p)return FNV_CPU_INVALID;
     lock(p);
-    if(p->threads){unlock(p);return FNV_CPU_BUSY;}
+    if(p->threads || p->private_heaps){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
-    unlock(p);if(result==FNV_CPU_OK){if(p->heap_blocks){
+    unlock(p);if(result==FNV_CPU_OK){if(p->heap.blocks){
             if(read32(memory(p,p->config.peb_address)+0x18)==p->config.heap_address)write32(memory(p,p->config.peb_address)+0x18,0);
-            free(p->heap_blocks);fnv_host_mutex_destroy(&p->heap_guard);}
+            free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         fnv_vm_release_reference(p->config.memory);free(p);}return result;
 }
 struct fnv_cpu_runtime *fnv_windows_runtime(struct fnv_windows_process *p){return p?p->cpu:NULL;}
