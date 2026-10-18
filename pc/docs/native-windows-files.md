@@ -1,7 +1,7 @@
 # Lectura de archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, GetFileSize/Ex y SetFilePointer/Ex.
-La lectura agrego siete exports; la tabla base actual tiene 69, incluyendo
+La lectura agrego siete exports; la tabla base actual tiene 73, incluyendo
 [atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
@@ -103,3 +103,11 @@ Contratos: [ReadFile](https://learn.microsoft.com/en-us/windows/win32/api/fileap
 [SetFilePointerEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfilepointerex),
 [GetFileSizeEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfilesizeex),
 [CreateFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
+
+La revision del proveedor confirma que CloseHandle enruta D a archivos, C a
+busquedas (rechazadas por ese API), y E al kernel; los tests cubren tipos,
+handles forjados y cierres concurrentes. fread limpia errno antes de leer y
+captura su valor inmediatamente. Si el backend falla sin informar errno,
+se usa ERROR_IO_DEVICE (1117), no un error obsoleto de una operacion anterior.
+Las aperturas de escritura siguen devolviendo error 50: el proveedor de esta
+fase es de lectura, no se han habilitado silenciosamente INI/logs/guardados.

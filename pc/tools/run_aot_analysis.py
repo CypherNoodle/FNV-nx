@@ -48,12 +48,12 @@ def verified_scan_wrapper(analysis, scan, current_wrapper):
     raise ValueError('Scan wrapper identity unavailable; preserve its exact source or rerun a fresh scan')
 
 
-def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False):
+def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False, frame_restore=False):
     analysis=analysis.resolve(); sdk=sdk.resolve()
     paths = generation_paths(analysis, generation_name)
     if max_functions is not None and max_functions <= 0:
         raise ValueError('--max-functions must be positive')
-    if (simd_bits or mul_flags) and (generation_name is None or stage == 'scan'):
+    if (simd_bits or mul_flags or frame_restore) and (generation_name is None or stage == 'scan'):
         raise ValueError('Codegen overlays require a separate named generation')
     if stage != 'scan':
         for key, path in paths.items():
@@ -71,6 +71,8 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     index_sha=sha(index_wrapper)
     overlay = Path(__file__).with_name('aot_simd_bits.py')
     mul_overlay = Path(__file__).with_name('aot_mul_flags.py')
+    frame_overlay = Path(__file__).with_name('aot_frame_restore.py')
+    frame_identity = {'source_sha256':sha(frame_overlay)} if frame_restore else None
     native = Path(__file__).resolve().parents[1]/'native'
     overlay_identity = ({'source_sha256':sha(overlay), 'runtime_header_sha256':sha(native/'fnv_simd_bits.h')} if simd_bits else None)
     multiply_identity = ({'source_sha256':sha(mul_overlay), 'runtime_header_sha256':sha(native/'fnv_mul_flags.h')} if mul_flags else None)
@@ -84,6 +86,11 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
             invocation=[sys.executable,"-u","-m",*args]
             if args[0]=='tools.disasm':
                 invocation=[sys.executable,"-u",str(index_wrapper),'--sdk',str(sdk),*args[1:]]
+            elif args[0]=='tools.recomp' and frame_restore:
+                invocation=[sys.executable,'-u',str(frame_overlay),'--sdk',str(sdk)]
+                if simd_bits: invocation+=['--simd-bits']
+                if mul_flags: invocation+=['--mul-flags']
+                invocation+=args[1:]
             elif args[0]=='tools.recomp' and mul_flags:
                 invocation=[sys.executable,'-u',str(mul_overlay),'--sdk',str(sdk)]
                 if simd_bits: invocation += ['--simd-bits']
@@ -139,6 +146,8 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         header.write_text(code.replace(marker, marker+''.join('\n#include "'+name+'"' for name in includes)), encoding='utf-8')
     if sdk_identity(sdk) != fingerprint:
         raise ValueError('SDK source changed during generation')
+    if frame_identity and sha(frame_overlay)!=frame_identity['source_sha256']:
+        raise ValueError('Frame restore overlay changed during generation')
     if sha(scan_manifest)!=scan_sha or (code_data_filter and verify_derivation(analysis,decoder)!=code_data_filter):
         raise ValueError('Analysis selection changed during generation')
     for identity, source, runtime in ((overlay_identity,overlay,native/'fnv_simd_bits.h'),
@@ -155,7 +164,7 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         input_profile_sha256=sha(analysis/"input-profile.json"),sdk_sha256=fingerprint,index_wrapper_sha256=index_sha,
         generation_name=generation_name, scan_wrapper_verified_from=verified_wrapper.name,
         scan_identity_sha256=scan_sha,code_data_filter=code_data_filter,
-        codegen_overlay=overlay_identity,multiply_overlay=multiply_identity,
+        codegen_overlay=overlay_identity,multiply_overlay=multiply_identity,frame_restore_overlay=frame_identity,
         functions_detected=len(json.loads((analysis/"disasm/functions.json").read_text())),
         functions_requested=summary.get("total"),functions_generated=summary.get("translated"),
         max_functions=max_functions,full_selection=max_functions is None,gaps=gaps,
@@ -179,5 +188,6 @@ if __name__=="__main__":
     p.add_argument('--generation-name', help='Separate outputs/logs for this variant; preserves the baseline')
     p.add_argument('--simd-bits', action='store_true', help='Enable verified SSE2 bits/moves/shuffles overlay')
     p.add_argument('--mul-flags', action='store_true', help='Enable wide multiply and defined CF/OF overlay')
+    p.add_argument('--frame-restore', action='store_true', help='Publish restored EBP after POP EBP / LEAVE')
     a=p.parse_args()
-    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags)
+    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags,a.frame_restore)

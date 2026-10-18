@@ -14,7 +14,7 @@ binkw32, libvorbis, libvorbisfile, GDFFalloutNV o atimgpud.
 3. Llamar `fnv_windows_modules_create(process, image, "FalloutNV.exe", catalog,
    count, &modules)`. La imagen debe estar en el arena del CPU correspondiente.
 4. Bind de IAT con `fnv_windows_bind_imports`: pasar solamente los exports
-   adicionales y los seis de modules. El binder ya agrega los 69 Windows base;
+   adicionales y los seis de modules. El binder ya agrega los 73 Windows base;
    duplicarlos falla. Preparar modules no sustituye este bind ni ejecuta el EXE.
 5. Adjuntar/ejecutar/separar los hilos. Al terminar, destruir primero los
    proveedores de modules y despues WindowsProcess.

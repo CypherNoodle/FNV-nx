@@ -1,7 +1,7 @@
 # Localizacion de archivos y metadatos
 
 WindowsThread incorpora GetFileAttributesA/W, FindFirstFileA/W, FindNextFileA/W,
-FindClose y GetFileType: 69 exports base en total. Usa la raiz y capacidad de
+FindClose y GetFileType: 73 exports base en total. Usa la raiz y capacidad de
 archivos existentes, sin crear carpetas ni modificar assets. Los imports reales
 de Fallout incluyen las variantes A, FindClose y GetFileType; W queda disponible
 para otros callers.
@@ -15,8 +15,9 @@ No implementa toda la semantica DOS de wildcards: '?' y wildcards en directorios
 padre fallan con error 50. No se ordenan resultados. El caller no puede depender
 del orden del filesystem. Se omiten '.' y '..' deliberadamente; los tests tambien
 los excluyen al comparar conjuntos con Windows. No es una replica completa de
-la enumeracion Win32. Un nombre fuera de ASCII produce 1113; no se oculta como
-si no existiera. Las rutas comparten la normalizacion y limites de la lectura.
+la enumeracion Win32. Los nombres no ASCII se omiten y se cuentan en skipped_non_ascii, sin
+cortar la enumeracion. El adaptador POSIX tambien omite archivos especiales
+y los cuenta en skipped_special. No se anuncia soporte Unicode para abrirlos. Las rutas comparten la normalizacion y limites de la lectura.
 
 WIN32_FIND_DATA se escribe campo por campo en little endian. A ocupa 320 bytes,
 W 592; los nombres W se convierten a UTF-16LE a partir del subconjunto ASCII.
@@ -75,8 +76,8 @@ de busqueda A/W, metadatos y nombres alternativos; doce consultas de atributos;
 tamano ANSI/W y guardas de buffer; EOF, tipos de handle, capacidad y cursores
 obsoletos. Un archivo sparse de 8589934591 bytes cubre sizeHigh/sizeLow. Cuatro
 threads consumen un mismo cursor y cada entrada aparece exactamente una vez.
-Tres procesos negativos cubren buffer fuera del arena, proveedor deshabilitado
-y nombre no ASCII. No se usa el orden de resultados como expectativa.
+Dos procesos negativos cubren buffer fuera del arena y proveedor deshabilitado;
+un tercero comprueba que un nombre no ASCII se omita sin cortar el listado. No se usa el orden de resultados como expectativa.
 
 --game-root compara enumeraciones reales de Data/*.bsa y Data/*.esm de Steam,
 en A y W, sin ejecutar el EXE ni publicar sus datos. Las regresiones de lectura,
@@ -88,3 +89,18 @@ Contratos: [FindFirstFile](https://learn.microsoft.com/en-us/windows/win32/api/f
 [FindNextFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextfilea),
 [WIN32_FIND_DATA](https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-win32_find_dataa),
 [GetFileAttributes](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileattributesa).
+
+## Revision de continuidad y diagnostico
+
+Los nombres no ASCII ya no devuelven 1113 a mitad del recorrido: se omiten y
+se cuentan. El EOF final conserva error 18 en FindNext. Los tipos POSIX especiales
+(FIFO/dispositivo/socket) se omiten con contador, evitando terminar el escaneo
+por error 50. Los errores reales de IO y los nombres excesivos siguen siendo
+fallos explicitos. El proveedor no aplica case-insensitivity al lookup de fopen
+en ext4; en hosts POSIX sensibles a mayusculas se requiere el nombre real.
+
+La prueba Windows inserta un nombre no ASCII y conserva todas las entradas
+ASCII en A/W hasta EOF, con stats de omisiones. La prueba POSIX crea un FIFO y
+dos archivos normales, verifica continuidad, contador y EOF; no abre el FIFO.
+GetFileAttributes sobre un tipo especial aun devuelve error 50. El CLOCK_REALTIME
+de Linux se ejecuta en esa prueba; esto no valida la inicializacion UTC de libnx.

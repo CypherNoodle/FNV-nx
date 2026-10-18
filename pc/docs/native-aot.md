@@ -412,3 +412,24 @@ El informe privado no sustituye observar el arranque original ni ejecutar CRT.
 Los dos relojes y STARTUPINFO A/W ya cuentan con bridges probados por separado.
 GetCommandLine A/W, CommandLineToArgvW/LocalFree y la ruta de ventanas son los
 siguientes servicios observados, junto con SEH y el perfil real de entrada.
+
+## Publicacion de marcos EBP y SEH
+
+La prueba sintetica test_windows_seh_frames.py expuso un frame shadow obsoleto
+tras POP EBP/LEAVE: el siguiente helper usaba el frame interno ya retirado.
+La capa opcional aot_frame_restore.py publica el frame restaurado y el establecido
+por LEA EBP, sin modificar el SDK. --frame-restore en run_aot_analysis registra
+su SHA en una variante separada; build_cpu_runtime verifica ese hash si existe.
+Los helpers SEH se deben identificar en el perfil del titulo para que los
+callers publiquen y recuperen su EBP local. La autodeteccion del SDK no reconoce
+las variantes de helpers de la captura FNV actual. No se las registra a ciegas.
+El CLI de la capa permite los overrides --seh-prolog/--seh-epilog del SDK despues
+de auditar esas entradas. El perfil completo y su regeneracion siguen pendientes.
+
+La regresion propia usa helpers de stack no convencionales, dos marcos anidados,
+POP EBP, LEAVE y LEA, con cuatro contextos de hilo y 1000 ciclos por variante.
+Con helpers explicitamente identificados, la capa conserva FS:[0], ESP, EBP y
+LastError; quitarla reproduce el fallo de pila. Esto valida el camino normal,
+no despacho de excepciones, filtros, unwind, longjmp ni continuidad tras faults.
+La generacion completa anterior de 346 unidades NO contiene esta capa todavia.
+No se declara un arranque del CRT o del motor por pasar estos casos.

@@ -108,7 +108,7 @@ static uint32_t heap_allocate_locked(struct fnv_windows_process *p,struct heap_s
     }
     if((uint64_t)at+span>(uint64_t)h->address+h->bytes || !heap_metadata_grow(p,h) || !heap_commit_locked(p,h,(uint64_t)at+span))return 0;
     memmove(h->blocks+i+1,h->blocks+i,(h->count-i)*sizeof(*h->blocks));
-    h->blocks[i]=(struct heap_block){(uint32_t)at,bytes,span};h->count++;
+    h->blocks[i]=(struct heap_block){(uint32_t)at,bytes,span,0};h->count++;
     if(i==h->first_gap){h->first_gap=i+1;heap_gap_advance(h);}
     if(flags&8)memset(memory(p,(uint32_t)at),0,bytes);
     return (uint32_t)at;
@@ -142,7 +142,8 @@ static void api_heap_realloc(void){
             }
         }else if(!(flags&16)){
             value=heap_allocate_locked(p,h,bytes,flags);
-            if(value){memcpy(memory(p,value),memory(p,at),bytes<old.bytes?bytes:old.bytes);heap_remove_locked(h,heap_find(h,at));}
+            if(value){memcpy(memory(p,value),memory(p,at),bytes<old.bytes?bytes:old.bytes);
+                h->blocks[heap_find(h,value)].local=old.local;heap_remove_locked(h,heap_find(h,at));}
         }
     }
     uint32_t fault=p->heap_native_fault;fnv_host_mutex_unlock(&p->heap_guard);heap_return(value,16,fault);

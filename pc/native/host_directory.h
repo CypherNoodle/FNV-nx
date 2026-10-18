@@ -28,9 +28,10 @@ static inline int fnv_host_directory_next(struct fnv_host_directory *d,struct fn
     e->size=((uint64_t)s->nFileSizeHigh<<32)|s->nFileSizeLow;*error=0;return 1;
 }
 static inline void fnv_host_directory_close(struct fnv_host_directory *d){FindClose(d->handle);free(d);}
+static inline uint64_t fnv_host_directory_take_skipped(struct fnv_host_directory *d){(void)d;return 0;}
 #else
 #include <dirent.h>
-struct fnv_host_directory {DIR *handle;char path[1538];};
+struct fnv_host_directory {DIR *handle;char path[1538];uint64_t skipped_special;};
 static inline uint64_t fnv_host_unix_filetime(int64_t seconds){
     const int64_t epoch=INT64_C(11644473600);
     if(seconds<-epoch || seconds>INT64_MAX-epoch)return 0;
@@ -50,15 +51,20 @@ static inline struct fnv_host_directory *fnv_host_directory_open(const char *pat
     if(strlen(path)>=1538){*error=206;return NULL;}
     DIR *handle=opendir(path);if(!handle){*error=fnv_host_file_error(errno);if(*error==2)*error=3;return NULL;}
     struct fnv_host_directory *d=malloc(sizeof(*d));if(!d){closedir(handle);*error=8;return NULL;}
-    d->handle=handle;strcpy(d->path,path);*error=0;return d;
+    d->handle=handle;d->skipped_special=0;strcpy(d->path,path);*error=0;return d;
 }
 static inline int fnv_host_directory_next(struct fnv_host_directory *d,struct fnv_host_entry *e,uint32_t *error){
     for(;;){errno=0;struct dirent *item=readdir(d->handle);if(!item){*error=errno?fnv_host_file_error(errno):0;return 0;}
         size_t n=strlen(item->d_name);if(n>=sizeof(e->name)){*error=206;return 0;}char path[2048];size_t parent=strlen(d->path);
         memcpy(path,d->path,parent);path[parent++]='/';memcpy(path+parent,item->d_name,n+1);
-        *error=fnv_host_metadata(path,e);if(*error==2)continue;if(*error)return 0;memcpy(e->name,item->d_name,n+1);return 1;
+        *error=fnv_host_metadata(path,e);if(*error==2)continue;
+        if(*error==50){d->skipped_special++;continue;}
+        if(*error)return 0;
+        memcpy(e->name,item->d_name,n+1);return 1;
     }
 }
 static inline void fnv_host_directory_close(struct fnv_host_directory *d){closedir(d->handle);free(d);}
+/* Caller owns the directory privately or holds its per-search IO mutex. */
+static inline uint64_t fnv_host_directory_take_skipped(struct fnv_host_directory *d){uint64_t count=d->skipped_special;d->skipped_special=0;return count;}
 #endif
 #endif

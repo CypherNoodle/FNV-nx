@@ -109,3 +109,7 @@ No se incluyen ejecutables, assets, codigo generado del juego ni capturas.
 Los [servicios del CRT](pc/docs/native-windows-time.md) incluyen GetTickCount,
 GetSystemTimeAsFileTime y GetStartupInfoA/W. La auditoria de calls permite seguir
 las dependencias del codigo capturado; no valida una entrada de arranque desde disco.
+
+Los [parametros guest](pc/docs/native-windows-parameters.md) incluyen cadenas
+GetCommandLine A/W, CommandLineToArgvW y liberacion de su bloque. El dispatcher
+de excepciones Windows, la ruta USER32 y el arranque desde el EXE siguen pendientes.

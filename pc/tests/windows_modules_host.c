@@ -104,7 +104,7 @@ int main(int argc,char **argv){
     assert(call(GET_PROC,kernel,text(PROC_TEXT,"GetLastError",0))==error_token);
     call(SET_ERROR,0x55fa,0);assert(call(GET_ERROR_ALIAS,0,0)==0x55fa && indirect(error_token)==0x55fa);
     struct fnv_windows_module_stats snapshot;assert(fnv_windows_modules_stats(m,&snapshot)==FNV_CPU_OK);
-    assert(snapshot.pinned_modules==3 && snapshot.native_exports==builtins+9 && !snapshot.load_calls && !snapshot.dynamic_references);
+    assert(snapshot.pinned_modules==4 && snapshot.native_exports==builtins+9 && !snapshot.load_calls && !snapshot.dynamic_references);
     assert(call(GET_A,text(NAME_TEXT,"falloutnv.exe",0),0)==BASE);
     HMODULE native=GetModuleHandleW(L"kernel32.dll");assert(native);
     const char *names[]={"kernel32.dll","KERNEL32.DLL","kernel32","kernel32.dll."};

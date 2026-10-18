@@ -165,8 +165,8 @@ static void api_file_read(void){
     else {unsigned char *buffer=file_pointer(p,at,bytes,1);struct file_slot *f=file_acquire(p,h);
         if(!f)error=6;
         else {uint64_t start=0,end=0;int timed=fnv_host_now_ns(&start);size_t got=0;
-            if(bytes)got=fread(buffer,1,bytes,f->stream);
-            int failed=ferror(f->stream);if(failed){error=fnv_host_file_error(errno);clearerr(f->stream);}else value=1;
+            errno=0;if(bytes)got=fread(buffer,1,bytes,f->stream);
+            int read_error=errno,failed=ferror(f->stream);if(failed){error=fnv_host_file_error(read_error);clearerr(f->stream);}else value=1;
             write32(count,(uint32_t)got);int measured=timed && fnv_host_now_ns(&end) && end>=start;
             fnv_host_mutex_lock(&p->files_guard);p->file_stats.reads++;p->file_stats.read_bytes+=got;p->file_stats.read_errors+=failed!=0;
             if(measured)p->file_stats.read_ns+=end-start;

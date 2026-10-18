@@ -93,9 +93,9 @@ int main(int argc,char **argv){
         if(!strcmp(argv[2],"--strict-unicode")){
             WCHAR full[2048];assert(MultiByteToWideChar(CP_ACP,0,data,-1,full,2000));size_t len=wcslen(full);full[len++]=L'/';full[len++]=0xe9;full[len]=0;
             HANDLE h=CreateFileW(full,GENERIC_WRITE,0,NULL,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);assert(h!=INVALID_HANDLE_VALUE && CloseHandle(h));
-            uint32_t search=call(FIRST_A,path("Data/*",0),OUTPUT);
-            if(search!=UINT32_MAX){while(call(NEXT_A,search,OUTPUT)){}assert(call(GET_ERROR,0,0)==1113 && call(FIND_CLOSE,search,0));}
-            else assert(call(GET_ERROR,0,0)==1113);
+            struct item items[32];assert(guest_entries("Data/*",0,items,32)==12);
+            assert(guest_entries("Data/*",1,items,32)==12);
+            struct fnv_windows_file_stats skipped;assert(fnv_windows_file_stats(process,&skipped)==FNV_CPU_OK && skipped.skipped_non_ascii==2 && !skipped.live_searches);
         }else {uint32_t a[]={path("Data/*",0),BASE+ARENA-1},value=0;struct fnv_cpu_fault f;
             assert(execute(FIRST_A,a,&value,&f)==FNV_CPU_GUEST_FAULT && f.kind==FNV_CPU_UNIMPLEMENTED);}
         assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));puts("strict PASS");return 0;

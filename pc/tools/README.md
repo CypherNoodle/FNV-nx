@@ -240,3 +240,21 @@ calls, tablas de salto ni excepciones. Una raiz explicita es una hipotesis,
 no una entrada original o frontera de funcion verificada. Nunca ejecuta codigo.
 `test_aot_calls.py --python-deps DIR` usa un PE sintetico para direct calls,
 imports por ordinal, thunks, limites e inputs invalidos.
+
+## Control de bytes de fuentes
+
+check_line_endings.py usa los paths versionados por Git (o --manifest JSON para
+un overlay) y comprueba LF en pc/**, README.md y .gitattributes. --fix normaliza
+CRLF de forma explicita; valida primero todos los inputs y rechaza rutas fuera
+del repo, binarios y CR sueltos. Excluye third_party/local/dist. Ejecutarlo antes
+de congelar hashes, no despues. test_line_endings.py comprueba esos contratos.
+
+La capa aot_frame_restore.py agrega publicacion de EBP tras POP EBP/LEAVE y LEA
+EBP. Se habilita con --frame-restore en una generacion nueva; no modifica el SDK.
+Ver limites SEH en native-aot.md. test_windows_seh_frames.py permite --leave,
+--lea y el control negativo --without-overlay (debe fallar con el SDK actual).
+
+El test POSIX test_host_directory_posix.py se puede compilar y ejecutar en Linux,
+o compilar en Windows con --compile-only --target x86_64-linux-musl --cc zig cc
+y ejecutar en WSL con --run-only sobre el mismo output. Se verifican las mismas
+fuentes y binario en ambas fases, sin instalar otro compilador en el sistema.

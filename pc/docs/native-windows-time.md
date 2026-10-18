@@ -84,7 +84,22 @@ No se copia STARTUPINFO del host de 64 bits y no se crea una ventana por esta AP
 Esto proporciona los datos que consulta el CRT, no un dispatcher USER32.
 
 Las pruebas A/W verifican bytes, offsets, stack, guardas, LastError, configuracion
-copiada y rechazo de flags/valores no soportados. GetCommandLineA/W y el parser
-de argumentos siguen pendientes. El perfil de arranque real tampoco esta validado.
+copiada y rechazo de flags/valores no soportados. GetCommandLineA/W y el parser se describen en
+[parametros del proceso](native-windows-parameters.md). El perfil de arranque real tampoco esta validado.
 
 Contrato: [GetStartupInfoA](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getstartupinfoa).
+
+## Inicializacion del reloj en Horizon
+
+Se verifico en la libnx.a instalada (SHA256
+12a59cdfdceab83e39ee129b0275dd803e393e83f19de3922a3b6cc95c767edd) que el
+__appInit predeterminado llama timeInitialize y __libnx_init_time. Las fuentes
+oficiales muestran que el segundo toma la hora inicial para los syscalls de
+newlib. Las fuentes PC actuales no definen un __appInit alternativo. Esto
+resuelve la duda sobre la ruta predeterminada de inicializacion; no demuestra
+que la hora sea correcta en una ejecucion concreta de la consola. Si se cambia
+el init del futuro NRO, esa secuencia debe conservarse. Un fallo de lectura del
+servicio se propaga; la precision/ajustes de UTC siguen dependiendo de libnx.
+
+Fuentes primarias: [init de libnx](https://github.com/switchbrew/libnx/blob/master/nx/source/runtime/init.c),
+[relojes de newlib/libnx](https://github.com/switchbrew/libnx/blob/master/nx/source/runtime/newlib.c).

@@ -1,2 +1,3 @@
 # Keep line endings stable across Windows/Linux checkouts (tests hash sources at run time).
 pc/** text eol=lf
+README.md text eol=lf

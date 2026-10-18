@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 69u
+#define FNV_WINDOWS_THREAD_EXPORTS 73u
 struct fnv_windows_process;
 /* Immutable built-in catalog, borrowed for native dynamic module preparation. */
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count);
@@ -45,6 +45,12 @@ struct fnv_windows_config {
      * supported (show 0..11, except SW_SHOWDEFAULT=10 when flag is set).
      * No desktop/title, inherited stdio or reserved payload. */
     uint32_t startup_flags,startup_show_window;
+    /* Optional dedicated committed RW arena for persistent command line A/W.
+     * All four fields set together. ASCII configuration, max 32767 command
+     * characters / 1023 image-path characters. Copied at create; host strings
+     * need not survive it. Arena is page aligned and disjoint from all pools. */
+    uint32_t parameters_address,parameters_bytes;
+    const char *command_line,*image_path;
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
@@ -85,6 +91,7 @@ struct fnv_windows_file_stats {
     uint64_t opens,reads,read_bytes,read_ns,io_wait_ns,read_errors;
     uint32_t live_searches;
     uint64_t searches,find_next_calls,attribute_queries;
+    uint64_t skipped_non_ascii,skipped_special;
 };
 enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *,struct fnv_windows_file_stats *);
 struct fnv_windows_worker_stats {

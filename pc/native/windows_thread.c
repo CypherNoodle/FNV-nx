@@ -23,7 +23,7 @@ struct windows_thread {
     struct fnv_windows_thread_config config;
     unsigned char *teb, *expansion;
 };
-struct heap_block {uint32_t address,bytes,span;};
+struct heap_block {uint32_t address,bytes,span,local;};
 struct heap_store {
     struct heap_block *blocks;uint32_t count,capacity,first_gap,address,bytes,committed,fixed,options;
     uint64_t find_steps,allocation_steps,gap_steps;
@@ -84,6 +84,8 @@ struct fnv_windows_process {
     uint32_t file_free,file_tail,file_bits,file_mask,file_generation_max;
     struct fnv_windows_file_stats file_stats;
     uint64_t worker_created,worker_reaped,worker_failures;
+    uint32_t command_a,command_w;
+    char image_path[1024];
 };
 static RECOMP_TLS struct windows_thread current;
 static RECOMP_TLS struct managed_worker *managed_current;
@@ -203,6 +205,7 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_time.inc"
 #include "windows_files.inc"
 #include "windows_directory.inc"
+#include "windows_parameters.inc"
 static void api_startup_info(void){
     uint32_t at=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     unsigned char *output=sync_pointer(p,at,68);
@@ -264,6 +267,10 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetSystemTimeAsFileTime",0,0,api_system_filetime},
     {"kernel32.dll","GetStartupInfoA",0,0,api_startup_info},
     {"kernel32.dll","GetStartupInfoW",0,0,api_startup_info},
+    {"kernel32.dll","GetCommandLineA",0,0,api_command_a},
+    {"kernel32.dll","GetCommandLineW",0,0,api_command_w},
+    {"kernel32.dll","LocalFree",0,0,api_local_free},
+    {"shell32.dll","CommandLineToArgvW",0,0,api_command_argv},
     {"kernel32.dll","CreateFileA",0,0,api_file_create_a},
     {"kernel32.dll","CreateFileW",0,0,api_file_create_w},
     {"kernel32.dll","ReadFile",0,0,api_file_read},
@@ -317,6 +324,8 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
     result=files_prepare(p);
     if(result!=FNV_CPU_OK){time_dispose(p);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
+    result=parameters_prepare(p);
+    if(result!=FNV_CPU_OK){(void)fnv_windows_destroy(p);return result;}
     *out=p;return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
@@ -374,7 +383,8 @@ enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *p,cons
     for(unsigned i=0;i<5;++i){if(!sizes[i])continue;
         if(overlap(starts[i],sizes[i],p->config.cpu.guest_base,p->config.image_bytes) ||
            overlap(starts[i],sizes[i],p->config.peb_address,4096) || pool_overlap(p,starts[i],sizes[i]) ||
-           heap_overlap(p,starts[i],sizes[i]) || (external && worker_overlap(p,starts[i],sizes[i])))return FNV_CPU_INVALID;
+           heap_overlap(p,starts[i],sizes[i]) || parameters_overlap(p,starts[i],sizes[i]) ||
+           (external && worker_overlap(p,starts[i],sizes[i])))return FNV_CPU_INVALID;
         for(unsigned j=0;j<i;++j)if(sizes[j] && overlap(starts[i],sizes[i],starts[j],sizes[j]))return FNV_CPU_INVALID;
     }
     lock(p);

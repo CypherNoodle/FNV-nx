@@ -54,7 +54,7 @@ int main(int argc,char **argv){
     uint32_t second=call(CREATE_HEAP,0,4097,0,0);assert(second && second!=first);
     assert(counters().reserved_bytes==0x200000 && counters().committed_bytes==4096+8192);
     struct fnv_windows_heap_stats metadata;assert(fnv_windows_heap_stats(process,&metadata)==FNV_CPU_OK);
-    assert(metadata.live_heaps==3 && metadata.live_blocks==0 && metadata.metadata_bytes==32*12);
+    assert(metadata.live_heaps==3 && metadata.live_blocks==0 && metadata.metadata_bytes==32*16);
     uint32_t fixed=call(CREATE_HEAP,0,0,0x100000,0);assert(fixed && !call(CREATE_HEAP,0,0,0,0));
     assert(!call(ALLOC,fixed,0,0x7fff8,0) && !call(ALLOC,fixed,0,0x80000,0));
     assert(call(DESTROY_HEAP,fixed,0,0,0) && counters().reserved_bytes==0x200000);

@@ -27,10 +27,10 @@ static uint32_t find_ascii(const struct fnv_host_entry *e){
     for(unsigned s=0;s<2;++s){int ended=0;for(size_t i=0;i<sizes[s];++i){unsigned c=(unsigned char)strings[s][i];if(c>127)return 1113;if(!c){ended=1;break;}}if(!ended)return 206;}
     return 0;
 }
-static int find_entry(struct fnv_host_directory *d,const char *pattern,struct fnv_host_entry *e,uint32_t *error){
+static int find_entry(struct fnv_host_directory *d,const char *pattern,struct fnv_host_entry *e,uint32_t *error,uint64_t *skipped){
     while(fnv_host_directory_next(d,e,error)){
         if(!strcmp(e->name,".") || !strcmp(e->name,".."))continue;
-        *error=find_ascii(e);if(*error)return 0;
+        *error=find_ascii(e);if(*error==1113){(*skipped)++;continue;}if(*error)return 0;
         if(find_match(pattern,e->name) || (e->alternate[0] && find_match(pattern,e->alternate)))return 1;
     }
     return 0;
@@ -57,6 +57,7 @@ static void file_attributes(int wide){
 static void api_file_attributes_a(void){file_attributes(0);}static void api_file_attributes_w(void){file_attributes(1);}
 static void find_first(int wide){
     uint32_t at=fnv_cpu_argument_u32(0),out=fnv_cpu_argument_u32(1),error=0,value=UINT32_MAX;
+    uint64_t skipped=0,special=0;
     struct fnv_windows_process *p=file_process();unsigned char *output=file_pointer(p,out,wide?592:320,1);
     char path[512],key[512],full[1538],pattern[260];error=(uint32_t)file_path_mode(p,at,wide,path,key,1);
     struct fnv_host_directory *directory=NULL;struct fnv_host_entry entry;
@@ -64,7 +65,8 @@ static void find_first(int wide){
         size_t n=strlen(leaf);if(n>=sizeof(pattern))error=206;
         else {memcpy(pattern,leaf,n+1);if(last)*last=0;else strcpy(path,".");file_full(p,path,full);
             directory=fnv_host_directory_open(full,&error);
-            if(directory && !find_entry(directory,pattern,&entry,&error) && !error)error=2;
+            if(directory){if(!find_entry(directory,pattern,&entry,&error,&skipped) && !error)error=2;
+                special=fnv_host_directory_take_skipped(directory);}
         }
     }
     if(!error){fnv_host_mutex_lock(&p->files_guard);
@@ -76,16 +78,20 @@ static void find_first(int wide){
         fnv_host_mutex_unlock(&p->files_guard);
     }
     if(directory)fnv_host_directory_close(directory);
+    fnv_host_mutex_lock(&p->files_guard);p->file_stats.skipped_non_ascii+=skipped;p->file_stats.skipped_special+=special;fnv_host_mutex_unlock(&p->files_guard);
     if(!error)find_write(output,&entry,wide);else fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,8);
 }
 static void api_find_first_a(void){find_first(0);}static void api_find_first_w(void){find_first(1);}
 static void find_next(int wide){
     struct fnv_windows_process *p=file_process();uint32_t h=fnv_cpu_argument_u32(0),out=fnv_cpu_argument_u32(1),value=0,error=0;
+    uint64_t skipped=0,special=0;
     unsigned char *output=file_pointer(p,out,wide?592:320,1);struct file_slot *f=file_acquire_kind(p,h,2);struct fnv_host_entry entry;
     if(!f)error=6;
-    else {if(f->search_done)error=18;else if(find_entry(f->search,f->pattern,&entry,&error))value=1;else {f->search_done=1;if(!error)error=18;}
-        fnv_host_mutex_lock(&p->files_guard);p->file_stats.find_next_calls++;fnv_host_mutex_unlock(&p->files_guard);file_release(p,f);}
+    else {if(f->search_done)error=18;else if(find_entry(f->search,f->pattern,&entry,&error,&skipped))value=1;else {f->search_done=1;if(!error)error=18;}
+        special=fnv_host_directory_take_skipped(f->search);
+        fnv_host_mutex_lock(&p->files_guard);p->file_stats.find_next_calls++;p->file_stats.skipped_non_ascii+=skipped;p->file_stats.skipped_special+=special;
+        fnv_host_mutex_unlock(&p->files_guard);file_release(p,f);}
     if(value)find_write(output,&entry,wide);else fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,8);
 }
