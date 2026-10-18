@@ -7,6 +7,10 @@ Tambien hay [secciones criticas e Interlocked nativos](pc/docs/native-windows-sy
 verificados mediante llamadas x86 sinteticas y comparaciones con Windows.
 Los [eventos sin nombre](pc/docs/native-windows-events.md) ya soportan Set/Reset,
 handles de generacion y espera individual. Tambien hay [semaforos, mutex y esperas multiples](pc/docs/native-windows-kernel-waits.md); hay [hilos guest administrados](pc/docs/native-windows-workers.md) y [contadores de rendimiento](pc/docs/native-windows-time.md). Tambien hay [inicializacion de TLS estatico PE32](pc/docs/native-pe-tls.md) para un EXE sin callbacks. El arranque del motor sigue pendiente.
+El [catalogo de DLL nativas](pc/docs/native-windows-modules.md) agrega LoadLibrary,
+GetModuleHandle, GetProcAddress y FreeLibrary para proveedores preparados dentro
+del NRO, con llamadas indirectas x86 verificadas. Aun no carga DLL binarias.
+
 
 El objetivo activo de `pc-port` es recompilar Fallout: New Vegas PC a ARM64
 para Nintendo Switch, siguiendo el modelo de

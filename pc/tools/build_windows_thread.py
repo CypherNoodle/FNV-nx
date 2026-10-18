@@ -46,6 +46,8 @@ def build(a):
         raise ValueError('Analysis is not the pinned base generation')
     sources=['windows_thread.c','pe_tls.c','guest_memory.c']
     headers=['windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.h','host_mutex.h']
+    if a.modules:
+        sources+=['windows_modules.c'];headers+=['windows_modules.h']
     if a.memory_exports:
         sources+=['windows_memory.c','memory_horizon.c']
         headers+=['windows_memory.h','memory_horizon.h']
@@ -80,6 +82,7 @@ def build(a):
     allowed=PLATFORM_SYMBOLS|{'malloc','realloc','memmove','mutexLock','mutexUnlock','condvarWaitTimeout','svcSignalProcessWideKey',
                             'threadCreate','threadStart','threadWaitForExit','threadClose','svcSleepThread'}
     if a.memory_exports:allowed|={'svcSetMemoryPermission'}
+    if a.modules:allowed|={'strlen'}
     unexpected=sorted(set(undefined)-allowed)
     definitions={name:[] for name in undefined}
     for index,name in enumerate(platform['libraries']):
@@ -99,7 +102,7 @@ def build(a):
         base_compile_units_reused=base['compile_units'],new_compile_units=len(sources),total_compile_units=base['compile_units']+len(sources),
         base_validation_sha256=sha(a.base_validation),source_sha256={str(p):digest for p,digest in frozen.items()},
         compiler_flags=SWITCH_FLAGS,tls_soft_tp_verified=bool(tls_ok),
-        compiled=compiled,memory_exports=a.memory_exports,platform_definitions_verified=not missing,
+        compiled=compiled,memory_exports=a.memory_exports,native_modules=a.modules,platform_definitions_verified=not missing,
         partial_link=dict(object_bytes=linked.stat().st_size,object_sha256=sha(linked),
             undefined_symbols=undefined,unexpected_symbols=unexpected,final_engine_link=False),
         native_engine_started=False,cold_boot_supported=False)
@@ -112,6 +115,7 @@ if __name__=='__main__':
     for n in ('base-validation','analysis','sdk','python-deps','cc','ld','nm','objdump','output','libnx','platform-validation'):
         parser.add_argument('--'+n,type=Path,required=True)
     parser.add_argument('--memory-exports',action='store_true',help='Also integrate Virtual* exports and the Horizon permission backend')
+    parser.add_argument('--modules',action='store_true',help='Also integrate the prepared native DLL namespace')
     result=build(parser.parse_args())
     print(json.dumps({k:v for k,v in result.items() if k!='source_sha256'},indent=2))
     if result['status']!='PASS':raise SystemExit(1)

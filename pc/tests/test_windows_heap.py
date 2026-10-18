@@ -12,7 +12,7 @@ NAMES=['GetProcessHeap','HeapAlloc','HeapReAlloc','HeapFree','HeapSize','HeapVal
 ARGS=[0,3,4,3,3,3,0,1]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None):
+def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None,native_sources=()):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -24,6 +24,7 @@ def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--st
     frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_heap_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',*extra_inputs,
         *[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
         'windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
+        *[pc/'native'/n for n in native_sources],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     exe=out/'fixture.exe';write_pe(exe,['KERNEL32.dll']*len(NAMES));raw=bytearray(exe.read_bytes())
     struct.pack_into('<I',raw,0x98+224+36,0x60000020);cursor=0xC00;programs=[]
@@ -53,6 +54,7 @@ def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--st
     command=[*a.cc,'-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable',
         '-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(sdk/'templates/runtime'),'-include',str(pc/'native/fnv_sdk_runtime.h'),str(generated),
         *[str(pc/'native'/n) for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','guest_memory.c','memory_horizon.c','windows_memory.c')],
+        *[str(pc/'native'/n) for n in native_sources],
         str(pc/'tests'/host_source),'-o',str(out/'heap-test.exe')]
     built=subprocess.run(command,capture_output=True,text=True);(out/'compiler.log').write_text(built.stdout+built.stderr)
     if built.returncode:raise RuntimeError(built.stderr)

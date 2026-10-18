@@ -7,6 +7,8 @@
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
 #define FNV_WINDOWS_THREAD_EXPORTS 50u
 struct fnv_windows_process;
+/* Immutable built-in catalog, borrowed for native dynamic module preparation. */
+const struct fnv_cpu_export *fnv_windows_exports(size_t *count);
 struct fnv_guest_memory;
 struct fnv_windows_config {
     struct fnv_cpu_config cpu;

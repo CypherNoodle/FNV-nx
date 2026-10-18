@@ -247,6 +247,7 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","QueryPerformanceCounter",0,0,api_performance_counter},
     {"kernel32.dll","QueryPerformanceFrequency",0,0,api_performance_frequency},
 };
+const struct fnv_cpu_export *fnv_windows_exports(size_t *count){if(count)*count=FNV_WINDOWS_THREAD_EXPORTS;return exports;}
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {
     if(!out)return FNV_CPU_INVALID;
     *out=NULL;
