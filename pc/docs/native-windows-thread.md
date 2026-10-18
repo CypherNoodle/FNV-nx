@@ -88,7 +88,8 @@ deducir el tamano de sus bloques.
 
 Terminar con `fnv_windows_thread_detach` y destruir el proceso cuando todos
 los hilos se hayan separado. No mezclar este ciclo con cpu_attach/detach
-directos. No se implementa CreateThread/ExitThread, cancelacion asincrona,
+directos. CreateThread/ExitThread disponen de un proveedor administrado separado;
+no se implementa cancelacion asincrona,
 prioridades o afinidad.
 
 Un bloqueo breve protege reservas, indices y reciclado, sin bloquear la
@@ -153,5 +154,5 @@ El layout x86 y los casos limite se contrastaron con
 [TLS de Wine](https://github.com/wine-mirror/wine/blob/master/dlls/kernelbase/thread.c),
 sin incorporar su codigo ni DLLs.
 
-La tabla actual contiene 41 exports: siete adicionales cubren semaforos, mutex
-y WaitForMultipleObjects. Ver [contratos y pruebas](native-windows-kernel-waits.md).
+La tabla actual contiene 50 exports: incluye semaforos, mutex, esperas multiples,
+[hilos administrados](native-windows-workers.md), Sleep y [QPC/QPF](native-windows-time.md). Ver [contratos y pruebas](native-windows-kernel-waits.md).

@@ -2,14 +2,15 @@
 
 El proveedor propio agrega siete exports a los eventos existentes:
 CreateSemaphoreA/W, ReleaseSemaphore, CreateMutexA/W, ReleaseMutex y
-WaitForMultipleObjects. WindowsThread ofrece ahora 41 exports. Los nuevos
+WaitForMultipleObjects. Este bloque llevo WindowsThread a 41 exports; con hilos y timers ahora son 50. Los nuevos
 objetos usan la misma tabla de handles con generaciones, capacidad explicita y
 proteccion de slots mientras una espera los referencia. No son HANDLEs host.
 
 Solo se admiten objetos sin nombre, locales al proceso y sin atributos de
 seguridad. Las variantes A/W comparten implementacion porque no reciben texto.
 No hay DuplicateHandle, herencia, Open*, permisos Windows, APC, objetos de
-archivos/hilos ni scheduler guest CreateThread/ExitThread. Los nombres o atributos
+archivos. Hay un [proveedor de hilos administrados](native-windows-workers.md),
+sin scheduler completo de Windows. Los nombres o atributos
 no NULL y los punteros guest fuera del contrato provocan diagnostico estricto,
 sin fingir una operacion valida ni implementar SEH. Los arrays y outputs de esta
 ABI deben estar alineados a cuatro bytes y conservar backing valido durante la

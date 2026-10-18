@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from aot_code_data import verify_derivation
@@ -90,8 +91,35 @@ def build(a):
     if len({p.stem for p in sources}) != len(sources):
         raise ValueError('Object names would collide')
     includes = [pc / 'native', sdk / 'templates/runtime', sdk / 'src/kernel', paths['generated']]
+    reused={}
+    if a.reuse_generated_validation:
+        prior_path=a.reuse_generated_validation.resolve();prior=json.loads(prior_path.read_text())
+        if (prior['status']!='PASS' or prior['compiler_flags']!=SWITCH_FLAGS or
+            prior['sdk_sha256']!=sdk_hash or prior['generation_report_sha256']!=sha(paths['report']) or
+            prior['compile_units']!=len(sources) or len(prior['compiled'])!=len(sources)):
+            raise ValueError('Incompatible prior generated-object validation')
+        # Only the native CPU/PE implementation and this validator may differ.
+        # Generated C uses fnv_sdk_runtime/SDK, not cpu_runtime.h or pe_image.h.
+        allowed_changes={Path(__file__).resolve(),*[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','pe_image.c','pe_image.h')]}
+        for name,digest in prior['source_sha256'].items():
+            path=Path(name).resolve()
+            if path not in allowed_changes and sha(path)!=digest:raise ValueError('Changed reused dependency: '+name)
+        for path in (p for p in frozen if p.suffix in ('.c','.h') and p not in allowed_changes):
+            if re.search(r'#\s*include\s*[<"][^>"\n]*(?:cpu_runtime|pe_image)\.h[>"]',path.read_text()):
+                raise ValueError('Generated code includes changed native ABI header')
+        old={item['source']:item for item in prior['compiled']}
+        if set(old)!={p.name for p in sources}:raise ValueError('Prior compiled inventory mismatch')
+        for source in sources[:-2]:
+            item=old[source.name];obj=prior_path.parent/(source.stem+'.o')
+            if item['exit_code'] or obj.stat().st_size!=item['object_bytes'] or sha(obj)!=item['object_sha256']:
+                raise ValueError('Changed prior generated object: '+source.name)
+            frozen[obj]=sha(obj);reused[source.name]=obj
+        frozen[prior_path]=sha(prior_path)
     def compile_one(src):
         obj = output / (src.stem + '.o')
+        if src.name in reused:
+            shutil.copyfile(reused[src.name],obj)
+            return dict(source=src.name,exit_code=0,object_bytes=obj.stat().st_size,object_sha256=sha(obj),reused=True)
         flags = SWITCH_FLAGS + (['-Wall', '-Wextra', '-Werror'] if src.parent == pc / 'native' else [])
         # The PE data loader must not receive the SDK's register-name macros.
         forced = [] if src.name == 'pe_image.c' else ['-include', pc / 'native/fnv_sdk_runtime.h']
@@ -108,6 +136,7 @@ def build(a):
     with ThreadPoolExecutor(max_workers=a.jobs) as pool:
         compiled = list(pool.map(compile_one, sources))
     result = dict(status='COMPILE_FAILURE', compiled=compiled, compile_units=len(compiled),
+                  reused_generated_objects=len(reused),
                   compiler_flags=SWITCH_FLAGS, source_sha256={str(p): h for p, h in frozen.items()},
                   sdk_sha256=sdk_hash, generation_report_sha256=sha(paths['report']),
                   native_engine_started=False, full_game_linked=False, cold_boot_supported=False)
@@ -218,6 +247,8 @@ if __name__ == '__main__':
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--generation-name', required=True)
     parser.add_argument('--jobs', type=int, default=4)
+    parser.add_argument('--reuse-generated-validation',type=Path,
+                        help='Reuse hash-verified generated objects only; rebuild native CPU/PE units')
     parser.add_argument('--recheck', action='store_true', help='Verify identical existing objects after a validator-only change')
     parser.add_argument('--previous-validator', type=Path, help='Exact archived script recorded by the original build')
     arguments = parser.parse_args()

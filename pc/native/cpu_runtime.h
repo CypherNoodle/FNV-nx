@@ -8,7 +8,8 @@ typedef void (*fnv_cpu_function)(void);
 struct fnv_cpu_runtime;
 enum fnv_cpu_result {
     FNV_CPU_OK, FNV_CPU_INVALID, FNV_CPU_BUSY, FNV_CPU_NO_MEMORY,
-    FNV_CPU_NOT_ATTACHED, FNV_CPU_FAULTED, FNV_CPU_GUEST_FAULT
+    FNV_CPU_NOT_ATTACHED, FNV_CPU_FAULTED, FNV_CPU_GUEST_FAULT,
+    FNV_CPU_THREAD_EXIT
 };
 enum fnv_cpu_fault_kind {
     FNV_CPU_UNIMPLEMENTED=1, FNV_CPU_UNKNOWN_TARGET, FNV_CPU_NOT_CODE,
@@ -64,6 +65,9 @@ enum fnv_cpu_result fnv_cpu_prepare_memory(struct fnv_cpu_runtime *,uint32_t add
 struct fnv_cpu_runtime *fnv_cpu_current(void);
 /* Nonblocking health probe for native waits; caller retains the runtime. */
 int fnv_cpu_is_faulted(const struct fnv_cpu_runtime *);
+/* Host lifecycle failures outside execute can poison the session and report
+ * their diagnostic. Caller retains runtime; does not unwind/preempt peers. */
+void fnv_cpu_invalidate(struct fnv_cpu_runtime *,const struct fnv_cpu_fault *);
 /* One successful static-IAT bind before attaching threads. Failure preserves
  * IAT and active registry. No DLL loading or implicit API implementation. */
 enum fnv_native_result fnv_cpu_bind_imports(struct fnv_cpu_runtime *,
@@ -80,6 +84,9 @@ enum fnv_cpu_result fnv_cpu_set_state(const struct fnv_cpu_state *);
  * the session. Other threads stop at entry/return boundaries; there is no
  * asynchronous preemption of an already running guest loop. No reentrant call. */
 enum fnv_cpu_result fnv_cpu_execute(uint32_t entry, struct fnv_cpu_fault *);
+/* Nonfaulting control-flow unwind to the current execute boundary. EAX holds
+ * the exit code; caller must detach/complete its thread. Never under a lock. */
+_Noreturn void fnv_cpu_exit_thread(uint32_t code);
 /* Bounded flat-arena helpers for future import handlers. Generated MEM macros
  * remain unchecked: these helpers are not a guest VirtualAlloc/SEH subsystem. */
 void *fnv_cpu_memory(uint32_t address, size_t bytes);

@@ -59,10 +59,11 @@ timeout, Set y Reset mientras el llamador conserva el proceso.
 
 Nombre o SECURITY_ATTRIBUTES no NULL detiene el runtime con diagnostico pendiente.
 Faltan objetos nombrados/compartidos, herencia, permisos, DuplicateHandle, OpenEvent,
-PulseEvent y archivos/hilos como handles. Los semaforos, mutex kernel y waits
+PulseEvent y archivos como handles. Los semaforos, mutex kernel y waits
 multiples ahora estan implementados: ver [esperas conjuntas](native-windows-kernel-waits.md).
 WaitForSingleObject y CloseHandle no son aun implementaciones para todos esos
-tipos. Tampoco hay CreateThread/ExitThread, SEH ni arranque del motor.
+tipos. CreateThread/ExitThread tienen ahora un [proveedor administrado](native-windows-workers.md);
+SEH y el arranque del motor siguen pendientes.
 
 `test_windows_events.py` genera ocho callers x86 sinteticos y los recompila con
 el SDK real. Ejecuta 12000 comparaciones con Windows, 300 rondas entre dos hilos

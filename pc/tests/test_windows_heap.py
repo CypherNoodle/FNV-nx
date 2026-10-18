@@ -12,7 +12,7 @@ NAMES=['GetProcessHeap','HeapAlloc','HeapReAlloc','HeapFree','HeapSize','HeapVal
 ARGS=[0,3,4,3,3,3,0,1]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',)):
+def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -23,7 +23,7 @@ def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--st
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
     frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_heap_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',*extra_inputs,
         *[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
-        'windows_thread.c','windows_thread.h','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
+        'windows_thread.c','windows_thread.h','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     exe=out/'fixture.exe';write_pe(exe,['KERNEL32.dll']*len(NAMES));raw=bytearray(exe.read_bytes())
     struct.pack_into('<I',raw,0x98+224+36,0x60000020);cursor=0xC00;programs=[]
@@ -36,8 +36,13 @@ def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--st
         programs.append(push+b'\xFF\x15'+struct.pack('<I',0x400000+iat)+ret)
     functions={}
     for i,code in enumerate(programs):
-        assert len(code)<32;va=0x401500+i*0x20;offset=va-0x401000+0x200;raw[offset:offset+len(code)]=code
+        assert len(code)<wrapper_stride;va=0x401500+i*wrapper_stride;offset=va-0x401000+0x200;raw[offset:offset+len(code)]=code
         functions[va]=dict(start=f'0x{va:08X}',end=va+len(code),size=len(code),name=f'sub_{va:08X}',section='.text',detection_method='entry_point',called_by=[])
+    if guest_programs:
+        for va,code in guest_programs(raw).items():
+            offset=va-0x401000+0x200;assert 0<=offset<len(raw) and offset+len(code)<=len(raw)
+            raw[offset:offset+len(code)]=code
+            functions[va]=dict(start=f'0x{va:08X}',end=va+len(code),size=len(code),name=f'sub_{va:08X}',section='.text',detection_method='entry_point',called_by=[])
     exe.write_bytes(raw);prepare(exe,out/'image',sha(exe));image=out/'image/fnv-analysis.xbe'
     config.configure_from_xbe(str(image));translator=FunctionTranslator(image.read_bytes(),functions)
     source='#include "fnv_sdk_runtime.h"\n'+''.join(f'void sub_{va:08X}(void);\n' for va in functions)

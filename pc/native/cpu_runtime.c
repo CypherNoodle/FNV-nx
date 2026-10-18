@@ -31,6 +31,11 @@ struct fnv_cpu_runtime {
 static struct fnv_cpu_runtime *active;
 static atomic_flag lifecycle=ATOMIC_FLAG_INIT;
 int fnv_cpu_is_faulted(const struct fnv_cpu_runtime *r){return !r || atomic_load_explicit(&r->faulted,memory_order_acquire)!=0;}
+void fnv_cpu_invalidate(struct fnv_cpu_runtime *r,const struct fnv_cpu_fault *fault){
+    if(!r)return;
+    atomic_store_explicit(&r->faulted,1,memory_order_release);
+    if(fault && r->config.diagnostic)r->config.diagnostic(r->config.context,fault);
+}
 static RECOMP_TLS struct fnv_cpu_runtime *thread_runtime;
 static RECOMP_TLS jmp_buf *fault_boundary;
 static RECOMP_TLS struct fnv_cpu_fault thread_fault;
@@ -229,7 +234,8 @@ enum fnv_cpu_result fnv_cpu_execute(uint32_t entry,struct fnv_cpu_fault *out) {
     if(fault_boundary)return FNV_CPU_BUSY;
     if(atomic_load_explicit(&thread_runtime->faulted,memory_order_acquire))return FNV_CPU_FAULTED;
     jmp_buf boundary;thread_entry=entry;fault_boundary=&boundary;
-    if(setjmp(boundary)==0){
+    int reason=setjmp(boundary);
+    if(reason==0){
         if(!RECOMP_ICALL_IS_CODE(entry))recomp_icall_not_code_log(entry);
         fnv_cpu_icall_trace[fnv_cpu_icall_trace_idx++&15]=entry;fnv_cpu_icall_count++;
         recomp_func_t fn=recomp_lookup_manual(entry);if(!fn)fn=recomp_lookup(entry);if(!fn)fn=recomp_lookup_kernel(entry);
@@ -240,7 +246,13 @@ enum fnv_cpu_result fnv_cpu_execute(uint32_t entry,struct fnv_cpu_fault *out) {
             thread_fault.entry=entry;save_state(&thread_fault.state);if(out)*out=thread_fault;return FNV_CPU_GUEST_FAULT;}
         return FNV_CPU_OK;
     }
-    fault_boundary=NULL;if(out)*out=thread_fault;return FNV_CPU_GUEST_FAULT;
+    fault_boundary=NULL;if(reason==2)return FNV_CPU_THREAD_EXIT;
+    if(out)*out=thread_fault;
+    return FNV_CPU_GUEST_FAULT;
+}
+_Noreturn void fnv_cpu_exit_thread(uint32_t code){
+    if(!thread_runtime || !fault_boundary)fail(FNV_CPU_UNIMPLEMENTED,0,0,"thread exit outside execution boundary");
+    g_eax=code;longjmp(*fault_boundary,2);
 }
 void *fnv_cpu_try_memory(uint32_t address_value,size_t bytes) {
     return thread_runtime && within(thread_runtime,address_value,bytes)?thread_runtime->config.memory+(address_value-thread_runtime->config.guest_base):NULL;

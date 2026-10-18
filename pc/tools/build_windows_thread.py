@@ -45,7 +45,7 @@ def build(a):
     if len(reports)!=1 or json.loads(reports[0].read_text())['code_data_filter']!=selection:
         raise ValueError('Analysis is not the pinned base generation')
     sources=['windows_thread.c','guest_memory.c']
-    headers=['windows_thread.h','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','guest_memory.h','host_mutex.h']
+    headers=['windows_thread.h','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.h','host_mutex.h']
     if a.memory_exports:
         sources+=['windows_memory.c','memory_horizon.c']
         headers+=['windows_memory.h','memory_horizon.h']
@@ -77,7 +77,8 @@ def build(a):
     run([a.ld.resolve(),'-r','-o',linked,partial,*objects],output/'link.log')
     symbols=run([a.nm.resolve(),'--undefined-only','--format=posix','--no-demangle',linked],output/'undefined-symbols.log')
     undefined=[line.split()[0] for line in symbols.splitlines() if line.strip()]
-    allowed=PLATFORM_SYMBOLS|{'malloc','realloc','memmove','mutexLock','mutexUnlock','condvarWaitTimeout','svcSignalProcessWideKey'}
+    allowed=PLATFORM_SYMBOLS|{'malloc','realloc','memmove','mutexLock','mutexUnlock','condvarWaitTimeout','svcSignalProcessWideKey',
+                            'threadCreate','threadStart','threadWaitForExit','threadClose','svcSleepThread'}
     if a.memory_exports:allowed|={'svcSetMemoryPermission'}
     unexpected=sorted(set(undefined)-allowed)
     definitions={name:[] for name in undefined}

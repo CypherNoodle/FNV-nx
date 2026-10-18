@@ -9,8 +9,10 @@
 #include "host_mutex.h"
 #include "host_condition.h"
 #include "host_clock.h"
+#include "host_thread.h"
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 enum { TEB_ERROR=0x34, TEB_SLOTS=0xE10, TEB_EXPANSION=0xF94 };
 enum { ERROR_INVALID_PARAMETER_VALUE=87, ERROR_NO_MORE_ITEMS_VALUE=259 };
@@ -30,7 +32,7 @@ struct critical_section {
     uint32_t address,owner,recursion,waiters,spin;
     fnv_host_condition condition;
 };
-enum {KERNEL_EVENT=1,KERNEL_SEMAPHORE,KERNEL_MUTEX};
+enum {KERNEL_EVENT=1,KERNEL_SEMAPHORE,KERNEL_MUTEX,KERNEL_THREAD};
 struct kernel_object {
     uint32_t generation,live,manual,signaled,waiters,free_next,kind;
     uint32_t maximum,owner,recursion,abandoned;
@@ -40,6 +42,14 @@ struct kernel_wait {
     struct kernel_wait *next;
     struct kernel_object *objects[64];
     uint32_t count,all,owner,released,result;
+};
+struct managed_worker {
+    struct fnv_windows_process *process;
+    struct fnv_windows_thread_config config;
+    struct kernel_object *object;
+    fnv_host_thread host;
+    fnv_host_condition condition;
+    uint32_t phase,suspended,entry,parameter;
 };
 struct fnv_windows_process {
     struct fnv_windows_config config;
@@ -58,8 +68,14 @@ struct fnv_windows_process {
     uint32_t kernel_free,kernel_waiting;
     struct kernel_wait *kernel_pending;
     uint64_t kernel_waits,kernel_timeouts,kernel_sets,kernel_resets;
+    struct managed_worker *workers;
+    fnv_host_mutex worker_guard;
+    uint32_t worker_next_id;
+    uint32_t image_tls_rva;
+    uint64_t worker_created,worker_reaped,worker_failures;
 };
 static RECOMP_TLS struct windows_thread current;
+static RECOMP_TLS struct managed_worker *managed_current;
 static void lock(struct fnv_windows_process *p) {
     while(atomic_flag_test_and_set_explicit(&p->guard,memory_order_acquire)) {}
 }
@@ -171,6 +187,8 @@ static void api_tls_set(void) {
 #include "windows_heap.inc"
 #include "windows_sync.inc"
 #include "windows_events.inc"
+#include "windows_workers.inc"
+#include "windows_time.inc"
 static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","TlsAlloc",0,0,api_tls_alloc},
     {"kernel32.dll","TlsFree",0,0,api_tls_free},
@@ -213,6 +231,15 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","CreateMutexW",0,0,api_mutex_create},
     {"kernel32.dll","ReleaseMutex",0,0,api_mutex_release},
     {"kernel32.dll","WaitForMultipleObjects",0,0,api_wait_multiple},
+    {"kernel32.dll","Sleep",0,0,api_sleep},
+    {"kernel32.dll","CreateThread",0,0,api_thread_create},
+    {"kernel32.dll","ExitThread",0,0,api_thread_exit},
+    {"kernel32.dll","GetExitCodeThread",0,0,api_thread_exit_code},
+    {"kernel32.dll","ResumeThread",0,0,api_thread_resume},
+    {"kernel32.dll","GetCurrentThread",0,0,api_current_thread},
+    {"kernel32.dll","GetThreadId",0,0,api_thread_handle_id},
+    {"kernel32.dll","QueryPerformanceCounter",0,0,api_performance_counter},
+    {"kernel32.dll","QueryPerformanceFrequency",0,0,api_performance_frequency},
 };
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {
     if(!out)return FNV_CPU_INVALID;
@@ -240,14 +267,18 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
     result=events_prepare(p);
     if(result!=FNV_CPU_OK){sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
+    result=workers_prepare(p);
+    if(result!=FNV_CPU_OK){events_dispose(p);sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
+        (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
     *out=p;return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     if(!p)return FNV_CPU_INVALID;
     lock(p);
     if(p->threads || p->private_heaps){unlock(p);return FNV_CPU_BUSY;}
+    if(!workers_idle(p)){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
-    unlock(p);if(result==FNV_CPU_OK){events_dispose(p);sync_dispose(p);if(p->heap.blocks){
+    unlock(p);if(result==FNV_CPU_OK){workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
             if(read32(memory(p,p->config.peb_address)+0x18)==p->config.heap_address)write32(memory(p,p->config.peb_address)+0x18,0);
             free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         fnv_vm_release_reference(p->config.memory);free(p);}return result;
@@ -265,6 +296,7 @@ enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *p,
     lock(p);
     enum fnv_native_result result=fnv_cpu_bind_imports(p->cpu,image,scratch,capacity,
         all?all:exports,n+FNV_WINDOWS_THREAD_EXPORTS,count);
+    if(result==FNV_NATIVE_OK)p->image_tls_rva=image->tls_rva;
     unlock(p);free(all);return result;
 }
 enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *p,const struct fnv_windows_thread_config *c) {
@@ -277,6 +309,10 @@ enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *p,cons
        ((!c->static_tls_vector)!=(!c->static_tls_vector_bytes)) ||
        (c->static_tls_vector && (!inside(&p->config,c->static_tls_vector,c->static_tls_vector_bytes) ||
         (c->static_tls_vector&3) || (c->static_tls_vector_bytes&3))))return FNV_CPU_INVALID;
+    if(p->workers && (!managed_current || managed_current->process!=p)){
+        if(c->thread_id>=0x80000000u || worker_overlap(p,c->teb_address,4096) || worker_overlap(p,c->tls_expansion_address,4096) ||
+           worker_overlap(p,c->stack_low,c->stack_high-c->stack_low) || (c->static_tls_vector && worker_overlap(p,c->static_tls_vector,c->static_tls_vector_bytes)))return FNV_CPU_INVALID;
+    }
     uint32_t starts[]={c->teb_address,c->tls_expansion_address,c->stack_low};
     uint32_t sizes[]={4096,4096,c->stack_high-c->stack_low};
     if(c->static_tls_vector &&

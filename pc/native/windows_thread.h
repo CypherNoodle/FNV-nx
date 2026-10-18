@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 41u
+#define FNV_WINDOWS_THREAD_EXPORTS 50u
 struct fnv_windows_process;
 struct fnv_guest_memory;
 struct fnv_windows_config {
@@ -20,7 +20,13 @@ struct fnv_windows_config {
      * Ceiling per growable heap and number of live private heaps. */
     uint32_t private_heap_reserve,private_heap_limit;
     uint32_t critical_section_capacity; /* Optional preallocated host table. */
-    uint32_t kernel_handle_capacity; /* Optional event/semaphore/mutex handles, max 65536. */
+    uint32_t kernel_handle_capacity; /* Optional synchronization/thread handles, max 65536. */
+    /* Optional dedicated, committed RW arena: each worker owns two TEB/TLS
+     * pages plus worker_stack_bytes. Disjoint from all other guest arenas.
+     * Fixed budget, no demand stack growth/guard pages. Host stack is separate.
+     * IDs >= 0x80000000 are reserved for managed workers while enabled. */
+    uint32_t worker_address,worker_bytes,worker_stack_bytes,worker_capacity;
+    uint32_t worker_host_stack_bytes;
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
@@ -52,6 +58,11 @@ struct fnv_windows_handle_stats {
     uint64_t blocking_waits,timeouts,sets,resets;
 };
 enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *,struct fnv_windows_handle_stats *);
+struct fnv_windows_worker_stats {
+    uint32_t active,finished,capacity;
+    uint64_t created,reaped,failures;
+};
+enum fnv_cpu_result fnv_windows_worker_stats(struct fnv_windows_process *,struct fnv_windows_worker_stats *);
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *,
     struct fnv_native_image *, struct fnv_native_import *, size_t capacity,
     const struct fnv_cpu_export *additional, size_t additional_count, size_t *count);
