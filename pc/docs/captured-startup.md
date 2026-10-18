@@ -51,8 +51,8 @@ memory accesses remain unchecked, so run only as an isolated diagnostic.
 
 Current evidence: the cookie leaf passed on Windows desktop and compiled for
 ARM64. A broader captured CRT experiment reached an explicit missing-import
-fault at `WideCharToMultiByte`, after passing the standard-handle and environment
-bridges and creating two heaps and three live blocks. It did
+fault at `GetStringTypeW`, after passing standard handles, environment conversion
+and code-page queries, and creating two heaps and four live blocks. It did
 not reach the engine entry or produce a game frame. Earlier bounded probes
 that omitted split continuations are exploratory and cannot support startup
 claims. Neither experiment has executed on Switch.

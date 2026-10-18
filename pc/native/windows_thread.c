@@ -209,6 +209,7 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_directory.inc"
 #include "windows_parameters.inc"
 #include "windows_environment.inc"
+#include "windows_charset.inc"
 static void api_startup_info(void){
     uint32_t at=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     unsigned char *output=sync_pointer(p,at,68);
@@ -291,6 +292,10 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetEnvironmentStringsW",0,0,api_environment_w},
     {"kernel32.dll","FreeEnvironmentStringsA",0,0,api_environment_free_a},
     {"kernel32.dll","FreeEnvironmentStringsW",0,0,api_environment_free_w},
+    {"kernel32.dll","WideCharToMultiByte",0,0,api_wide_to_multi},
+    {"kernel32.dll","GetACP",0,0,api_ansi_code_page},
+    {"kernel32.dll","IsValidCodePage",0,0,api_valid_code_page},
+    {"kernel32.dll","GetCPInfo",0,0,api_code_page_info},
     {"kernel32.dll","GetCommandLineA",0,0,api_command_a},
     {"kernel32.dll","GetCommandLineW",0,0,api_command_w},
     {"kernel32.dll","LocalFree",0,0,api_local_free},

@@ -1,9 +1,11 @@
 # Native CRT startup services
 
-The built-in Windows catalog now has 79 exports, separate from module, Virtual*,
-graphics and input catalogs. Six additions unblock observed calls in the private
+The built-in Windows catalog now has 83 exports, separate from module, Virtual*,
+graphics and input catalogs. Six additions described here unblock calls in the private
 [captured CRT experiment](captured-startup.md). They do not establish engine
 startup or executable cold boot.
+
+Four more exports cover [character conversion and code-page queries](native-windows-charset.md).
 
 `GetStdHandle` models a GUI process without a console or inherited standard
 handles. The three documented selectors return NULL while preserving LastError.
