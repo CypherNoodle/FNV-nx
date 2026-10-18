@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 34u
+#define FNV_WINDOWS_THREAD_EXPORTS 41u
 struct fnv_windows_process;
 struct fnv_guest_memory;
 struct fnv_windows_config {
@@ -20,7 +20,7 @@ struct fnv_windows_config {
      * Ceiling per growable heap and number of live private heaps. */
     uint32_t private_heap_reserve,private_heap_limit;
     uint32_t critical_section_capacity; /* Optional preallocated host table. */
-    uint32_t kernel_handle_capacity; /* Optional event handles, max 65536. */
+    uint32_t kernel_handle_capacity; /* Optional event/semaphore/mutex handles, max 65536. */
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;

@@ -6,7 +6,7 @@ arranque completo del motor siguen pendientes.
 Tambien hay [secciones criticas e Interlocked nativos](pc/docs/native-windows-sync.md),
 verificados mediante llamadas x86 sinteticas y comparaciones con Windows.
 Los [eventos sin nombre](pc/docs/native-windows-events.md) ya soportan Set/Reset,
-handles de generacion y espera individual; faltan semaforos, mutex y hilos guest.
+handles de generacion y espera individual. Tambien hay [semaforos, mutex y esperas multiples](pc/docs/native-windows-kernel-waits.md); faltan hilos guest y el arranque del motor.
 
 El objetivo activo de `pc-port` es recompilar Fallout: New Vegas PC a ARM64
 para Nintendo Switch, siguiendo el modelo de

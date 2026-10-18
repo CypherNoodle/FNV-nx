@@ -30,11 +30,16 @@ struct critical_section {
     uint32_t address,owner,recursion,waiters,spin;
     fnv_host_condition condition;
 };
-struct event_waiter {struct event_waiter *next;uint32_t released;};
+enum {KERNEL_EVENT=1,KERNEL_SEMAPHORE,KERNEL_MUTEX};
 struct kernel_object {
-    uint32_t generation,live,manual,signaled,waiters,free_next;
-    struct event_waiter *waiting;
+    uint32_t generation,live,manual,signaled,waiters,free_next,kind;
+    uint32_t maximum,owner,recursion,abandoned;
     fnv_host_condition condition;
+};
+struct kernel_wait {
+    struct kernel_wait *next;
+    struct kernel_object *objects[64];
+    uint32_t count,all,owner,released,result;
 };
 struct fnv_windows_process {
     struct fnv_windows_config config;
@@ -50,7 +55,8 @@ struct fnv_windows_process {
     uint64_t sync_waits,sync_wakes,sync_try_failures;
     fnv_host_mutex kernel_guard;
     struct kernel_object *handles;
-    uint32_t kernel_free;
+    uint32_t kernel_free,kernel_waiting;
+    struct kernel_wait *kernel_pending;
     uint64_t kernel_waits,kernel_timeouts,kernel_sets,kernel_resets;
 };
 static RECOMP_TLS struct windows_thread current;
@@ -200,6 +206,13 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","ResetEvent",0,0,api_event_reset},
     {"kernel32.dll","WaitForSingleObject",0,0,api_wait_single},
     {"kernel32.dll","CloseHandle",0,0,api_close_handle},
+    {"kernel32.dll","CreateSemaphoreA",0,0,api_semaphore_create},
+    {"kernel32.dll","CreateSemaphoreW",0,0,api_semaphore_create},
+    {"kernel32.dll","ReleaseSemaphore",0,0,api_semaphore_release},
+    {"kernel32.dll","CreateMutexA",0,0,api_mutex_create},
+    {"kernel32.dll","CreateMutexW",0,0,api_mutex_create},
+    {"kernel32.dll","ReleaseMutex",0,0,api_mutex_release},
+    {"kernel32.dll","WaitForMultipleObjects",0,0,api_wait_multiple},
 };
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {
     if(!out)return FNV_CPU_INVALID;
@@ -312,6 +325,7 @@ enum fnv_cpu_result fnv_windows_thread_detach(void) {
     if(!sync_thread_idle(p,current.config.thread_id)){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_detach();
     if(result==FNV_CPU_OK){
+        kernel_thread_exit(p,current.config.thread_id);
         struct windows_thread **link=&p->threads;
         while(*link!=&current)link=&(*link)->next;
         *link=current.next;memset(&current,0,sizeof(current));

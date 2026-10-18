@@ -152,3 +152,6 @@ El layout x86 y los casos limite se contrastaron con
 [TEB32](https://github.com/wine-mirror/wine/blob/master/include/winternl.h) y
 [TLS de Wine](https://github.com/wine-mirror/wine/blob/master/dlls/kernelbase/thread.c),
 sin incorporar su codigo ni DLLs.
+
+La tabla actual contiene 41 exports: siete adicionales cubren semaforos, mutex
+y WaitForMultipleObjects. Ver [contratos y pruebas](native-windows-kernel-waits.md).

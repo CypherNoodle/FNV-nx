@@ -7,8 +7,16 @@
 #include <assert.h>
 #define BASE 0x400000u
 #define ARENA 0x100000u
-enum {CREATE_EVENT,SET_EVENT,RESET_EVENT,WAIT_ONE,CLOSE_HANDLE,CREATE_W,GET_ERROR,SET_ERROR};
-static const unsigned args_count[]={4,1,1,2,1,4,0,1};
+enum {CREATE_EVENT,SET_EVENT,RESET_EVENT,WAIT_ONE,CLOSE_HANDLE,CREATE_W,GET_ERROR,SET_ERROR
+#ifdef EXTENDED_SYNC_TESTS
+    ,CREATE_SEM,RELEASE_SEM,CREATE_MUTEX,RELEASE_MUTEX,WAIT_MANY,CREATE_SEM_W,CREATE_MUTEX_W
+#endif
+};
+static const unsigned args_count[]={4,1,1,2,1,4,0,1
+#ifdef EXTENDED_SYNC_TESTS
+    ,4,3,3,1,4,4,3
+#endif
+};
 static unsigned char *arena;
 static struct fnv_windows_process *process;
 static uint32_t read32(uint32_t at){unsigned char *p=arena+at-BASE;return p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
@@ -91,7 +99,7 @@ int main(int argc,char **argv){
     c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;c.kernel_handle_capacity=65537;
     assert(fnv_windows_create(&c,&process)==FNV_CPU_INVALID && !process);c.kernel_handle_capacity=argc==3 && !strcmp(argv[2],"--strict-disabled")?0:4;
     assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count;
-    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&count)==FNV_NATIVE_OK && count==8);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&count)==FNV_NATIVE_OK && count==sizeof(args_count)/sizeof(*args_count));
     struct fnv_windows_thread_config t=thread_config(0);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);if(argc==3){strict_case(argv[2]);return 0;}
     unsigned comparisons=0,seed=0x59ab83;
     for(unsigned trial=0;trial<400;++trial){unsigned manual=trial&1,initial=(trial>>1)&1;

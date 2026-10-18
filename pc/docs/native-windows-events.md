@@ -22,7 +22,8 @@ un contador cuando el evento ya esta senalizado. Los BOOL se normalizan y se
 respeta el estado inicial.
 
 Cada llamada bloqueada registra un waiter en la pila host. SetEvent concede
-la senal retirando uno (automatico) o todos (manual) de la lista elegible. Esa
+la senal retirando peticiones elegibles (una por senal automatica) de la lista
+compartida del proceso. Una espera conjunta solo es elegible si cumple su condicion. Esa
 concesion sobrevive a ResetEvent aunque el hilo no haya vuelto a ejecutarse.
 Un nuevo waiter no puede robar la senal ya concedida a otro. WakeAll notifica
 los waiters; cada uno verifica su concesion bajo mutex. Puede haber despertares
@@ -58,7 +59,8 @@ timeout, Set y Reset mientras el llamador conserva el proceso.
 
 Nombre o SECURITY_ATTRIBUTES no NULL detiene el runtime con diagnostico pendiente.
 Faltan objetos nombrados/compartidos, herencia, permisos, DuplicateHandle, OpenEvent,
-PulseEvent, semaforos, mutex kernel, archivos/hilos como handles y waits multiples.
+PulseEvent y archivos/hilos como handles. Los semaforos, mutex kernel y waits
+multiples ahora estan implementados: ver [esperas conjuntas](native-windows-kernel-waits.md).
 WaitForSingleObject y CloseHandle no son aun implementaciones para todos esos
 tipos. Tampoco hay CreateThread/ExitThread, SEH ni arranque del motor.
 
