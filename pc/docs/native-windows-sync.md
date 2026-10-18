@@ -26,8 +26,8 @@ Las condiciones se despiertan como maximo cada 250 ms para consultar el estado
 atomico del runtime CPU. Un fallo de otro hilo termina la espera con diagnostico,
 despues de soltar el mutex; nunca se devuelve adquisicion exitosa sin propietario.
 Los timeouts de esa comprobacion no son timeouts guest de EnterCriticalSection.
-En Switch y Windows la espera es relativa; el fallback pthread usa el reloj UTC
-del host para pthread_cond_timedwait. No define el reloj del juego.
+En Switch y Windows la espera es relativa; pthread usa CLOCK_MONOTONIC para la
+condicion. No define el reloj del juego.
 
 El objeto guest tiene un espejo de 24 bytes con valores DWORD, sin punteros host.
 Es opaco: no reproduce el algoritmo interno de bloqueo de una version concreta
@@ -61,7 +61,8 @@ Se conservan las regresiones de heaps/TLS/Virtual*. La compilacion ARM64 de CPU,
 Windows thread y Windows memory pasa con -Werror. Aun no se prueba este bloque
 en hardware ni se arranca el motor.
 
-Faltan eventos, semaforos, mutex kernel, handles/CloseHandle, waits multiples,
+Los [eventos sin nombre](native-windows-events.md) ya tienen handles propios,
+CloseHandle y espera individual. Faltan semaforos, mutex kernel, otros handles, waits multiples,
 Sleep y CreateThread/ExitThread, ademas de SEH y DLLs. No equivale a un scheduler
 Windows completo ni acredita el uso eficiente de todos los nucleos del juego.
 

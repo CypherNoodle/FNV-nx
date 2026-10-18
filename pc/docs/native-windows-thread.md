@@ -6,6 +6,8 @@ Windows ni Wine. Las implementaciones son codigo propio.
 
 Tambien incorpora ocho exports de [heaps opcionales](native-windows-heap.md).
 Agrega doce exports de [secciones criticas y atomicos](native-windows-sync.md).
+Tambien agrega seis exports para [eventos sin nombre](native-windows-events.md),
+incluidos handles propios y espera individual.
 Las cifras historicas de ocho servicios y slots de esta pagina se refieren a
 TLS/IDs; no incluyen los nuevos exports de heap ni Virtual* o D3D9.
 

@@ -212,6 +212,8 @@ con permisos reales, aislamiento y rollback de fallos sobre el pool Virtual*.
 con fragmentacion; los tiempos son de escritorio, no FPS de Switch.
 `../tests/test_windows_sync.py` verifica secciones criticas e Interlocked con
 contencion, medicion del hilo bloqueado y cancelacion por fallo de otro hilo.
+`../tests/test_windows_events.py` compara eventos sin nombre con Windows y prueba
+Set/Reset bajo contencion, deadlines, handles de generacion y peer CPU faults.
 `audit_heap_flags.py --exe /ruta/FalloutNV.exe --analysis /privado/analisis
 --python-deps /ruta/deps --output /privado/heap-flags.json` conserva evidencia
 estatica de flags inmediatos/acotados en llamadas IAT; no prueba valores runtime.

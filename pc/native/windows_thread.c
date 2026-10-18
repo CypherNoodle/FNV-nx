@@ -1,3 +1,6 @@
+#if !defined(_WIN32) && !defined(__SWITCH__) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 /* Original PC bridges; Windows ABI/data layout references are documented in
  * docs/native-windows-thread.md. No Wine source or DLLs are incorporated. */
 #include "fnv_sdk_runtime.h"
@@ -5,6 +8,7 @@
 #include "guest_memory.h"
 #include "host_mutex.h"
 #include "host_condition.h"
+#include "host_clock.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 
@@ -26,6 +30,12 @@ struct critical_section {
     uint32_t address,owner,recursion,waiters,spin;
     fnv_host_condition condition;
 };
+struct event_waiter {struct event_waiter *next;uint32_t released;};
+struct kernel_object {
+    uint32_t generation,live,manual,signaled,waiters,free_next;
+    struct event_waiter *waiting;
+    fnv_host_condition condition;
+};
 struct fnv_windows_process {
     struct fnv_windows_config config;
     struct fnv_cpu_runtime *cpu;
@@ -38,6 +48,10 @@ struct fnv_windows_process {
     fnv_host_mutex sync_guard;
     struct critical_section *sections;
     uint64_t sync_waits,sync_wakes,sync_try_failures;
+    fnv_host_mutex kernel_guard;
+    struct kernel_object *handles;
+    uint32_t kernel_free;
+    uint64_t kernel_waits,kernel_timeouts,kernel_sets,kernel_resets;
 };
 static RECOMP_TLS struct windows_thread current;
 static void lock(struct fnv_windows_process *p) {
@@ -150,6 +164,7 @@ static void api_tls_set(void) {
 }
 #include "windows_heap.inc"
 #include "windows_sync.inc"
+#include "windows_events.inc"
 static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","TlsAlloc",0,0,api_tls_alloc},
     {"kernel32.dll","TlsFree",0,0,api_tls_free},
@@ -179,6 +194,12 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","InterlockedIncrement",0,0,api_atomic_increment},
     {"kernel32.dll","InterlockedDecrement",0,0,api_atomic_decrement},
     {"kernel32.dll","InterlockedExchangeAdd",0,0,api_atomic_add},
+    {"kernel32.dll","CreateEventA",0,0,api_event_create},
+    {"kernel32.dll","CreateEventW",0,0,api_event_create},
+    {"kernel32.dll","SetEvent",0,0,api_event_set},
+    {"kernel32.dll","ResetEvent",0,0,api_event_reset},
+    {"kernel32.dll","WaitForSingleObject",0,0,api_wait_single},
+    {"kernel32.dll","CloseHandle",0,0,api_close_handle},
 };
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {
     if(!out)return FNV_CPU_INVALID;
@@ -203,6 +224,9 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
     result=sync_prepare(p);
     if(result!=FNV_CPU_OK){if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
+    result=events_prepare(p);
+    if(result!=FNV_CPU_OK){sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
+        (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
     *out=p;return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
@@ -210,7 +234,7 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     lock(p);
     if(p->threads || p->private_heaps){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
-    unlock(p);if(result==FNV_CPU_OK){sync_dispose(p);if(p->heap.blocks){
+    unlock(p);if(result==FNV_CPU_OK){events_dispose(p);sync_dispose(p);if(p->heap.blocks){
             if(read32(memory(p,p->config.peb_address)+0x18)==p->config.heap_address)write32(memory(p,p->config.peb_address)+0x18,0);
             free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         fnv_vm_release_reference(p->config.memory);free(p);}return result;
