@@ -63,7 +63,8 @@ concurrentes y de referencias de procesos Windows.
 
 ## Limites explicitos
 
-No implementa HeapAlloc/Free, PEB completo, SEH, guard/COW, memoria ejecutable,
+El [heap de proceso opcional](native-windows-heap.md) usa un arena separado del
+pool Virtual*. No se implementan PEB completo, SEH, guard/COW, memoria ejecutable,
 MEM_RESET, TOP_DOWN, grandes paginas, archivos mapeados o paging. Los flags
 no soportados fallan, sin simular exito. VirtualProtect rechaza con error 50
 que su puntero de salida comparta paginas con el rango a proteger. Las salidas

@@ -202,3 +202,12 @@ No es una prueba de FPS ni de hardware Switch.
 `pc/tests/test_renderer_probe_checks.py`, con 93 callers y checks compartidos
 en `pc/switch/renderer_probe_checks.h`. El builder rechaza fuentes, shaders o
 callers distintos de los verificados. [Uso y cobertura](../docs/switch-renderer-probe.md).
+## Heap y dependencias PC
+
+`../tests/test_windows_heap.py` verifica imports x86 del heap de proceso contra
+Windows, agotamiento, realloc y concurrencia. Ver [contrato y limites](../docs/native-windows-heap.md).
+`audit_pc_dependencies.py --game /ruta/juego --output /privado/dependencies.json`
+audita los imports normales del EXE y DLL locales, sin ejecutarlos ni copiarlos.
+El reporte local contiene metadatos; la ausencia en este grafo no descarta carga
+dinamica. No se publica el reporte ni los binarios del usuario.
+

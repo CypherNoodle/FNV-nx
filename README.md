@@ -1,5 +1,9 @@
 # FNV-nx — rama PC nativa
 
+El runtime incorpora un [heap de proceso guest32](pc/docs/native-windows-heap.md)
+con imports x86 traducidos y presupuesto fijo. HeapCreate, hilos guest, SEH y el
+arranque completo del motor siguen pendientes.
+
 El objetivo activo de `pc-port` es recompilar Fallout: New Vegas PC a ARM64
 para Nintendo Switch, siguiendo el modelo de
 [SH2-nx](https://github.com/cutarev/sh2-nx) y
