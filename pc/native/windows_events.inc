@@ -170,6 +170,7 @@ static void api_mutex_release(void){
 static void api_close_handle(void){
     uint32_t handle=fnv_cpu_argument_u32(0),value=0;struct fnv_windows_process *p=thread()->process;
     if(files_close(p,handle,&value)){if(!value)fnv_windows_set_last_error(6);fnv_cpu_return_u32(value,4);return;}
+    if((handle&0xf0000000u)==0xc0000000u){fnv_windows_set_last_error(6);fnv_cpu_return_u32(0,4);return;}
     p=event_process();
     fnv_host_mutex_lock(&p->kernel_guard);struct kernel_object *o=event_lookup(p,handle);
     if(o){o->live=0;o->signaled=0;value=1;kernel_dispatch(p);if(!o->waiters)event_recycle(p,o);}

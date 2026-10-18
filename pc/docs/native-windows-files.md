@@ -1,7 +1,8 @@
 # Lectura de archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, GetFileSize/Ex y SetFilePointer/Ex.
-La tabla base pasa de 50 a 57 exports. CloseHandle usa el mismo import existente y
+La lectura agrego siete exports; la tabla actual tiene 65 tras agregar
+[atributos y enumeracion](native-windows-directory.md). CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
 
@@ -25,8 +26,8 @@ mayusculas; no detectan aliases de symlinks, hardlinks o nombres cortos.
 No hay busqueda de archivos, rutas absolutas guest, unidades Windows, dispositivos,
 streams alternativos, SECURITY_ATTRIBUTES, templates, acceso de escritura,
 creacion/truncado, OVERLAPPED, IOCP ni cancelacion. Esos modos pendientes fallan
-explicitamente; no se simula una escritura exitosa. GetFileAttributes y FindFirst/
-FindNext, necesarios para inventarios del juego, siguen pendientes. Tampoco hay
+explicitamente; no se simula una escritura exitosa. GetFileAttributes y FindFirst/FindNext/FindClose ahora tienen un
+[proveedor de inventarios](native-windows-directory.md), con sus limites explicitos. Tampoco hay
 guardados ni archivos mapeados a memoria en este bloque.
 
 ## Cursores, handles y locks

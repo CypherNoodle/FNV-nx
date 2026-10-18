@@ -202,6 +202,7 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_workers.inc"
 #include "windows_time.inc"
 #include "windows_files.inc"
+#include "windows_directory.inc"
 static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","TlsAlloc",0,0,api_tls_alloc},
     {"kernel32.dll","TlsFree",0,0,api_tls_free},
@@ -260,6 +261,14 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetFileSizeEx",0,0,api_file_size_ex},
     {"kernel32.dll","SetFilePointer",0,0,api_file_seek},
     {"kernel32.dll","SetFilePointerEx",0,0,api_file_seek_ex},
+    {"kernel32.dll","GetFileAttributesA",0,0,api_file_attributes_a},
+    {"kernel32.dll","GetFileAttributesW",0,0,api_file_attributes_w},
+    {"kernel32.dll","FindFirstFileA",0,0,api_find_first_a},
+    {"kernel32.dll","FindFirstFileW",0,0,api_find_first_w},
+    {"kernel32.dll","FindNextFileA",0,0,api_find_next_a},
+    {"kernel32.dll","FindNextFileW",0,0,api_find_next_w},
+    {"kernel32.dll","FindClose",0,0,api_find_close},
+    {"kernel32.dll","GetFileType",0,0,api_file_type},
 };
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count){if(count)*count=FNV_WINDOWS_THREAD_EXPORTS;return exports;}
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {

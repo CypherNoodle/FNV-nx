@@ -1,11 +1,13 @@
 /* Original synchronous, read-only guest file ABI. Separate table and per-file
  * IO locks: no SD operation holds kernel_guard, process guard, or files_guard. */
 #include "host_file.h"
+#include "host_directory.h"
 #include <string.h>
 struct file_slot {
-    FILE *stream;fnv_host_mutex io_guard;
-    uint32_t generation,live,pins,next,share;
+    FILE *stream;struct fnv_host_directory *search;fnv_host_mutex io_guard;
+    uint32_t generation,live,pins,next,share,kind,search_done;
     char key[512];
+    char pattern[260];
 };
 static enum fnv_cpu_result files_prepare(struct fnv_windows_process *p){
     uint32_t count=p->config.file_handle_capacity;
@@ -32,7 +34,9 @@ static enum fnv_cpu_result files_prepare(struct fnv_windows_process *p){
 }
 static void files_dispose(struct fnv_windows_process *p){
     if(!p->files)return;
-    for(uint32_t i=0;i<p->config.file_handle_capacity;++i){if(p->files[i].stream)fclose(p->files[i].stream);fnv_host_mutex_destroy(&p->files[i].io_guard);}
+    for(uint32_t i=0;i<p->config.file_handle_capacity;++i){if(p->files[i].stream)fclose(p->files[i].stream);
+        if(p->files[i].search)fnv_host_directory_close(p->files[i].search);
+        fnv_host_mutex_destroy(&p->files[i].io_guard);}
     free(p->files);free(p->file_root);fnv_host_mutex_destroy(&p->files_guard);
 }
 static struct fnv_windows_process *file_process(void){
@@ -41,10 +45,10 @@ static struct fnv_windows_process *file_process(void){
     return p;
 }
 static struct file_slot *file_lookup(struct fnv_windows_process *p,uint32_t h){
-    h&=~3u;if(!p->files || (h&0xf0000000u)!=0xd0000000u)return NULL;
+    uint32_t prefix=h&0xf0000000u;h&=~3u;if(!p->files || (prefix!=0xd0000000u && prefix!=0xc0000000u))return NULL;
     uint32_t i=(h>>2)&p->file_mask,g=(h&0x0fffffffu)>>(p->file_bits+2);
     if(i>=p->config.file_handle_capacity || !g)return NULL;
-    struct file_slot *f=p->files+i;return f->live && f->generation==g?f:NULL;
+    struct file_slot *f=p->files+i;return f->live && f->generation==g && ((prefix==0xd0000000u && f->kind==1) || (prefix==0xc0000000u && f->kind==2))?f:NULL;
 }
 static unsigned char *file_pointer(struct fnv_windows_process *p,uint32_t at,uint32_t bytes,int write){
     if(!bytes)return NULL;
@@ -52,7 +56,7 @@ static unsigned char *file_pointer(struct fnv_windows_process *p,uint32_t at,uin
         sync_invalid("Windows file argument unreadable or not writable",at);
     return memory(p,at);
 }
-static int file_path(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key){
+static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int mode){
     char source[512];int ended=0;
     for(size_t i=0;i<sizeof(source);++i){uint64_t pos=(uint64_t)at+i*(wide?2:1);unsigned width=wide?2:1;
         if(pos+width>UINT64_C(0x100000000))sync_invalid("Windows file path wraps",at);
@@ -61,6 +65,8 @@ static int file_path(struct fnv_windows_process *p,uint32_t at,int wide,char *pa
         source[i]=(char)c;if(!c){ended=1;break;}
     }
     if(!ended || !source[0])return 123;
+    size_t length=strlen(source);int trailing=source[length-1]=='/' || source[length-1]=='\\';
+    if(trailing && mode!=2)return 3;
     if(source[0]=='/' || source[0]=='\\' || strchr(source,':'))return 50;
     size_t used=0,depth=0,starts[256];
     for(size_t start=0;source[start];){size_t end=start;while(source[end] && source[end]!='/' && source[end]!='\\')end++;
@@ -70,21 +76,26 @@ static int file_path(struct fnv_windows_process *p,uint32_t at,int wide,char *pa
             if(!depth)return 5;
             used=starts[--depth];
         }else if(n){size_t original=used;if(used)path[used++]='/';
-            for(size_t i=0;i<n;++i){unsigned c=(unsigned char)source[start+i];if(c<32 || strchr("*?\"<>|",(int)c))return 123;path[used++]=(char)c;}
+            for(size_t i=0;i<n;++i){unsigned c=(unsigned char)source[start+i];
+                if((c=='?' && mode==1) || (c=='*' && mode==1 && source[end]))return 50;
+                if(c<32 || strchr("?\"<>|",(int)c) || (c=='*' && mode!=1))return 123;
+                path[used++]=(char)c;}
             starts[depth++]=original;
         }
         start=source[end]?end+1:end;
     }
-    if(!used)return 5;
+    if(!used){if(mode!=2)return 5;path[used++]='.';}
+    if(trailing && mode==2)path[used++]='/';
     path[used]=0;
     for(size_t i=0;i<=used;++i){unsigned c=(unsigned char)path[i];key[i]=(char)(c>='A'&&c<='Z'?c+32:c);}
     return 0;
 }
+static int file_path(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key){return file_path_mode(p,at,wide,path,key,0);}
 /* Called exactly once after live becomes false and the last operation unpins.
  * The slot is unavailable until fclose has finished; no table lock during IO. */
 static void file_finish_close(struct fnv_windows_process *p,struct file_slot *f){
-    fclose(f->stream);
-    fnv_host_mutex_lock(&p->files_guard);f->stream=NULL;
+    if(f->kind==1)fclose(f->stream);else fnv_host_directory_close(f->search);
+    fnv_host_mutex_lock(&p->files_guard);f->stream=NULL;f->search=NULL;
     if(f->generation==p->file_generation_max)p->file_stats.retired_slots++;
     else {uint32_t i=(uint32_t)(f-p->files);f->next=UINT32_MAX;
         if(p->file_tail!=UINT32_MAX)p->files[p->file_tail].next=i;else p->file_free=i;
@@ -99,15 +110,16 @@ static int files_close(struct fnv_windows_process *p,uint32_t handle,uint32_t *v
     if(f){f->live=0;p->file_stats.live_handles--;finish=!f->pins;*value=1;}
     fnv_host_mutex_unlock(&p->files_guard);if(finish)file_finish_close(p,f);return 1;
 }
-static struct file_slot *file_acquire(struct fnv_windows_process *p,uint32_t handle){
+static struct file_slot *file_acquire_kind(struct fnv_windows_process *p,uint32_t handle,uint32_t kind){
     uint64_t start=0,end=0;int timed=fnv_host_now_ns(&start);
     fnv_host_mutex_lock(&p->files_guard);struct file_slot *f=file_lookup(p,handle);
-    if(f && f->pins!=UINT32_MAX)f->pins++;else f=NULL;
+    if(f && f->kind==kind && f->pins!=UINT32_MAX)f->pins++;else f=NULL;
     fnv_host_mutex_unlock(&p->files_guard);
     if(f){fnv_host_mutex_lock(&f->io_guard);
         if(timed && fnv_host_now_ns(&end) && end>=start){fnv_host_mutex_lock(&p->files_guard);p->file_stats.io_wait_ns+=end-start;fnv_host_mutex_unlock(&p->files_guard);}}
     return f;
 }
+static struct file_slot *file_acquire(struct fnv_windows_process *p,uint32_t handle){return file_acquire_kind(p,handle,1);}
 static void file_release(struct fnv_windows_process *p,struct file_slot *f){
     fnv_host_mutex_unlock(&f->io_guard);fnv_host_mutex_lock(&p->files_guard);
     int finish=!--f->pins && !f->live;fnv_host_mutex_unlock(&p->files_guard);if(finish)file_finish_close(p,f);
@@ -133,7 +145,7 @@ static void file_create(int wide){
                     if(other->stream && !strcmp(other->key,key) && (!(share&1) || !(other->share&1))){error=32;break;}}
                 if(!error && p->file_free==UINT32_MAX)error=4;
                 if(!error){uint32_t i=p->file_free;struct file_slot *f=p->files+i;p->file_free=f->next;if(p->file_free==UINT32_MAX)p->file_tail=UINT32_MAX;
-                    f->generation++;f->live=1;f->share=share;f->stream=stream;memcpy(f->key,key,strlen(key)+1);
+                    f->generation++;f->live=1;f->kind=1;f->share=share;f->stream=stream;memcpy(f->key,key,strlen(key)+1);
                     handle=0xd0000000u|(f->generation<<(p->file_bits+2))|(i<<2);p->file_stats.live_handles++;p->file_stats.opens++;stream=NULL;
                 }
                 fnv_host_mutex_unlock(&p->files_guard);

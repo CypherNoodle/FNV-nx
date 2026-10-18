@@ -13,6 +13,9 @@ del NRO, con llamadas indirectas x86 verificadas. Aun no carga DLL binarias.
 La [lectura de archivos Win32](pc/docs/native-windows-files.md) ya permite abrir,
 leer, consultar tamanos y mover cursores de 64 bits mediante callers x86. Se
 comprobaron lecturas del EXE, ESM y BSA de Steam sin ejecutar el juego.
+Los [inventarios de archivos](pc/docs/native-windows-directory.md) agregan atributos
+y busquedas A/W con cursores concurrentes, comparados con Windows y los BSA/ESM
+reales. Todavia no arrancan el motor.
 
 
 
