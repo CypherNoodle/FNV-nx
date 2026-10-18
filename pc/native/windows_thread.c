@@ -203,6 +203,12 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_time.inc"
 #include "windows_files.inc"
 #include "windows_directory.inc"
+static void api_startup_info(void){
+    uint32_t at=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
+    unsigned char *output=sync_pointer(p,at,68);
+    memset(output,0,68);write32(output,68);write32(output+44,p->config.startup_flags);
+    output[48]=(unsigned char)p->config.startup_show_window;fnv_cpu_return_u32(g_eax,4);
+}
 static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","TlsAlloc",0,0,api_tls_alloc},
     {"kernel32.dll","TlsFree",0,0,api_tls_free},
@@ -254,6 +260,10 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetThreadId",0,0,api_thread_handle_id},
     {"kernel32.dll","QueryPerformanceCounter",0,0,api_performance_counter},
     {"kernel32.dll","QueryPerformanceFrequency",0,0,api_performance_frequency},
+    {"kernel32.dll","GetTickCount",0,0,api_tick_count},
+    {"kernel32.dll","GetSystemTimeAsFileTime",0,0,api_system_filetime},
+    {"kernel32.dll","GetStartupInfoA",0,0,api_startup_info},
+    {"kernel32.dll","GetStartupInfoW",0,0,api_startup_info},
     {"kernel32.dll","CreateFileA",0,0,api_file_create_a},
     {"kernel32.dll","CreateFileW",0,0,api_file_create_w},
     {"kernel32.dll","ReadFile",0,0,api_file_read},
@@ -274,7 +284,8 @@ const struct fnv_cpu_export *fnv_windows_exports(size_t *count){if(count)*count=
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {
     if(!out)return FNV_CPU_INVALID;
     *out=NULL;
-    if(!c || !c->process_id || !c->image_bytes || c->image_bytes>c->cpu.memory_bytes ||
+    if(!c || (c->startup_flags&~1u) || c->startup_show_window>11 ||
+       (c->startup_flags && c->startup_show_window==10) || !c->process_id || !c->image_bytes || c->image_bytes>c->cpu.memory_bytes ||
        c->cpu.code_high>(uint64_t)c->cpu.guest_base+c->image_bytes ||
        (c->peb_address&4095) || !inside(c,c->peb_address,4096) ||
        overlap(c->peb_address,4096,c->cpu.guest_base,c->image_bytes))return FNV_CPU_INVALID;

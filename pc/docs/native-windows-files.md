@@ -1,8 +1,8 @@
 # Lectura de archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, GetFileSize/Ex y SetFilePointer/Ex.
-La lectura agrego siete exports; la tabla actual tiene 65 tras agregar
-[atributos y enumeracion](native-windows-directory.md). CloseHandle usa el mismo import existente y
+La lectura agrego siete exports; la tabla base actual tiene 69, incluyendo
+[atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
 

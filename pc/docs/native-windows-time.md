@@ -18,7 +18,7 @@ tiempo finito espera hasta el plazo. INFINITE espera hasta un fallo de la sesion
 Las llamadas nativas se segmentan a 250 ms para comprobar fallos CPU de otros
 hilos sin spin. Un sistema ocupado puede despertar mas tarde; no se promete una
 latencia concreta del scheduler. Esta implementacion no depende de configurar
-handles o workers. GetTickCount, timeGetTime y relojes civiles siguen pendientes.
+handles o workers. timeGetTime y las conversiones civiles de SYSTEMTIME siguen pendientes.
 
 test_windows_time.py ejecuta wrappers x86 recompilados, compara 256 lecturas con
 timestamps Windows tomados antes/despues y valida 256 frecuencias, LastError,
@@ -47,3 +47,44 @@ multiplicar o usar aritmetica sin overflow. La fuente inyectable de configuracio
 solo afecta QPC; no debe reentrar ni hacer longjmp. Sleep y waits usan reloj real.
 
 Referencia: [consideraciones QPC de Microsoft](https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps).
+
+## Relojes usados por el CRT
+
+La auditoria estatica del codigo capturado identifica llamadas directas a
+GetSystemTimeAsFileTime y GetTickCount en la inicializacion de la cookie del CRT.
+Ambos bridges estan en la tabla base; esto no demuestra que el CRT ya se ejecute.
+
+GetTickCount devuelve DWORD de milisegundos desde el contador de arranque host,
+con wrap a 2^32 ms. En Windows usa GetTickCount64; Horizon usa el contador ARM
+monotono. No usa el epoch relativo ni el proveedor inyectable de QPC.
+GetSystemTimeAsFileTime escribe UTC en ocho bytes little endian, unidades de
+100 ns desde 1601. Windows usa su API publica; Horizon/POSIX CLOCK_REALTIME.
+La conversion comprueba nanosegundos, epoch y overflow antes de escribir.
+La hora UTC puede retroceder por ajustes del sistema: nunca se usa para waits.
+El servicio de hora debe estar disponible; no se inventa una fecha al fallar.
+
+256 consultas de cada API estan entre muestras Windows tomadas antes/despues.
+Las pruebas cubren LastError, ABI stdcall, guardas, puntero invalido, fechas
+anteriores a Unix, epoch 1601, ultimo instante de 9999 y overflow. Los relojes
+reales siguen independientes mientras QPC simula 3/7/365 dias de uptime.
+ARM64 compila CLOCK_REALTIME y verifica clock_gettime en libsysbase. La precision
+y disponibilidad del reloj UTC en una ejecucion real de Horizon quedan por validar.
+
+Contratos: [GetTickCount](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-gettickcount),
+[GetSystemTimeAsFileTime](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemtimeasfiletime).
+
+## STARTUPINFO del proceso virtual
+
+GetStartupInfoA/W escriben la misma estructura x86 de 68 bytes. cb=68,
+dwFlags y wShowWindow vienen del snapshot de fnv_windows_config; por defecto
+son cero. Solo se admite STARTF_USESHOWWINDOW (1), con wShowWindow entre 0 y 11, excepto SW_SHOWDEFAULT (10) si ese flag esta activo.
+Otros flags se rechazan al crear el proceso. No hay cadenas de desktop/title,
+handles stdio heredados, payload reservado ni proceso hijo: esos campos son cero.
+No se copia STARTUPINFO del host de 64 bits y no se crea una ventana por esta API.
+Esto proporciona los datos que consulta el CRT, no un dispatcher USER32.
+
+Las pruebas A/W verifican bytes, offsets, stack, guardas, LastError, configuracion
+copiada y rechazo de flags/valores no soportados. GetCommandLineA/W y el parser
+de argumentos siguen pendientes. El perfil de arranque real tampoco esta validado.
+
+Contrato: [GetStartupInfoA](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getstartupinfoa).

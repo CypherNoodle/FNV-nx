@@ -398,3 +398,17 @@ en la aplicacion Switch. `build_cpu_runtime.py` reconstruye el conjunto
 completo con esas opciones, el wrapper de traza por hilo y las bibliotecas
 CPU/PE propias. El enlace relocatable sigue sin sustituir un ejecutable,
 perfil de entrada original ni renderer del motor.
+
+## Calls del CRT conservado
+
+`audit_aot_calls.py` permite repetir el recorrido acotado de una raiz explicita
+contra EXE/perfil/contenedor verificados. En la captura actual, las raices
+0xECC35D, 0xEDDB9A y 0x86A850 tienen 100, 53 y 1081 instrucciones recorridas,
+respectivamente. Sus calls directos identifican GetStartupInfoA/GetCommandLineA,
+los relojes e IDs de inicializacion y servicios USER32/SHELL32 del motor.
+No se siguen calls ni exception edges; no se ha probado el salto desde .bind.
+El informe privado no sustituye observar el arranque original ni ejecutar CRT.
+
+Los dos relojes y STARTUPINFO A/W ya cuentan con bridges probados por separado.
+GetCommandLine A/W, CommandLineToArgvW/LocalFree y la ruta de ventanas son los
+siguientes servicios observados, junto con SEH y el perfil real de entrada.

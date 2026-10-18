@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 65u
+#define FNV_WINDOWS_THREAD_EXPORTS 69u
 struct fnv_windows_process;
 /* Immutable built-in catalog, borrowed for native dynamic module preparation. */
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count);
@@ -41,6 +41,10 @@ struct fnv_windows_config {
      * Both root and capacity (<=4096) must be set, or both zero. */
     const char *file_root;
     uint32_t file_handle_capacity,file_generation_limit;
+    /* Virtual process STARTUPINFO32. Only STARTF_USESHOWWINDOW (1) is
+     * supported (show 0..11, except SW_SHOWDEFAULT=10 when flag is set).
+     * No desktop/title, inherited stdio or reserved payload. */
+    uint32_t startup_flags,startup_show_window;
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;

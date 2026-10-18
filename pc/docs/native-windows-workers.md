@@ -2,7 +2,7 @@
 
 WindowsThread incorpora CreateThread, ExitThread, GetExitCodeThread,
 GetCurrentThread, GetThreadId y ResumeThread, ademas de Sleep y los contadores
-de rendimiento. La tabla contiene ahora 65 exports; esto no completa Windows.
+de rendimiento. La tabla contiene ahora 69 exports; esto no completa Windows.
 Cada ThreadProc se ejecuta como codigo x86 recompilado estaticamente, sobre un
 hilo del host, con registros, TEB, LastError y TLS dinamico separados.
 

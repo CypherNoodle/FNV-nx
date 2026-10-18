@@ -1,7 +1,7 @@
 # Localizacion de archivos y metadatos
 
 WindowsThread incorpora GetFileAttributesA/W, FindFirstFileA/W, FindNextFileA/W,
-FindClose y GetFileType: 65 exports base en total. Usa la raiz y capacidad de
+FindClose y GetFileType: 69 exports base en total. Usa la raiz y capacidad de
 archivos existentes, sin crear carpetas ni modificar assets. Los imports reales
 de Fallout incluyen las variantes A, FindClose y GetFileType; W queda disponible
 para otros callers.

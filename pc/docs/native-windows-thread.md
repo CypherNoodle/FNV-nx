@@ -154,7 +154,7 @@ El layout x86 y los casos limite se contrastaron con
 [TLS de Wine](https://github.com/wine-mirror/wine/blob/master/dlls/kernelbase/thread.c),
 sin incorporar su codigo ni DLLs.
 
-La tabla actual contiene 65 exports: incluye semaforos, mutex, esperas multiples,
+La tabla actual contiene 69 exports: incluye semaforos, mutex, esperas multiples,
 [hilos administrados](native-windows-workers.md), Sleep y [QPC/QPF](native-windows-time.md). Ver [contratos y pruebas](native-windows-kernel-waits.md).
 
 El [TLS estatico PE32](native-pe-tls.md) de un EXE sin callbacks se inicializa al

@@ -45,7 +45,7 @@ def build(a):
     if len(reports)!=1 or json.loads(reports[0].read_text())['code_data_filter']!=selection:
         raise ValueError('Analysis is not the pinned base generation')
     sources=['windows_thread.c','pe_tls.c','guest_memory.c']
-    headers=['windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.h','host_mutex.h']
+    headers=['windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','host_wallclock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.h','host_mutex.h']
     headers+=['windows_files.inc','host_file.h','host_directory.h','windows_directory.inc']
     if a.modules:
         sources+=['windows_modules.c'];headers+=['windows_modules.h']
@@ -85,7 +85,7 @@ def build(a):
     if a.memory_exports:allowed|={'svcSetMemoryPermission'}
     if a.modules:allowed|={'strlen'}
     allowed|={'__errno','fileno','fseeko','fstat','ftello','stat','strchr','strrchr','strlen'}
-    allowed|={'closedir','opendir','readdir','strcpy'}
+    allowed|={'closedir','opendir','readdir','strcpy','clock_gettime'}
     unexpected=sorted(set(undefined)-allowed)
     definitions={name:[] for name in undefined}
     for index,name in enumerate(platform['libraries']):

@@ -23,7 +23,7 @@ def test(a):
     from run_aot_analysis import sdk_identity
     out.mkdir(parents=True);sdk_sha=sdk_identity(sdk)
     frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_thread_host.c',pc/'tests/pe_fixture.py',
-        *[pc/'native'/n for n in ('windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','windows_files.inc','host_file.h','host_directory.h','windows_directory.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h')],
+        *[pc/'native'/n for n in ('windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','host_wallclock.h','windows_events.inc','windows_workers.inc','windows_time.inc','windows_files.inc','host_file.h','host_directory.h','windows_directory.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h')],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     exe=out/'fixture.exe';write_pe(exe,['KERNEL32.dll']*8)
     raw=bytearray(exe.read_bytes());struct.pack_into('<I',raw,0x98+224+36,0x60000020)

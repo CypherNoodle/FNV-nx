@@ -105,3 +105,7 @@ Los builds PC01–PC03 con Wine se conservan como
 No deben confundirse con el futuro port nativo.
 
 No se incluyen ejecutables, assets, codigo generado del juego ni capturas.
+
+Los [servicios del CRT](pc/docs/native-windows-time.md) incluyen GetTickCount,
+GetSystemTimeAsFileTime y GetStartupInfoA/W. La auditoria de calls permite seguir
+las dependencias del codigo capturado; no valida una entrada de arranque desde disco.

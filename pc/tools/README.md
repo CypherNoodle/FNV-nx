@@ -230,3 +230,13 @@ y texto, y explica los bloqueos. Nunca ejecuta ni parchea el EXE, no infiere
 ausencia de DRM ni arranque por flags del perfil, y no sobrescribe informes.
 `test_startup_audit.py` cubre PE sintetico, captura, `.bind` y corrupcion de inputs.
 
+
+## Llamadas de una raiz de analisis
+
+`audit_aot_calls.py --exe EXE --analysis DIR --python-deps DIR --entry 0xVA
+--output NUEVO.json` valida identidades, recorre ramas directas y enumera calls
+por destino o nombre IAT. Admite varias --entry y un limite por raiz. No sigue
+calls, tablas de salto ni excepciones. Una raiz explicita es una hipotesis,
+no una entrada original o frontera de funcion verificada. Nunca ejecuta codigo.
+`test_aot_calls.py --python-deps DIR` usa un PE sintetico para direct calls,
+imports por ordinal, thunks, limites e inputs invalidos.

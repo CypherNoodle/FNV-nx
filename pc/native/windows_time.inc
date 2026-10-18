@@ -1,3 +1,4 @@
+#include "host_wallclock.h"
 /* QPC is process-relative in 100 ns units (10 MHz virtual frequency).
  * This reduces magnitude/overflow exposure; it is not the CPU tick frequency. */
 static int performance_sample(struct fnv_windows_process *p,uint64_t *out){
@@ -22,6 +23,18 @@ static void api_performance_counter(void){
 static void api_performance_frequency(void){
     uint32_t address=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     unsigned char *output=sync_pointer(p,address,8);write32(output,10000000);write32(output+4,0);fnv_cpu_return_u32(1,4);
+}
+static void api_tick_count(void){
+    (void)thread();uint64_t value;
+    if(!fnv_host_uptime_ms(&value))sync_invalid("Windows uptime clock unavailable",0);
+    fnv_cpu_return_u32((uint32_t)value,0); /* DWORD wraps at 2^32 milliseconds. */
+}
+static void api_system_filetime(void){
+    uint32_t address=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
+    unsigned char *output=sync_pointer(p,address,8);uint64_t value;
+    if(!fnv_host_utc_filetime(&value))sync_invalid("Windows UTC clock unavailable",address);
+    write32(output,(uint32_t)value);write32(output+4,(uint32_t)(value>>32));
+    fnv_cpu_return_u32(g_eax,4);
 }
 static void api_sleep(void){
     uint32_t ms=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
