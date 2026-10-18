@@ -30,6 +30,7 @@ struct fnv_cpu_runtime {
 };
 static struct fnv_cpu_runtime *active;
 static atomic_flag lifecycle=ATOMIC_FLAG_INIT;
+int fnv_cpu_is_faulted(const struct fnv_cpu_runtime *r){return !r || atomic_load_explicit(&r->faulted,memory_order_acquire)!=0;}
 static RECOMP_TLS struct fnv_cpu_runtime *thread_runtime;
 static RECOMP_TLS jmp_buf *fault_boundary;
 static RECOMP_TLS struct fnv_cpu_fault thread_fault;

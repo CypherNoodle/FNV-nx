@@ -27,8 +27,18 @@ Los metadatos viven en host y no se escriben dentro de los buffers del juego.
 HeapValidate comprueba pertenencia a la tabla de asignaciones; no detecta
 escrituras del juego fuera de un bloque ni entrega excepciones SEH.
 
-Es un primer asignador de presupuesto fijo: busqueda lineal de huecos y tabla
-ordenada, no LFH, arena final del juego, paging ni optimizacion acreditada.
+Es un asignador de presupuesto explicito con tabla ordenada, no LFH, arena
+final del juego ni paging. La busqueda de un bloque usa busqueda binaria.
+Alloc mantiene una pista del primer hueco, conservando first-fit: no descarta
+un hueco pequeno al saltarlo para un pedido grande. Una secuencia densa que
+agrega bloques al final no recorre otra vez los bloques anteriores. Los
+metadatos crecen geometricamente bajo demanda; el heap de proceso empieza
+con hasta 32 entradas y un heap privado vacio no reserva ninguna entrada.
+
+Todavia se mueven entradas con memmove al insertar/liberar bloques intermedios.
+Por ello hay patrones fragmentados con coste lineal por operacion, y no se
+afirma que todo el asignador sea O(log n). El crecimiento del hint tambien
+puede recorrer bloques contiguos. No se ha medido su efecto en FPS del juego.
 No implementa HeapWalk, HeapLock, informacion de heap, expansion del presupuesto
 host ni HEAP_GENERATE_EXCEPTIONS. Los flags fuera
 del subconjunto (ZERO_MEMORY, IN_PLACE_ONLY en realloc) detienen el runtime;
@@ -48,8 +58,14 @@ Las asignaciones y realloc comprometen paginas adicionales antes de publicar
 el bloque o modificar sus metadatos. Un fallo normal conserva los datos previos.
 Si falla el primer commit, se libera la reserva nueva. Si falla su rollback o el
 backend queda corrupto, se detiene el runtime despues de soltar el mutex. Los
-flags de memoria ejecutable, GENERATE_EXCEPTIONS y NO_SERIALIZE se rechazan con
-diagnostico estricto; no hay codigo x86 dinamico ni SEH simulado.
+flags de memoria ejecutable y GENERATE_EXCEPTIONS se rechazan con diagnostico
+estricto; no hay codigo x86 dinamico ni SEH simulado.
+
+Se admite HEAP_NO_SERIALIZE en HeapCreate y en las operaciones de un heap privado.
+El llamador mantiene la responsabilidad de sincronizar sus accesos. El runtime
+conserva un mutex interno para proteger metadatos compartidos y las transacciones
+VM; aceptar el flag no promete ausencia de bloqueos internos de plataforma.
+El heap de proceso sigue rechazando NO_SERIALIZE, que Windows desaconseja para el.
 
 HeapDestroy invalida el handle y libera su reserva, incluso con bloques vivos;
 no permite destruir el heap de proceso. Free, Size y Realloc validan pertenencia
@@ -82,6 +98,23 @@ total de reservas y dos paradas estrictas (flags y backend irrecuperable).
 La regresion del heap de proceso conserva sus 600 secuencias y 2000 ciclos.
 Ambas bibliotecas Windows pasan la compilacion ARM64 Switch con -Werror.
 No hay NRO de motor ni prueba hardware de estos heaps todavia.
+
+`test_windows_heap_scale.py` agrega 100000 y 200000 asignaciones densas de 48
+bytes mediante IAT x86 traducida, 600000 busquedas binarias Size/Free y 4000
+operaciones contra un modelo lineal first-fit independiente, con shrink, grow,
+movimiento y ZERO_MEMORY. La prueba exige cero recorridos de alloc en el caso
+denso y acota comparaciones de lookup; no impone un tiempo de ejecucion.
+En una corrida de escritorio bajo otras pruebas concurrentes se midieron unos
+16 y 37 ms de alloc respectivamente. No es una comparacion controlada con el
+algoritmo previo ni un benchmark Switch. La metadata inicial fue 384 bytes y
+los heaps privados vacios no agregaron entradas. Las pruebas privadas comparan
+tambien 100 secuencias NO_SERIALIZE con Windows.
+
+`audit_heap_flags.py` verifica hashes de EXE, captura y funciones, y audita
+llamadas IAT directas con argumentos PUSH consecutivos. Identifica en el CRT
+un patron xor eax,eax / sete al / push eax que acota el flag de HeapCreate a
+{0,1}; no establece cual se ejecuto ni resuelve todos los flags en registros.
+El reporte detallado es local y no debe publicarse como codigo del juego.
 
 ```sh
 python pc/tests/test_windows_heap.py --sdk /ruta/xboxrecomp \

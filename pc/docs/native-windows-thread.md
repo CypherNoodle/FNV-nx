@@ -5,6 +5,7 @@ runtime CPU nativo. Usan el frame x86 traducido y tokens de la IAT, sin DLLs
 Windows ni Wine. Las implementaciones son codigo propio.
 
 Tambien incorpora ocho exports de [heaps opcionales](native-windows-heap.md).
+Agrega doce exports de [secciones criticas y atomicos](native-windows-sync.md).
 Las cifras historicas de ocho servicios y slots de esta pagina se refieren a
 TLS/IDs; no incluyen los nuevos exports de heap ni Virtual* o D3D9.
 

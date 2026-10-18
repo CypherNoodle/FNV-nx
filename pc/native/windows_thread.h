@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 16u
+#define FNV_WINDOWS_THREAD_EXPORTS 28u
 struct fnv_windows_process;
 struct fnv_guest_memory;
 struct fnv_windows_config {
@@ -19,6 +19,7 @@ struct fnv_windows_config {
     /* Private heaps reserve from memory (Virtual* pool). Zero disables them.
      * Ceiling per growable heap and number of live private heaps. */
     uint32_t private_heap_reserve,private_heap_limit;
+    uint32_t critical_section_capacity; /* Optional preallocated host table. */
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
@@ -34,6 +35,17 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *);
 /* Borrowed host view for preparing native modules before attach. The process
  * owns it; keep using Windows attach/detach, and destroy modules first. */
 struct fnv_cpu_runtime *fnv_windows_runtime(struct fnv_windows_process *);
+struct fnv_windows_sync_stats {
+    uint32_t live_sections,owned_sections,waiting_threads;
+    uint64_t blocking_waits,wakeups,try_failures;
+};
+/* Diagnostic snapshot; caller retains the process during this call. */
+enum fnv_cpu_result fnv_windows_sync_stats(struct fnv_windows_process *,struct fnv_windows_sync_stats *);
+struct fnv_windows_heap_stats {
+    uint32_t live_heaps,live_blocks;
+    uint64_t metadata_bytes,lookup_steps,allocation_steps,gap_steps;
+};
+enum fnv_cpu_result fnv_windows_heap_stats(struct fnv_windows_process *,struct fnv_windows_heap_stats *);
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *,
     struct fnv_native_image *, struct fnv_native_import *, size_t capacity,
     const struct fnv_cpu_export *additional, size_t additional_count, size_t *count);

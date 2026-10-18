@@ -62,6 +62,8 @@ enum fnv_cpu_result fnv_cpu_register_native(struct fnv_cpu_runtime *,const fnv_c
 enum fnv_cpu_result fnv_cpu_unregister_native(struct fnv_cpu_runtime *,uint32_t first_token,size_t count);
 enum fnv_cpu_result fnv_cpu_prepare_memory(struct fnv_cpu_runtime *,uint32_t address,size_t bytes,void **);
 struct fnv_cpu_runtime *fnv_cpu_current(void);
+/* Nonblocking health probe for native waits; caller retains the runtime. */
+int fnv_cpu_is_faulted(const struct fnv_cpu_runtime *);
 /* One successful static-IAT bind before attaching threads. Failure preserves
  * IAT and active registry. No DLL loading or implicit API implementation. */
 enum fnv_native_result fnv_cpu_bind_imports(struct fnv_cpu_runtime *,

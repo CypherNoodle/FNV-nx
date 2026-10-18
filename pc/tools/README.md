@@ -208,6 +208,13 @@ callers distintos de los verificados. [Uso y cobertura](../docs/switch-renderer-
 Windows, agotamiento, realloc y concurrencia. Ver [contrato y limites](../docs/native-windows-heap.md).
 `../tests/test_windows_private_heaps.py` agrega HeapCreate/Destroy, crecimiento
 con permisos reales, aislamiento y rollback de fallos sobre el pool Virtual*.
+`../tests/test_windows_heap_scale.py` prueba 100k/200k allocs y equivalencia first-fit
+con fragmentacion; los tiempos son de escritorio, no FPS de Switch.
+`../tests/test_windows_sync.py` verifica secciones criticas e Interlocked con
+contencion, medicion del hilo bloqueado y cancelacion por fallo de otro hilo.
+`audit_heap_flags.py --exe /ruta/FalloutNV.exe --analysis /privado/analisis
+--python-deps /ruta/deps --output /privado/heap-flags.json` conserva evidencia
+estatica de flags inmediatos/acotados en llamadas IAT; no prueba valores runtime.
 `audit_pc_dependencies.py --game /ruta/juego --output /privado/dependencies.json`
 audita los imports normales del EXE y DLL locales, sin ejecutarlos ni copiarlos.
 El reporte local contiene metadatos; la ausencia en este grafo no descarta carga

@@ -10,7 +10,9 @@
 #define ARENA 0x200000u
 #endif
 #define HEAP_BASE (BASE+0x40000u)
+#ifndef HEAP_BYTES
 #define HEAP_BYTES 0x100000u
+#endif
 enum {PROCESS_HEAP,ALLOC,REALLOC,FREE,HEAP_SIZE,VALIDATE,GET_ERROR,SET_ERROR};
 static unsigned char *arena;
 static struct fnv_windows_process *process;

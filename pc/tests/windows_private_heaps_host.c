@@ -53,9 +53,21 @@ int main(int argc,char **argv){
     assert(counters().reserved_bytes==0x100000 && counters().committed_bytes==4096);
     uint32_t second=call(CREATE_HEAP,0,4097,0,0);assert(second && second!=first);
     assert(counters().reserved_bytes==0x200000 && counters().committed_bytes==4096+8192);
+    struct fnv_windows_heap_stats metadata;assert(fnv_windows_heap_stats(process,&metadata)==FNV_CPU_OK);
+    assert(metadata.live_heaps==3 && metadata.live_blocks==0 && metadata.metadata_bytes==32*12);
     uint32_t fixed=call(CREATE_HEAP,0,0,0x100000,0);assert(fixed && !call(CREATE_HEAP,0,0,0,0));
     assert(!call(ALLOC,fixed,0,0x7fff8,0) && !call(ALLOC,fixed,0,0x80000,0));
     assert(call(DESTROY_HEAP,fixed,0,0,0) && counters().reserved_bytes==0x200000);
+    uint32_t unserialized=call(CREATE_HEAP,1,4096,0,0);HANDLE native_unserialized=HeapCreate(HEAP_NO_SERIALIZE,4096,0);
+    assert(unserialized && native_unserialized);
+    for(unsigned i=0;i<100;++i){uint32_t size=i+1,block=call(ALLOC,unserialized,1|8,size,0);
+        unsigned char *native=HeapAlloc(native_unserialized,HEAP_NO_SERIALIZE|HEAP_ZERO_MEMORY,size);assert(block && native && !memcmp(arena+block-BASE,native,size));
+        memset(arena+block-BASE,0x61,size);memset(native,0x61,size);
+        block=call(REALLOC,unserialized,1|8,block,size+23);native=HeapReAlloc(native_unserialized,HEAP_NO_SERIALIZE|HEAP_ZERO_MEMORY,native,size+23);
+        assert(block && native && !memcmp(arena+block-BASE,native,size+23));
+        assert(call(HEAP_SIZE,unserialized,1,block,0)==size+23 && call(VALIDATE,unserialized,1,block,0));
+        assert(call(FREE,unserialized,1,block,0) && HeapFree(native_unserialized,HEAP_NO_SERIALIZE,native));}
+    assert(HeapDestroy(native_unserialized) && call(DESTROY_HEAP,unserialized,0,0,0));
     HANDLE native_heap=HeapCreate(0,0,0);assert(native_heap);unsigned seed=0x53913,sequences=0;
     for(unsigned n=0;n<500;++n){seed=seed*1664525u+1013904223u;uint32_t bytes=seed%8192,heap=n&1?first:second;
         uint32_t p=call(ALLOC,heap,8,bytes,0);unsigned char *native=HeapAlloc(native_heap,HEAP_ZERO_MEMORY,bytes);assert(p && native && !(p&7));
@@ -85,5 +97,5 @@ int main(int argc,char **argv){
     assert(!counters().reserved_bytes && !counters().committed_bytes);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && !fnv_vm_destroy(vm).error);
     assert(VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"private_heap_sequences\":%u,\"concurrent_cycles\":2000,\"iat_imports\":10,\"vm_growth_and_release\":true,\"failed_commit_and_destroy_preserve_heap\":true,\"all_reservations_released\":true,\"native_engine_started\":false}\n",sequences);return 0;
+    printf("{\"status\":\"PASS\",\"private_heap_sequences\":%u,\"no_serialize_sequences\":100,\"empty_private_metadata_bytes\":0,\"concurrent_cycles\":2000,\"iat_imports\":10,\"vm_growth_and_release\":true,\"failed_commit_and_destroy_preserve_heap\":true,\"all_reservations_released\":true,\"native_engine_started\":false}\n",sequences);return 0;
 }
