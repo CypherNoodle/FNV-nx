@@ -249,6 +249,10 @@ CRLF de forma explicita; valida primero todos los inputs y rechaza rutas fuera
 del repo, binarios y CR sueltos. Excluye third_party/local/dist. Ejecutarlo antes
 de congelar hashes, no despues. test_line_endings.py comprueba esos contratos.
 
+build_horizon_media.py verifica la compilacion y enlace parcial de controles
+HID/XInput y PCM/audout. Requiere validation.json del test_windows_xinput.py;
+ver [contrato y limites](../docs/native-input-audio.md). No ejecuta el motor.
+
 El auditor audit_seh_helpers.py y --seh-helpers conectan variantes MSVC con
 cookie verificadas al traductor. Requiere --frame-restore y generacion separada;
 ver [contrato y pruebas](../docs/native-seh-helpers.md). No implementa excepciones.

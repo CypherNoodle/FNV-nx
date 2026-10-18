@@ -1,5 +1,27 @@
 # Puentes nativos de audio y video (pendientes)
 
+Ya existe [salida PCM y XInput](native-input-audio.md), con backend audout/HID
+compilado para Horizon. Los codecs y su enlace al motor siguen pendientes.
+
+## MP3 y formatos encontrados
+
+El inventario de solo lectura de esta instalacion encontro 247 archivos sueltos
+con extension .mp3 y un .bik. Dos muestras MP3 tienen cabecera ID3; no es un
+inventario de audio dentro de BSA ni una validacion completa de todos los frames.
+Se necesita MP3 ademas de Vorbis y audio Bink. FFmpeg puede unificar codecs;
+mpg123 o minimp3 son alternativas nativas para MP3. No se agrego un decoder aun.
+El mezclador debe convertir frecuencia/canales a stereo 48000 s16; la cola actual
+no remuestrea. Evitar reproducir 44100 Hz como 48000: cambia velocidad y tono.
+
+WINMM importa mmioOpenA/Descend/Close/Read/Ascend/GetInfo/Advance y timeGetTime;
+ole32 incluye CoCreateInstance. DSOUND usa ordinal 11; DINPUT8 importa
+DirectInput8Create. Esto no demuestra que MP3 pase por mmio o DirectShow:
+faltan callers y objetos COM concretos. Un decoder no sustituye esas interfaces.
+No se cargara quartz.dll x86 en ARM64 ni se modificaran los MP3 del usuario.
+
+Referencias MP3: [mpg123](https://www.mpg123.de/),
+[minimp3](https://github.com/lieff/minimp3).
+
 La instalacion Steam auditada importa normalmente nueve funciones de binkw32.dll:
 `_BinkSetSoundSystem@8`, `_BinkClose@4`, `_BinkNextFrame@4`, `_BinkWait@4`,
 `_BinkPause@8`, `_BinkOpenDirectSound@4`, `_BinkOpen@8`, `_BinkDoFrame@4` y
