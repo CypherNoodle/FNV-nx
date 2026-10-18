@@ -47,6 +47,7 @@ def build(a):
     sources=['windows_thread.c','pe_tls.c','guest_memory.c']
     headers=['windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','host_wallclock.h','windows_events.inc','windows_workers.inc','windows_time.inc','windows_parameters.inc','command_line.h','host_thread.h','guest_memory.h','host_mutex.h']
     headers+=['windows_files.inc','host_file.h','host_directory.h','windows_directory.inc']
+    headers+=['windows_environment.inc']
     if a.modules:
         sources+=['windows_modules.c'];headers+=['windows_modules.h']
     if a.memory_exports:

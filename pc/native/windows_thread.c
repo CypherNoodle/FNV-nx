@@ -86,6 +86,8 @@ struct fnv_windows_process {
     uint64_t worker_created,worker_reaped,worker_failures;
     uint32_t command_a,command_w;
     char image_path[1024];
+    char *environment;
+    uint32_t environment_bytes;
 };
 static RECOMP_TLS struct windows_thread current;
 static RECOMP_TLS struct managed_worker *managed_current;
@@ -206,11 +208,27 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_files.inc"
 #include "windows_directory.inc"
 #include "windows_parameters.inc"
+#include "windows_environment.inc"
 static void api_startup_info(void){
     uint32_t at=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     unsigned char *output=sync_pointer(p,at,68);
     memset(output,0,68);write32(output,68);write32(output+44,p->config.startup_flags);
     output[48]=(unsigned char)p->config.startup_show_window;fnv_cpu_return_u32(g_eax,4);
+}
+static void api_std_handle(void){
+    uint32_t selector=fnv_cpu_argument_u32(0);
+    (void)thread();
+    /* This virtual GUI process has no console or inherited standard handles.
+     * Keep NULL distinct from INVALID_HANDLE_VALUE and preserve LastError for
+     * valid selectors, including when there is no associated device. */
+    if(selector==UINT32_MAX-9 || selector==UINT32_MAX-10 || selector==UINT32_MAX-11)
+        fnv_cpu_return_u32(0,4);
+    else {fnv_windows_set_last_error(6);fnv_cpu_return_u32(UINT32_MAX,4);}
+}
+static void api_handle_count(void){
+    /* Obsolete DOS compatibility request. Windows NT leaves the table alone
+     * and returns the requested UINT without changing LastError. */
+    (void)thread();fnv_cpu_return_u32(fnv_cpu_argument_u32(0),4);
 }
 static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","TlsAlloc",0,0,api_tls_alloc},
@@ -267,6 +285,12 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetSystemTimeAsFileTime",0,0,api_system_filetime},
     {"kernel32.dll","GetStartupInfoA",0,0,api_startup_info},
     {"kernel32.dll","GetStartupInfoW",0,0,api_startup_info},
+    {"kernel32.dll","GetStdHandle",0,0,api_std_handle},
+    {"kernel32.dll","SetHandleCount",0,0,api_handle_count},
+    {"kernel32.dll","GetEnvironmentStringsA",0,0,api_environment_a},
+    {"kernel32.dll","GetEnvironmentStringsW",0,0,api_environment_w},
+    {"kernel32.dll","FreeEnvironmentStringsA",0,0,api_environment_free_a},
+    {"kernel32.dll","FreeEnvironmentStringsW",0,0,api_environment_free_w},
     {"kernel32.dll","GetCommandLineA",0,0,api_command_a},
     {"kernel32.dll","GetCommandLineW",0,0,api_command_w},
     {"kernel32.dll","LocalFree",0,0,api_local_free},
@@ -326,6 +350,8 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
         (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
     result=parameters_prepare(p);
     if(result!=FNV_CPU_OK){(void)fnv_windows_destroy(p);return result;}
+    result=environment_prepare(p);
+    if(result!=FNV_CPU_OK){(void)fnv_windows_destroy(p);return result;}
     *out=p;return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
@@ -337,7 +363,7 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     unlock(p);if(result==FNV_CPU_OK){files_dispose(p);time_dispose(p);fnv_pe_tls_destroy(p->tls);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
             if(read32(memory(p,p->config.peb_address)+0x18)==p->config.heap_address)write32(memory(p,p->config.peb_address)+0x18,0);
             free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
-        fnv_vm_release_reference(p->config.memory);free(p);}return result;
+        free(p->environment);fnv_vm_release_reference(p->config.memory);free(p);}return result;
 }
 struct fnv_cpu_runtime *fnv_windows_runtime(struct fnv_windows_process *p){return p?p->cpu:NULL;}
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *p,

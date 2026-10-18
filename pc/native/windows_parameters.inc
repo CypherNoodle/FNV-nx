@@ -43,7 +43,7 @@ static void api_local_free(void){
     uint32_t value=at,fault=0;
     if(p->heap.blocks){
         fnv_host_mutex_lock(&p->heap_guard);uint32_t i=heap_find(&p->heap,at);
-        if(!p->heap_native_fault && i!=UINT32_MAX && p->heap.blocks[i].local){heap_remove_locked(&p->heap,i);value=0;}
+        if(!p->heap_native_fault && i!=UINT32_MAX && p->heap.blocks[i].local==1){heap_remove_locked(&p->heap,i);value=0;}
         fault=p->heap_native_fault;fnv_host_mutex_unlock(&p->heap_guard);
     }
     if(value)fnv_windows_set_last_error(6);

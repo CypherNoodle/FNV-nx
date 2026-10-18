@@ -1,5 +1,10 @@
 # FNV-nx: recompilacion estatica PC
 
+El [experimento acotado del CRT capturado](docs/captured-startup.md) ya supera
+los [handles estandar y el bloque de entorno virtual](docs/native-windows-crt.md).
+Se detiene en WideCharToMultiByte; aun no demuestra arranque desde el EXE,
+entrada del motor ni un frame del juego en Switch.
+
 El proveedor ya admite [DXT1/3/5 como BC1/2/3](docs/native-vulkan-bc.md), con
 mipmaps y parches comprimidos comprobados mediante lecturas y draws GPU.
 La verificacion de esta ampliacion en NVK/Switch sigue pendiente.

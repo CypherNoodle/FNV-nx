@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 73u
+#define FNV_WINDOWS_THREAD_EXPORTS 79u
 struct fnv_windows_process;
 /* Immutable built-in catalog, borrowed for native dynamic module preparation. */
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count);
@@ -43,7 +43,8 @@ struct fnv_windows_config {
     uint32_t file_handle_capacity,file_generation_limit;
     /* Virtual process STARTUPINFO32. Only STARTF_USESHOWWINDOW (1) is
      * supported (show 0..11, except SW_SHOWDEFAULT=10 when flag is set).
-     * No desktop/title, inherited stdio or reserved payload. */
+     * No desktop/title, inherited stdio or reserved payload. GetStdHandle
+     * returns NULL for the three valid selectors: no virtual console. */
     uint32_t startup_flags,startup_show_window;
     /* Optional dedicated committed RW arena for persistent command line A/W.
      * All four fields set together. ASCII configuration, max 32767 command
@@ -51,6 +52,13 @@ struct fnv_windows_config {
      * need not survive it. Arena is page aligned and disjoint from all pools. */
     uint32_t parameters_address,parameters_bytes;
     const char *command_line,*image_path;
+    /* Immutable virtual environment, copied at create: ASCII NAME=VALUE
+     * strings separated by NUL, terminated by an extra NUL, <=65536 bytes.
+     * NULL/zero selects an empty environment, never host environment leakage.
+     * Nonempty ordinary names only; drive pseudo-variables are unsupported.
+     * Returned A/W copies use the process heap and matching FreeEnvironment*. */
+    const char *environment;
+    uint32_t environment_bytes;
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
