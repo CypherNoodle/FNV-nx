@@ -63,6 +63,9 @@ enum fnv_cpu_result fnv_cpu_register_native(struct fnv_cpu_runtime *,const fnv_c
 enum fnv_cpu_result fnv_cpu_unregister_native(struct fnv_cpu_runtime *,uint32_t first_token,size_t count);
 enum fnv_cpu_result fnv_cpu_prepare_memory(struct fnv_cpu_runtime *,uint32_t address,size_t bytes,void **);
 struct fnv_cpu_runtime *fnv_cpu_current(void);
+/* Attached thread only: canonical static import token for a bound bridge,
+ * or zero if this function was not imported. No registration or mutation. */
+uint32_t fnv_cpu_import_token(fnv_cpu_function);
 /* Nonblocking health probe for native waits; caller retains the runtime. */
 int fnv_cpu_is_faulted(const struct fnv_cpu_runtime *);
 /* Host lifecycle failures outside execute can poison the session and report

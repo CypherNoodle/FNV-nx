@@ -25,6 +25,28 @@ dentro de `.text`. Esa entrada no se anuncia como WinMain o entrada real.
 El archivo original se lee sin modificarlo. La salida siempre indica
 `analysis_only=true` y `cold_boot_supported=false`.
 
+`audit_startup.py` comprueba de nuevo EXE, perfil y contenedor por SHA256,
+las entradas y el texto mapeado. Ejemplo de auditoria privada, sin ejecutar
+ni modificar el juego:
+
+```sh
+python pc/tools/audit_startup.py --exe /ruta/FalloutNV.exe --analysis /ruta/privada/aot --output /ruta/privada/startup.json
+python pc/tests/test_startup_audit.py
+```
+
+El EXE conservado entra en `0x014092EE` (`.bind`); el analisis usa
+`0x0044F770`, un tramo de constructores conservado del laboratorio, no WinMain
+ni una entrada de arranque verificada. La auditoria devuelve BLOCKED incluso
+para un PE sintetico con entrada en `.text`: reconocer secciones o poner flags
+de verificacion en JSON no prueba que el runtime pueda arrancar el motor.
+Tampoco determina si una edicion carece de DRM. Las diferencias de identidad
+fallan explicitamente; el informe no contiene bytes del codigo.
+
+El primer requisito para ejecutar el juego desde sus archivos es un perfil
+de entrada real compatible con la edicion concreta y verificado contra ella.
+Despues se deben seguir las dependencias efectivas de ese arranque (CRT, SEH,
+imports y proveedores). Sumar APIs o compilar fixtures no sustituye ese paso.
+
 El convertidor conserva direcciones y datos de las secciones y repaqueta sus
 offsets en disco. Calcula tablas de nombres separadas: las ocho secciones
 de FNV no caben correctamente en un layout fijo disenado para menos secciones.

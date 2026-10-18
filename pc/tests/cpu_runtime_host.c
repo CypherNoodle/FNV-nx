@@ -147,20 +147,24 @@ static void concurrent(void) {
     assert(!diagnostics && fnv_cpu_destroy(runtime)==FNV_CPU_OK);
 }
 static void binding_checks(void) {
+    assert(!fnv_cpu_import_token(native_sum) && !fnv_cpu_import_token(NULL));
     new_session(0,0);unsigned char *before=malloc(image.size);assert(before);memcpy(before,image.data,image.size);
     size_t count=0;
     assert(fnv_cpu_bind_imports(runtime,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,1,&count)==FNV_NATIVE_UNRESOLVED);
     assert(!memcmp(before,image.data,image.size));
     struct fnv_cpu_state s=initial(0);assert(fnv_cpu_attach(runtime,&s)==FNV_CPU_OK);
+    assert(!fnv_cpu_import_token(native_sum));
     assert(!recomp_lookup_kernel(0xFE000000u) && fnv_cpu_destroy(runtime)==FNV_CPU_BUSY);assert(fnv_cpu_detach()==FNV_CPU_OK);
     struct fnv_cpu_export duplicate[]={exports[0],exports[0]};duplicate[1].dll="FIXTURE.dll";
     assert(fnv_cpu_bind_imports(runtime,&image,imports,FNV_NATIVE_MAX_IMPORTS,duplicate,2,&count)==FNV_NATIVE_FORMAT);
     assert(!memcmp(before,image.data,image.size));bind_all();
     assert(fnv_cpu_attach(runtime,&s)==FNV_CPU_OK);assert(recomp_lookup_kernel(0xFE000000u)==native_sum);
+    assert(fnv_cpu_import_token(native_sum)==0xFE000000u && fnv_cpu_import_token(native_ordinal)==0xFE000004u);
+    assert(!fnv_cpu_import_token(NULL));
     assert(!recomp_lookup_kernel(0xFE000001u) && !recomp_lookup_kernel(0xFE001000u));
     ordinal_mode=1;assert(fnv_cpu_execute(ORDINAL,NULL)==FNV_CPU_OK);struct fnv_cpu_state got;
     assert(fnv_cpu_get_state(&got)==FNV_CPU_OK && got.gpr[0]==42 && got.gpr[4]==s.gpr[4]+4);
-    close_session();free(before);ordinal_mode=0;
+    close_session();assert(!fnv_cpu_import_token(native_sum));free(before);ordinal_mode=0;
 }
 static void fault_case(uint32_t entry,uint32_t target,unsigned mode,enum fnv_cpu_fault_kind kind) {
     new_session(0,0);bind_all();ordinal_mode=mode;

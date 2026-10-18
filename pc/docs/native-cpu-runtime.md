@@ -35,13 +35,14 @@ comprueban los limites del arena plana; no sustituyen VirtualAlloc o SEH.
 
 El registro de exports requiere funciones nativas con ABI guest, por nombre
 o por ordinal. Los nombres de DLL ignoran mayusculas; los simbolos conservan
-su capitalizacion. Cada slot recibe un token de 32 bits desde `0xFE000000`,
+su capitalizacion. Cada funcion nativa distinta recibe un token de 32 bits desde `0xFE000000`,
 resuelto al puntero ARM64 en una tabla host. Nunca se trunca un puntero host
 para guardarlo en la IAT x86.
 
 La operacion es atomica: si falta un import, conserva la IAT completa y el
 registro activo. Se permite un enlace estatico exitoso antes de adjuntar
-hilos. Carga dinamica, GetProcAddress y unload siguen pendientes. El nombre
+hilos. El catalogo nativo opcional resuelve GetProcAddress con identidad IAT;
+no carga ni descarga DLL binarias. El nombre
 `recomp_lookup_kernel` viene del SDK externo; aqui resuelve imports PC y
 no suministra servicios Xbox.
 
@@ -150,3 +151,7 @@ cargador PE, todas con opciones Switch. El enlace relocatable ocupa
 resolver. Sus 30 externos corresponden a libc/math/newlib y al acceso TLS
 de libnx. La inspeccion del runtime y una unidad generada confirma el uso
 de `__aarch64_read_tp`. Todavia no se enlazo un ejecutable del motor.
+
+`fnv_cpu_import_token` consulta el token canonico desde un thread adjunto, sin
+registrar metodos ni modificar la tabla. Devuelve cero para funciones ausentes,
+runtime sin bind o thread no adjunto. Los aliases de imports no duplican tokens.

@@ -222,3 +222,11 @@ audita los imports normales del EXE y DLL locales, sin ejecutarlos ni copiarlos.
 El reporte local contiene metadatos; la ausencia en este grafo no descarta carga
 dinamica. No se publica el reporte ni los binarios del usuario.
 
+# Auditoria del arranque
+
+`audit_startup.py --exe EXE [--analysis DIR] --output NUEVO.json` lee el PE y,
+si se indica, el perfil/contenedor privado. Verifica identidad, compara entradas
+y texto, y explica los bloqueos. Nunca ejecuta ni parchea el EXE, no infiere
+ausencia de DRM ni arranque por flags del perfil, y no sobrescribe informes.
+`test_startup_audit.py` cubre PE sintetico, captura, `.bind` y corrupcion de inputs.
+

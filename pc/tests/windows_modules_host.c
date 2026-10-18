@@ -10,14 +10,15 @@
 #define ARENA 0x100000u
 #define NAME_TEXT (BASE+0x9000)
 #define PROC_TEXT (BASE+0x9200)
-enum {LOAD_A,LOAD_W,GET_A,GET_W,GET_PROC,FREE,GET_ERROR,SET_ERROR};
-static const unsigned arguments[]={1,1,1,1,2,1,0,1};
+enum {LOAD_A,LOAD_W,GET_A,GET_W,GET_PROC,FREE,GET_ERROR,SET_ERROR,GET_ERROR_ALIAS};
+static const unsigned arguments[]={1,1,1,1,2,1,0,1,0};
 static unsigned char *arena;static struct fnv_windows_process *process;
 static uint32_t permissions(void *context,void *at,uint32_t bytes,uint32_t protection){
     (void)context;DWORD old;return VirtualProtect(at,bytes,protection==3?PAGE_READWRITE:protection==1?PAGE_READONLY:PAGE_NOACCESS,&old)?0:GetLastError();
 }
 static struct fnv_vm_permissions vm_backend={NULL,permissions};
 static void put32(uint32_t at,uint32_t value){for(unsigned i=0;i<4;++i)arena[at-BASE+i]=(unsigned char)(value>>(i*8));}
+static uint32_t read32(uint32_t at){unsigned char *p=arena+at-BASE;return p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
 static struct fnv_windows_thread_config config(unsigned index){
     struct fnv_windows_thread_config t={0};t.thread_id=22+index;t.teb_address=BASE+0x10000+index*0x10000;
     t.tls_expansion_address=t.teb_address+4096;t.stack_low=t.teb_address+0x4000;t.stack_high=t.teb_address+0xc000;
@@ -82,7 +83,7 @@ int main(int argc,char **argv){
         extra[6].dll="fixture.dll";extra[6].name="Value";extra[7].dll="fixture.dll";
     }
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count;
-    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,extra,9,&count)==FNV_NATIVE_OK && count==8);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,extra,9,&count)==FNV_NATIVE_OK && count==9);
     struct fnv_windows_thread_config t=config(0);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
     if(argc==3){uint32_t args[]={BASE+ARENA-1,0},v=0;struct fnv_cpu_fault fault;unsigned api=LOAD_A;
         if(!strcmp(argv[2],"--strict-wide-wrap")){api=LOAD_W;args[0]=UINT32_MAX;}
@@ -95,6 +96,13 @@ int main(int argc,char **argv){
     }
     assert(fnv_windows_modules_destroy(m)==FNV_CPU_BUSY);
     assert(call(GET_A,0,0)==BASE && call(GET_W,0,0)==BASE);
+    uint32_t error_token=0;unsigned aliases=0;
+    for(size_t i=0;i<count;++i)if(!strcmp(imports[i].name,"GetLastError")){
+        uint32_t token=read32(BASE+imports[i].iat_rva);if(error_token)assert(token==error_token);error_token=token;aliases++;}
+    assert(aliases==2 && error_token);
+    uint32_t kernel=call(GET_A,text(NAME_TEXT,"kernel32.dll",0),0);
+    assert(call(GET_PROC,kernel,text(PROC_TEXT,"GetLastError",0))==error_token);
+    call(SET_ERROR,0x55fa,0);assert(call(GET_ERROR_ALIAS,0,0)==0x55fa && indirect(error_token)==0x55fa);
     struct fnv_windows_module_stats snapshot;assert(fnv_windows_modules_stats(m,&snapshot)==FNV_CPU_OK);
     assert(snapshot.pinned_modules==3 && snapshot.native_exports==builtins+9 && !snapshot.load_calls && !snapshot.dynamic_references);
     assert(call(GET_A,text(NAME_TEXT,"falloutnv.exe",0),0)==BASE);
@@ -124,6 +132,8 @@ int main(int argc,char **argv){
     assert(WaitForMultipleObjects(4,threads,TRUE,10000)==0);for(unsigned i=0;i<4;++i){DWORD code;assert(GetExitCodeThread(threads[i],&code) && !code);CloseHandle(threads[i]);}
     assert(fnv_windows_modules_stats(m,&snapshot)==FNV_CPU_OK && snapshot.load_calls==2009 && !snapshot.dynamic_references);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_BUSY);
-    assert(fnv_windows_modules_destroy(m)==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"windows_name_checks\":%u,\"concurrent_cycles\":2000,\"indirect_native_calls\":true,\"ordinal_lookup\":true,\"snapshot_owned\":true,\"pinned_namespace\":true,\"native_engine_started\":false}\n",checks);return 0;
+    assert(fnv_windows_modules_destroy(m)==FNV_CPU_OK);
+    assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK && !call(GET_ERROR,0,0) && !call(GET_ERROR_ALIAS,0,0));
+    assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
+    printf("{\"status\":\"PASS\",\"windows_name_checks\":%u,\"concurrent_cycles\":2000,\"indirect_native_calls\":true,\"ordinal_lookup\":true,\"canonical_iat_identity\":true,\"static_aliases\":2,\"static_import_survives_catalog_destroy\":true,\"snapshot_owned\":true,\"pinned_namespace\":true,\"native_engine_started\":false}\n",checks);return 0;
 }

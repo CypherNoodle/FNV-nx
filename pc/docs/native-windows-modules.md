@@ -78,9 +78,11 @@ al enlace parcial ARM64 y verifica los simbolos de libnx/newlib.
 
 Faltan DLL binarias, DllMain/TLS callbacks, forwarded exports, exported data,
 API sets, LoadLibraryEx/GetModuleHandleEx, Unicode general y busqueda por ruta.
-La IAT estatica mantiene su dominio de tokens previo: comparar sus punteros con
-GetProcAddress no garantiza aun identidad aunque ambas rutas llamen la misma
-funcion. El EXE no tiene export table registrada por este proveedor.
+GetProcAddress reutiliza el token IAT si la funcion nativa ya esta importada.
+Los aliases que comparten thunk comparten direccion; una implementacion distinta
+requiere un thunk distinto. Los exports solo dinamicos conservan el registro de
+metodos. Destruir el catalogo no retira los imports estaticos. Se prueban aliases,
+CALL EAX y esa independencia de vida. El EXE no tiene export table registrada.
 No hay arranque del motor, NRO nuevo ni medicion Switch de este bloque.
 
 Contratos oficiales: [vinculacion dinamica en ejecucion](https://learn.microsoft.com/en-us/windows/win32/dlls/run-time-dynamic-linking),

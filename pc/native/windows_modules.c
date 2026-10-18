@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 struct module_item {char name[128];uint32_t handle,references;};
-struct module_export {char name[256];uint16_t ordinal;unsigned by_ordinal,module;uint32_t token;};
+struct module_export {char name[256];uint16_t ordinal;unsigned by_ordinal,module;uint32_t token;fnv_cpu_function function;};
 struct fnv_windows_modules {
     struct fnv_cpu_runtime *cpu;fnv_host_mutex guard;char exe[128];uint32_t image_base;
     size_t modules,count,method_count;struct module_item *items;struct module_export *symbols;
@@ -78,7 +78,7 @@ static void api_proc(void){
     if(ordinal || guest_string(at,0,name,sizeof(name))){
         for(size_t i=0;i<m->count;++i){struct module_export *s=m->symbols+i;
             if(h==m->items[s->module].handle && s->by_ordinal==(unsigned)ordinal &&
-               (ordinal?s->ordinal==at:!strcmp(name,s->name))){value=s->token;break;}}
+               (ordinal?s->ordinal==at:!strcmp(name,s->name))){value=fnv_cpu_import_token(s->function);if(!value)value=s->token;break;}}
     }
     if(!value)fnv_windows_set_last_error(127);
     fnv_cpu_return_u32(value,8);
@@ -114,7 +114,7 @@ enum fnv_cpu_result fnv_windows_modules_create(struct fnv_windows_process *p,con
     fnv_cpu_function functions[FNV_CPU_MAX_NATIVE_METHODS];uint32_t tokens[FNV_CPU_MAX_NATIVE_METHODS];
     for(size_t i=0;i<count;++i){const struct fnv_cpu_export *e=catalog+i;char dll[128];
         if(!e->function || (e->by_ordinal!=0 && e->by_ordinal!=1) || !ascii_copy(e->dll,dll,sizeof(dll)) || !canonical(dll) || !strcmp(dll,m->exe))goto failed;
-        struct module_export *s=m->symbols+i;s->by_ordinal=e->by_ordinal;s->ordinal=e->ordinal;
+        struct module_export *s=m->symbols+i;s->by_ordinal=e->by_ordinal;s->ordinal=e->ordinal;s->function=e->function;
         if((s->by_ordinal && !s->ordinal) || (!s->by_ordinal && !ascii_copy(e->name,s->name,sizeof(s->name))))goto failed;
         size_t index=0;while(index<m->modules && strcmp(dll,m->items[index].name))index++;
         if(index==m->modules){memcpy(m->items[index].name,dll,strlen(dll)+1);m->items[index].handle=0xF0000000u+(uint32_t)(index+1)*65536;

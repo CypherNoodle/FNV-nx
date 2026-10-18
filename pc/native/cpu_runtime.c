@@ -154,6 +154,7 @@ static int resolve(void *opaque,const struct fnv_native_import *item,uint32_t *t
     for(size_t i=0;i<b->count;i++){const struct fnv_cpu_export *e=b->exports+i;
         if(dll_equal(item->dll,e->dll) && item->by_ordinal==e->by_ordinal &&
             (e->by_ordinal?item->ordinal==e->ordinal:!strcmp(item->name,e->name))){
+            for(size_t j=0;j<b->index;j++)if(b->runtime->staging[j]==e->function){*token=0xFE000000u+(uint32_t)j*4u;return 1;}
             if(b->index>=FNV_NATIVE_MAX_IMPORTS)return 0;
             b->runtime->staging[b->index]=e->function;*token=0xFE000000u+(uint32_t)b->index*4u;b->index++;return 1;}}
     return 0;
@@ -174,6 +175,11 @@ enum fnv_native_result fnv_cpu_bind_imports(struct fnv_cpu_runtime *r,struct fnv
     enum fnv_native_result status=fnv_native_bind_imports(image,scratch,capacity,resolve,&b,out_count);
     if(status==FNV_NATIVE_OK){memcpy(r->imports,r->staging,b.index*sizeof(r->imports[0]));r->imports_count=b.index;r->bound=1;}
     memset(r->staging,0,sizeof(r->staging));unlock();return status;
+}
+uint32_t fnv_cpu_import_token(fnv_cpu_function function){
+    if(!function || !thread_runtime || !thread_runtime->bound)return 0;
+    for(size_t i=0;i<thread_runtime->imports_count;++i)if(thread_runtime->imports[i]==function)return 0xFE000000u+(uint32_t)i*4;
+    return 0;
 }
 void fnv_cpu_state_init(struct fnv_cpu_state *s,uint32_t stack,uint32_t fs) {
     if(s){memset(s,0,sizeof(*s));s->gpr[4]=stack;s->fs_base=fs;s->fp_control=0x037F;}
