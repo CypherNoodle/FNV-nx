@@ -80,6 +80,11 @@ def build(a):
         if sha(path)!=report['frame_restore_overlay']['source_sha256']:
             raise ValueError('Changed frame restore overlay')
         frozen[path]=sha(path)
+    if report.get('normal_frame_helpers'):
+        if not report.get('frame_restore_overlay'):raise ValueError('Helper ABI requires frame restore overlay')
+        from audit_seh_helpers import verify
+        verify(analysis,report['normal_frame_helpers'])
+        path=pc/'tools/audit_seh_helpers.py';frozen[path]=sha(path)
     for path in [pc / 'native' / n for n in (
             'cpu_runtime.c', 'cpu_runtime.h', 'fnv_sdk_runtime.h', 'pe_image.c', 'pe_image.h')]:
         frozen[path] = sha(path)

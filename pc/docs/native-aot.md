@@ -417,6 +417,10 @@ siguientes servicios observados, junto con SEH y el perfil real de entrada.
 
 La prueba sintetica test_windows_seh_frames.py expuso un frame shadow obsoleto
 tras POP EBP/LEAVE: el siguiente helper usaba el frame interno ya retirado.
+Los [helpers normales con cookie](native-seh-helpers.md) pueden seleccionarse
+con --seh-helpers tras auditar la identidad y semantica completa. Esto no es
+SEH de excepciones y no se ha regenerado todavia el conjunto grande del juego.
+
 La capa opcional aot_frame_restore.py publica el frame restaurado y el establecido
 por LEA EBP, sin modificar el SDK. --frame-restore en run_aot_analysis registra
 su SHA en una variante separada; build_cpu_runtime verifica ese hash si existe.

@@ -249,6 +249,10 @@ CRLF de forma explicita; valida primero todos los inputs y rechaza rutas fuera
 del repo, binarios y CR sueltos. Excluye third_party/local/dist. Ejecutarlo antes
 de congelar hashes, no despues. test_line_endings.py comprueba esos contratos.
 
+El auditor audit_seh_helpers.py y --seh-helpers conectan variantes MSVC con
+cookie verificadas al traductor. Requiere --frame-restore y generacion separada;
+ver [contrato y pruebas](../docs/native-seh-helpers.md). No implementa excepciones.
+
 La capa aot_frame_restore.py agrega publicacion de EBP tras POP EBP/LEAVE y LEA
 EBP. Se habilita con --frame-restore en una generacion nueva; no modifica el SDK.
 Ver limites SEH en native-aot.md. test_windows_seh_frames.py permite --leave,

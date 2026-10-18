@@ -48,13 +48,20 @@ def verified_scan_wrapper(analysis, scan, current_wrapper):
     raise ValueError('Scan wrapper identity unavailable; preserve its exact source or rerun a fresh scan')
 
 
-def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False, frame_restore=False):
+def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False, frame_restore=False, seh_helpers=None):
     analysis=analysis.resolve(); sdk=sdk.resolve()
     paths = generation_paths(analysis, generation_name)
     if max_functions is not None and max_functions <= 0:
         raise ValueError('--max-functions must be positive')
     if (simd_bits or mul_flags or frame_restore) and (generation_name is None or stage == 'scan'):
         raise ValueError('Codegen overlays require a separate named generation')
+    helper_audit=None
+    if seh_helpers is not None:
+        if not frame_restore or generation_name is None or stage=='scan':
+            raise ValueError('Audited SEH helpers require frame restore and a named generation')
+        if deps:sys.path.insert(0,str(deps.resolve()))
+        from audit_seh_helpers import verify
+        helper_audit=verify(analysis,json.loads(seh_helpers.read_text()))
     if stage != 'scan':
         for key, path in paths.items():
             if path.exists() and (not path.is_dir() or any(path.iterdir())):
@@ -135,6 +142,9 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         "--func-id-dir",str(classifications),"--abi-dir",str(paths['abi']),"-o",str(paths['recomp'])]
     if max_functions is not None:
         args += ["--max-funcs",str(max_functions)]
+    if helper_audit:
+        from audit_seh_helpers import generation_arguments
+        args += generation_arguments(analysis,helper_audit)
     command("recomp"+suffix,args)
     if simd_bits or mul_flags:
         header = generated/'recomp_funcs.h'
@@ -148,6 +158,9 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         raise ValueError('SDK source changed during generation')
     if frame_identity and sha(frame_overlay)!=frame_identity['source_sha256']:
         raise ValueError('Frame restore overlay changed during generation')
+    if helper_audit:
+        verify(analysis,helper_audit)
+        if json.loads(seh_helpers.read_text())!=helper_audit:raise ValueError('Helper audit changed during generation')
     if sha(scan_manifest)!=scan_sha or (code_data_filter and verify_derivation(analysis,decoder)!=code_data_filter):
         raise ValueError('Analysis selection changed during generation')
     for identity, source, runtime in ((overlay_identity,overlay,native/'fnv_simd_bits.h'),
@@ -165,6 +178,7 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         generation_name=generation_name, scan_wrapper_verified_from=verified_wrapper.name,
         scan_identity_sha256=scan_sha,code_data_filter=code_data_filter,
         codegen_overlay=overlay_identity,multiply_overlay=multiply_identity,frame_restore_overlay=frame_identity,
+        normal_frame_helpers=helper_audit,
         functions_detected=len(json.loads((analysis/"disasm/functions.json").read_text())),
         functions_requested=summary.get("total"),functions_generated=summary.get("translated"),
         max_functions=max_functions,full_selection=max_functions is None,gaps=gaps,
@@ -189,5 +203,6 @@ if __name__=="__main__":
     p.add_argument('--simd-bits', action='store_true', help='Enable verified SSE2 bits/moves/shuffles overlay')
     p.add_argument('--mul-flags', action='store_true', help='Enable wide multiply and defined CF/OF overlay')
     p.add_argument('--frame-restore', action='store_true', help='Publish restored EBP after POP EBP / LEAVE')
+    p.add_argument('--seh-helpers',type=Path,help='Identity-checked normal-frame helper audit, not exception support')
     a=p.parse_args()
-    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags,a.frame_restore)
+    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags,a.frame_restore,a.seh_helpers)

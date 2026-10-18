@@ -6,6 +6,14 @@ implementaciones propias preparadas dentro del ejecutable ARM64. No carga ni
 interpreta el codigo x86 de DLLs de Windows y no sustituye automaticamente
 binkw32, libvorbis, libvorbisfile, GDFFalloutNV o atimgpud.
 
+Para el paquete Switch se excluyen `atimgpud.dll` y `GDFFalloutNV.dll`, por
+decision de alcance: no se implementa CrossFire ni Windows Game Explorer.
+No se borran ni renombran archivos de la instalacion Steam. Estas DLL no se
+registran como modulos nativos ficticios: una carga no disponible conserva
+NULL/error 126. Esto no demuestra aun que todos los callers del juego manejen
+esa ausencia. Bink y Vorbis siguen pendientes de proveedores de video/audio;
+su presencia en disco no equivale a integracion ni ejecucion x86.
+
 ## Preparacion e integracion
 
 1. Crear WindowsProcess y los proveedores nativos, antes del primer attach.
