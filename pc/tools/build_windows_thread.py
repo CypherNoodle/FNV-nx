@@ -46,6 +46,7 @@ def build(a):
         raise ValueError('Analysis is not the pinned base generation')
     sources=['windows_thread.c','pe_tls.c','guest_memory.c']
     headers=['windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.h','host_mutex.h']
+    headers+=['windows_files.inc','host_file.h']
     if a.modules:
         sources+=['windows_modules.c'];headers+=['windows_modules.h']
     if a.memory_exports:
@@ -83,6 +84,7 @@ def build(a):
                             'threadCreate','threadStart','threadWaitForExit','threadClose','svcSleepThread'}
     if a.memory_exports:allowed|={'svcSetMemoryPermission'}
     if a.modules:allowed|={'strlen'}
+    allowed|={'__errno','fileno','fseeko','fstat','ftello','stat','strchr','strrchr','strlen'}
     unexpected=sorted(set(undefined)-allowed)
     definitions={name:[] for name in undefined}
     for index,name in enumerate(platform['libraries']):

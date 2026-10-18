@@ -10,6 +10,10 @@ handles de generacion y espera individual. Tambien hay [semaforos, mutex y esper
 El [catalogo de DLL nativas](pc/docs/native-windows-modules.md) agrega LoadLibrary,
 GetModuleHandle, GetProcAddress y FreeLibrary para proveedores preparados dentro
 del NRO, con llamadas indirectas x86 verificadas. Aun no carga DLL binarias.
+La [lectura de archivos Win32](pc/docs/native-windows-files.md) ya permite abrir,
+leer, consultar tamanos y mover cursores de 64 bits mediante callers x86. Se
+comprobaron lecturas del EXE, ESM y BSA de Steam sin ejecutar el juego.
+
 
 
 El objetivo activo de `pc-port` es recompilar Fallout: New Vegas PC a ARM64

@@ -78,6 +78,11 @@ struct fnv_windows_process {
     uint32_t worker_next_id;
     uint32_t image_tls_rva;
     struct fnv_pe_tls *tls;
+    struct file_slot *files;
+    fnv_host_mutex files_guard;
+    char *file_root;
+    uint32_t file_free,file_tail,file_bits,file_mask,file_generation_max;
+    struct fnv_windows_file_stats file_stats;
     uint64_t worker_created,worker_reaped,worker_failures;
 };
 static RECOMP_TLS struct windows_thread current;
@@ -192,9 +197,11 @@ static void api_tls_set(void) {
 }
 #include "windows_heap.inc"
 #include "windows_sync.inc"
+static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_events.inc"
 #include "windows_workers.inc"
 #include "windows_time.inc"
+#include "windows_files.inc"
 static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","TlsAlloc",0,0,api_tls_alloc},
     {"kernel32.dll","TlsFree",0,0,api_tls_free},
@@ -246,6 +253,13 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetThreadId",0,0,api_thread_handle_id},
     {"kernel32.dll","QueryPerformanceCounter",0,0,api_performance_counter},
     {"kernel32.dll","QueryPerformanceFrequency",0,0,api_performance_frequency},
+    {"kernel32.dll","CreateFileA",0,0,api_file_create_a},
+    {"kernel32.dll","CreateFileW",0,0,api_file_create_w},
+    {"kernel32.dll","ReadFile",0,0,api_file_read},
+    {"kernel32.dll","GetFileSize",0,0,api_file_size},
+    {"kernel32.dll","GetFileSizeEx",0,0,api_file_size_ex},
+    {"kernel32.dll","SetFilePointer",0,0,api_file_seek},
+    {"kernel32.dll","SetFilePointerEx",0,0,api_file_seek_ex},
 };
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count){if(count)*count=FNV_WINDOWS_THREAD_EXPORTS;return exports;}
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct fnv_windows_process **out) {
@@ -280,6 +294,9 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
     result=time_prepare(p);
     if(result!=FNV_CPU_OK){workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
+    result=files_prepare(p);
+    if(result!=FNV_CPU_OK){time_dispose(p);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
+        (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
     *out=p;return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
@@ -288,7 +305,7 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     if(p->threads || p->private_heaps){unlock(p);return FNV_CPU_BUSY;}
     if(!workers_idle(p)){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
-    unlock(p);if(result==FNV_CPU_OK){time_dispose(p);fnv_pe_tls_destroy(p->tls);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
+    unlock(p);if(result==FNV_CPU_OK){files_dispose(p);time_dispose(p);fnv_pe_tls_destroy(p->tls);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
             if(read32(memory(p,p->config.peb_address)+0x18)==p->config.heap_address)write32(memory(p,p->config.peb_address)+0x18,0);
             free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         fnv_vm_release_reference(p->config.memory);free(p);}return result;

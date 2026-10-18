@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 50u
+#define FNV_WINDOWS_THREAD_EXPORTS 57u
 struct fnv_windows_process;
 /* Immutable built-in catalog, borrowed for native dynamic module preparation. */
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count);
@@ -37,6 +37,10 @@ struct fnv_windows_config {
      * called under the performance clock lock. NULL uses host_clock.h. */
     void *performance_clock_context;
     int (*performance_clock_ns)(void *,uint64_t *);
+    /* Optional read-only existing-file provider. Root is copied, not retained.
+     * Both root and capacity (<=4096) must be set, or both zero. */
+    const char *file_root;
+    uint32_t file_handle_capacity,file_generation_limit;
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
@@ -72,6 +76,11 @@ struct fnv_windows_handle_stats {
     uint64_t total_creations,remaining_creations;
 };
 enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *,struct fnv_windows_handle_stats *);
+struct fnv_windows_file_stats {
+    uint32_t live_handles,retired_slots;
+    uint64_t opens,reads,read_bytes,read_ns,io_wait_ns,read_errors;
+};
+enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *,struct fnv_windows_file_stats *);
 struct fnv_windows_worker_stats {
     uint32_t active,finished,capacity;
     uint64_t created,reaped,failures;

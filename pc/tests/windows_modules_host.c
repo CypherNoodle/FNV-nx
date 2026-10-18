@@ -57,7 +57,7 @@ int main(int argc,char **argv){
     struct fnv_windows_config c={0};c.memory=vm;c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
     c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
     size_t builtins,apis;const struct fnv_cpu_export *win=fnv_windows_exports(&builtins),*module_apis=fnv_windows_modules_exports(&apis);
-    assert(builtins==50 && apis==6);struct fnv_cpu_export catalog[64],extra[9];memcpy(catalog,win,builtins*sizeof(*win));
+    assert(builtins==FNV_WINDOWS_THREAD_EXPORTS && apis==6);struct fnv_cpu_export catalog[128],extra[9];memcpy(catalog,win,builtins*sizeof(*win));
     memcpy(extra,module_apis,apis*sizeof(*module_apis));
     char dll[]="Fixture.DLL",name[]="Value";
     extra[6]=(struct fnv_cpu_export){dll,name,0,0,native_value};extra[7]=(struct fnv_cpu_export){dll,NULL,7,1,native_value};
@@ -96,7 +96,7 @@ int main(int argc,char **argv){
     assert(fnv_windows_modules_destroy(m)==FNV_CPU_BUSY);
     assert(call(GET_A,0,0)==BASE && call(GET_W,0,0)==BASE);
     struct fnv_windows_module_stats snapshot;assert(fnv_windows_modules_stats(m,&snapshot)==FNV_CPU_OK);
-    assert(snapshot.pinned_modules==3 && snapshot.native_exports==59 && !snapshot.load_calls && !snapshot.dynamic_references);
+    assert(snapshot.pinned_modules==3 && snapshot.native_exports==builtins+9 && !snapshot.load_calls && !snapshot.dynamic_references);
     assert(call(GET_A,text(NAME_TEXT,"falloutnv.exe",0),0)==BASE);
     HMODULE native=GetModuleHandleW(L"kernel32.dll");assert(native);
     const char *names[]={"kernel32.dll","KERNEL32.DLL","kernel32","kernel32.dll."};
