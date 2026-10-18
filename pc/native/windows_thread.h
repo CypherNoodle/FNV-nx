@@ -27,16 +27,19 @@ struct fnv_windows_config {
      * IDs >= 0x80000000 are reserved for managed workers while enabled. */
     uint32_t worker_address,worker_bytes,worker_stack_bytes,worker_capacity;
     uint32_t worker_host_stack_bytes;
+    uint32_t worker_tls_bytes; /* Optional page-aligned vector+static TLS budget per worker. */
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
     uint32_t thread_id, teb_address, tls_expansion_address;
     uint32_t stack_low, stack_high, static_tls_vector, static_tls_vector_bytes;
+    uint32_t static_tls_data,static_tls_data_bytes;
 };
 /* Owns its CPU runtime. Caller owns the arena and reserves separate image,
  * PEB (one page), TEB, expansion and stack regions. The PEB and optional
- * static TLS vector must already be prepared by the caller; no PE TLS
- * template/callback loading, Windows SEH, VirtualAlloc or CreateThread here. */
+ * static TLS vector may be supplied by the caller. After binding a callbackless
+ * EXE TLS template, attach initializes its vector[0] and separate TLS data.
+ * PE TLS callbacks, multiple TLS modules and Windows SEH remain unsupported. */
 enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *, struct fnv_windows_process **);
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *);
 /* Borrowed host view for preparing native modules before attach. The process

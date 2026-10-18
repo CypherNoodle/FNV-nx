@@ -5,6 +5,7 @@
  * docs/native-windows-thread.md. No Wine source or DLLs are incorporated. */
 #include "fnv_sdk_runtime.h"
 #include "windows_thread.h"
+#include "pe_tls.h"
 #include "guest_memory.h"
 #include "host_mutex.h"
 #include "host_condition.h"
@@ -72,6 +73,7 @@ struct fnv_windows_process {
     fnv_host_mutex worker_guard;
     uint32_t worker_next_id;
     uint32_t image_tls_rva;
+    struct fnv_pe_tls *tls;
     uint64_t worker_created,worker_reaped,worker_failures;
 };
 static RECOMP_TLS struct windows_thread current;
@@ -278,7 +280,7 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     if(p->threads || p->private_heaps){unlock(p);return FNV_CPU_BUSY;}
     if(!workers_idle(p)){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
-    unlock(p);if(result==FNV_CPU_OK){workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
+    unlock(p);if(result==FNV_CPU_OK){fnv_pe_tls_destroy(p->tls);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
             if(read32(memory(p,p->config.peb_address)+0x18)==p->config.heap_address)write32(memory(p,p->config.peb_address)+0x18,0);
             free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         fnv_vm_release_reference(p->config.memory);free(p);}return result;
@@ -288,16 +290,19 @@ enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *p,
     struct fnv_native_image *image,struct fnv_native_import *scratch,size_t capacity,
     const struct fnv_cpu_export *extra,size_t n,size_t *count) {
     if(count)*count=0;
-    if(!p || !image || image->size!=p->config.image_bytes || (n && !extra))return FNV_NATIVE_FORMAT;
+    if(!p || !image || image->data!=p->config.cpu.memory || image->base!=p->config.cpu.guest_base ||
+       image->size!=p->config.image_bytes || (n && !extra))return FNV_NATIVE_FORMAT;
     if(n>FNV_NATIVE_MAX_IMPORTS-FNV_WINDOWS_THREAD_EXPORTS)return FNV_NATIVE_CAPACITY;
+    struct fnv_pe_tls *tls=NULL;
+    enum fnv_native_result prepared=fnv_pe_tls_prepare(image,&tls);if(prepared!=FNV_NATIVE_OK)return prepared;
     struct fnv_cpu_export *all=NULL;
-    if(n){all=malloc((n+FNV_WINDOWS_THREAD_EXPORTS)*sizeof(*all));if(!all)return FNV_NATIVE_CAPACITY;
+    if(n){all=malloc((n+FNV_WINDOWS_THREAD_EXPORTS)*sizeof(*all));if(!all){fnv_pe_tls_destroy(tls);return FNV_NATIVE_CAPACITY;}
         memcpy(all,exports,sizeof(exports));memcpy(all+FNV_WINDOWS_THREAD_EXPORTS,extra,n*sizeof(*all));}
     lock(p);
     enum fnv_native_result result=fnv_cpu_bind_imports(p->cpu,image,scratch,capacity,
         all?all:exports,n+FNV_WINDOWS_THREAD_EXPORTS,count);
-    if(result==FNV_NATIVE_OK)p->image_tls_rva=image->tls_rva;
-    unlock(p);free(all);return result;
+    if(result==FNV_NATIVE_OK){p->image_tls_rva=image->tls_rva;p->tls=tls;fnv_pe_tls_bind_index(tls);tls=NULL;}
+    unlock(p);fnv_pe_tls_destroy(tls);free(all);return result;
 }
 enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *p,const struct fnv_windows_thread_config *c) {
     if(current.process)return FNV_CPU_BUSY;
@@ -309,39 +314,32 @@ enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *p,cons
        ((!c->static_tls_vector)!=(!c->static_tls_vector_bytes)) ||
        (c->static_tls_vector && (!inside(&p->config,c->static_tls_vector,c->static_tls_vector_bytes) ||
         (c->static_tls_vector&3) || (c->static_tls_vector_bytes&3))))return FNV_CPU_INVALID;
-    if(p->workers && (!managed_current || managed_current->process!=p)){
-        if(c->thread_id>=0x80000000u || worker_overlap(p,c->teb_address,4096) || worker_overlap(p,c->tls_expansion_address,4096) ||
-           worker_overlap(p,c->stack_low,c->stack_high-c->stack_low) || (c->static_tls_vector && worker_overlap(p,c->static_tls_vector,c->static_tls_vector_bytes)))return FNV_CPU_INVALID;
-    }
-    uint32_t starts[]={c->teb_address,c->tls_expansion_address,c->stack_low};
-    uint32_t sizes[]={4096,4096,c->stack_high-c->stack_low};
-    if(c->static_tls_vector &&
-       (overlap(c->static_tls_vector,c->static_tls_vector_bytes,p->config.cpu.guest_base,p->config.image_bytes) ||
-        overlap(c->static_tls_vector,c->static_tls_vector_bytes,p->config.peb_address,4096) ||
-        pool_overlap(p,c->static_tls_vector,c->static_tls_vector_bytes) || heap_overlap(p,c->static_tls_vector,c->static_tls_vector_bytes)))return FNV_CPU_INVALID;
-    for(unsigned i=0;i<3;i++) {
+    struct fnv_pe_tls_info tls;fnv_pe_tls_describe(p->tls,&tls);
+    if((!c->static_tls_data)!=(!c->static_tls_data_bytes) ||
+       (c->static_tls_data && !inside(&p->config,c->static_tls_data,c->static_tls_data_bytes)))return FNV_CPU_INVALID;
+    if(p->tls){
+        if(!c->static_tls_vector || !c->static_tls_data ||
+           c->static_tls_data_bytes<(uint64_t)tls.initialized_bytes+tls.zero_bytes ||
+           (c->static_tls_data&(tls.alignment-1)))return FNV_CPU_INVALID;
+    }else if(c->static_tls_data)return FNV_CPU_INVALID;
+    uint32_t starts[]={c->teb_address,c->tls_expansion_address,c->stack_low,c->static_tls_vector,c->static_tls_data};
+    uint32_t sizes[]={4096,4096,c->stack_high-c->stack_low,c->static_tls_vector_bytes,c->static_tls_data_bytes};
+    int external=p->workers && (!managed_current || managed_current->process!=p);
+    if(external && c->thread_id>=0x80000000u)return FNV_CPU_INVALID;
+    for(unsigned i=0;i<5;++i){if(!sizes[i])continue;
         if(overlap(starts[i],sizes[i],p->config.cpu.guest_base,p->config.image_bytes) ||
-           overlap(starts[i],sizes[i],p->config.peb_address,4096) || pool_overlap(p,starts[i],sizes[i]) || heap_overlap(p,starts[i],sizes[i]))return FNV_CPU_INVALID;
-        for(unsigned j=0;j<i;j++)if(overlap(starts[i],sizes[i],starts[j],sizes[j]))return FNV_CPU_INVALID;
-        if(c->static_tls_vector && overlap(starts[i],sizes[i],c->static_tls_vector,c->static_tls_vector_bytes))return FNV_CPU_INVALID;
+           overlap(starts[i],sizes[i],p->config.peb_address,4096) || pool_overlap(p,starts[i],sizes[i]) ||
+           heap_overlap(p,starts[i],sizes[i]) || (external && worker_overlap(p,starts[i],sizes[i])))return FNV_CPU_INVALID;
+        for(unsigned j=0;j<i;++j)if(sizes[j] && overlap(starts[i],sizes[i],starts[j],sizes[j]))return FNV_CPU_INVALID;
     }
     lock(p);
-    for(struct windows_thread *other=p->threads;other;other=other->next) {
+    for(struct windows_thread *other=p->threads;other;other=other->next){
         if(other->config.thread_id==c->thread_id){unlock(p);return FNV_CPU_INVALID;}
-        uint32_t other_starts[]={other->config.teb_address,other->config.tls_expansion_address,other->config.stack_low};
-        uint32_t other_sizes[]={4096,4096,other->config.stack_high-other->config.stack_low};
-        for(unsigned i=0;i<3;i++)for(unsigned j=0;j<3;j++)
-            if(overlap(starts[i],sizes[i],other_starts[j],other_sizes[j])){unlock(p);return FNV_CPU_INVALID;}
-        for(unsigned i=0;i<3;i++) {
-            if((c->static_tls_vector && overlap(c->static_tls_vector,c->static_tls_vector_bytes,other_starts[i],other_sizes[i])) ||
-               (other->config.static_tls_vector && overlap(starts[i],sizes[i],other->config.static_tls_vector,other->config.static_tls_vector_bytes))) {
-                unlock(p);return FNV_CPU_INVALID;
-            }
-        }
-        if(c->static_tls_vector && other->config.static_tls_vector &&
-           overlap(c->static_tls_vector,c->static_tls_vector_bytes,other->config.static_tls_vector,other->config.static_tls_vector_bytes)) {
-            unlock(p);return FNV_CPU_INVALID;
-        }
+        const struct fnv_windows_thread_config *o=&other->config;
+        uint32_t other_starts[]={o->teb_address,o->tls_expansion_address,o->stack_low,o->static_tls_vector,o->static_tls_data};
+        uint32_t other_sizes[]={4096,4096,o->stack_high-o->stack_low,o->static_tls_vector_bytes,o->static_tls_data_bytes};
+        for(unsigned i=0;i<5;++i)for(unsigned j=0;j<5;++j)
+            if(sizes[i] && other_sizes[j] && overlap(starts[i],sizes[i],other_starts[j],other_sizes[j])){unlock(p);return FNV_CPU_INVALID;}
     }
     struct fnv_cpu_state state=c->state;state.fs_base=c->teb_address;
     enum fnv_cpu_result result=fnv_cpu_attach(p->cpu,&state);
@@ -353,6 +351,10 @@ enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *p,cons
     write32(current.teb+0x18,c->teb_address);write32(current.teb+0x20,p->config.process_id);
     write32(current.teb+0x24,c->thread_id);write32(current.teb+0x2C,c->static_tls_vector);
     write32(current.teb+0x30,p->config.peb_address);write32(current.teb+TEB_EXPANSION,c->tls_expansion_address);
+    if(p->tls){
+        (void)fnv_pe_tls_initialize(p->tls,memory(p,c->static_tls_data),c->static_tls_data_bytes);
+        write32(memory(p,c->static_tls_vector),c->static_tls_data);
+    }
     current.next=p->threads;p->threads=&current;unlock(p);return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_thread_detach(void) {

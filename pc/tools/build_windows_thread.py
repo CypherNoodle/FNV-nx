@@ -44,8 +44,8 @@ def build(a):
         if sha(path)==base['generation_report_sha256']]
     if len(reports)!=1 or json.loads(reports[0].read_text())['code_data_filter']!=selection:
         raise ValueError('Analysis is not the pinned base generation')
-    sources=['windows_thread.c','guest_memory.c']
-    headers=['windows_thread.h','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.h','host_mutex.h']
+    sources=['windows_thread.c','pe_tls.c','guest_memory.c']
+    headers=['windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.h','host_mutex.h']
     if a.memory_exports:
         sources+=['windows_memory.c','memory_horizon.c']
         headers+=['windows_memory.h','memory_horizon.h']

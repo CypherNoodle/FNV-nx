@@ -56,10 +56,9 @@ diagnostica y envenena la sesion antes de limpiar el contexto. No se intenta
 seguir con protecciones perdidas. Un bucle guest arbitrario no se interrumpe
 asincronamente; no hay TerminateThread ni SuspendThread general.
 
-Faltan el cargador de TLS estatico del PE, sus callbacks y notificaciones DLL
-de attach/detach. Si la imagen enlazada declara TLS estatico, CreateThread se
-detiene con un diagnostico pendiente. Esta negativa se prueba por separado; no
-es un cargador TLS ni permite arrancar esa imagen. Tampoco hay prioridades o
+El [TLS estatico de un EXE sin callbacks](native-pe-tls.md) ya se inicializa
+cuando el host configura los bloques y presupuestos correspondientes. Las listas
+de callbacks no vacias se rechazan antes del bind. Faltan callbacks y TLS de DLLs. Tampoco hay prioridades o
 afinidades guest, scheduler de Windows ni adaptacion automatica a todos los
 nucleos: libnx usa prioridad 0x2c y core predeterminado -2. Su distribucion y
 costes en consola todavia requieren medicion.

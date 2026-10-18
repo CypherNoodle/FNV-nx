@@ -23,7 +23,7 @@ def test(a):
     from run_aot_analysis import sdk_identity
     out.mkdir(parents=True);sdk_sha=sdk_identity(sdk)
     frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_thread_host.c',pc/'tests/pe_fixture.py',
-        *[pc/'native'/n for n in ('windows_thread.c','windows_thread.h','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h')],
+        *[pc/'native'/n for n in ('windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h')],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     exe=out/'fixture.exe';write_pe(exe,['KERNEL32.dll']*8)
     raw=bytearray(exe.read_bytes());struct.pack_into('<I',raw,0x98+224+36,0x60000020)
@@ -56,7 +56,7 @@ def test(a):
     command=[*a.cc,'-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable',
         '-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(sdk/'templates/runtime'),
         '-include',str(pc/'native/fnv_sdk_runtime.h'),str(generated),
-        *[str(pc/'native'/n) for n in ('cpu_runtime.c','windows_thread.c','guest_memory.c','pe_image.c')],
+        *[str(pc/'native'/n) for n in ('cpu_runtime.c','windows_thread.c','pe_tls.c','guest_memory.c','pe_image.c')],
         str(pc/'tests/windows_thread_host.c'),'-o',str(out/'windows-test.exe')]
     if sys.platform!='win32':command.append('-pthread')
     built=subprocess.run(command,capture_output=True,text=True)

@@ -60,6 +60,10 @@ int main(int argc,char **argv){
     if(argc==2 || strcmp(argv[2],"--strict-disabled")){c.worker_address=BASE+0x40000;c.worker_bytes=0x30000;c.worker_stack_bytes=65536;c.worker_capacity=2;c.worker_host_stack_bytes=1024*1024;}
     struct fnv_windows_config bad=c;if(c.worker_capacity){bad.worker_host_stack_bytes=1;assert(fnv_windows_create(&bad,&process)==FNV_CPU_INVALID && !process);}
     assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t imported;
+    if(argc==3 && !strcmp(argv[2],"--strict-static-tls")){
+        assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&imported)==FNV_NATIVE_FORMAT);
+        assert(fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));puts("strict PASS");return 0;
+    }
     assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&imported)==FNV_NATIVE_OK && imported==17);
     struct fnv_windows_thread_config t=main_config();assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
     uint32_t tls=call(TLS_ALLOC,0,0,0,0);assert(tls!=UINT32_MAX && call(TLS_SET,tls,0xeeee,0,0));if(argc==3){strict_case(argv[2],tls);return 0;}

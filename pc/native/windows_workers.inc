@@ -1,13 +1,13 @@
 /* Original process-local managed threads. Guest and native stacks are distinct.
- * Caller provides a dedicated committed guest arena; no PE TLS loader yet. */
+ * Caller provides a dedicated committed guest arena; callbackless EXE TLS templates supported. */
 static int worker_overlap(struct fnv_windows_process *p,uint32_t at,uint32_t bytes){
     return p->config.worker_bytes && overlap(at,bytes,p->config.worker_address,p->config.worker_bytes);
 }
 static enum fnv_cpu_result workers_prepare(struct fnv_windows_process *p){
     const struct fnv_windows_config *c=&p->config;
-    if(!c->worker_capacity)return c->worker_address || c->worker_bytes || c->worker_stack_bytes || c->worker_host_stack_bytes?FNV_CPU_INVALID:FNV_CPU_OK;
-    uint64_t stride=(uint64_t)c->worker_stack_bytes+8192;
-    if(c->worker_capacity>256 || !p->handles || !c->worker_address || (c->worker_address&4095) ||
+    if(!c->worker_capacity)return c->worker_address || c->worker_bytes || c->worker_stack_bytes || c->worker_host_stack_bytes || c->worker_tls_bytes?FNV_CPU_INVALID:FNV_CPU_OK;
+    uint64_t stride=(uint64_t)c->worker_stack_bytes+8192+c->worker_tls_bytes;
+    if((c->worker_tls_bytes&4095) || c->worker_capacity>256 || !p->handles || !c->worker_address || (c->worker_address&4095) ||
        c->worker_stack_bytes<16384 || (c->worker_stack_bytes&4095) ||
        c->worker_host_stack_bytes<65536 || (c->worker_host_stack_bytes&4095) ||
        stride*c->worker_capacity>c->worker_bytes || stride*c->worker_capacity>UINT32_MAX-c->worker_address ||
@@ -92,7 +92,9 @@ static void api_thread_create(void){
     uint32_t flags=fnv_cpu_argument_u32(4),id_address=fnv_cpu_argument_u32(5);struct fnv_windows_process *p=thread()->process;
     uint32_t saved_error=read32(current.teb+TEB_ERROR);
     if(!p->workers)sync_invalid("Windows managed thread provider unavailable",entry);
-    if(p->image_tls_rva)sync_invalid("Windows managed worker PE static TLS initialization pending",p->image_tls_rva);
+    struct fnv_pe_tls_info tls;fnv_pe_tls_describe(p->tls,&tls);
+    if(p->tls && p->config.worker_tls_bytes<(uint64_t)tls.initialized_bytes+tls.zero_bytes+tls.alignment+4)
+        sync_invalid("Windows managed worker PE static TLS budget unavailable",p->image_tls_rva);
     if(attributes || (flags&~4u))sync_invalid("Windows thread security/creation flags pending",attributes?attributes:flags);
     unsigned char *id_output=id_address?sync_pointer(p,id_address,4):NULL;
     if(stack_bytes>p->config.worker_stack_bytes){fnv_windows_set_last_error(8);fnv_cpu_return_u32(0,24);return;}
@@ -102,9 +104,12 @@ static void api_thread_create(void){
     for(uint32_t i=0;i<p->config.worker_capacity;++i)if(!p->workers[i].phase){w=p->workers+i;break;}
     if(w && p->worker_next_id!=UINT32_MAX){
         handle=kernel_create(p,KERNEL_THREAD,1,0,259);
-        if(handle){uint32_t i=(uint32_t)(w-p->workers),base=p->config.worker_address+i*(p->config.worker_stack_bytes+8192);
+        if(handle){uint32_t i=(uint32_t)(w-p->workers),base=p->config.worker_address+i*(p->config.worker_stack_bytes+8192+p->config.worker_tls_bytes);
             memset(&w->config,0,sizeof(w->config));w->config.thread_id=++p->worker_next_id;w->config.teb_address=base;w->config.tls_expansion_address=base+4096;
-            w->config.stack_low=base+8192;w->config.stack_high=w->config.stack_low+p->config.worker_stack_bytes;
+            if(p->tls){w->config.static_tls_vector=base+8192;w->config.static_tls_vector_bytes=4;
+                w->config.static_tls_data=(w->config.static_tls_vector+4+tls.alignment-1)&~(tls.alignment-1);
+                w->config.static_tls_data_bytes=p->config.worker_tls_bytes-(w->config.static_tls_data-w->config.static_tls_vector);}
+            w->config.stack_low=base+8192+p->config.worker_tls_bytes;w->config.stack_high=w->config.stack_low+p->config.worker_stack_bytes;
             fnv_cpu_state_init(&w->config.state,w->config.stack_high-16,w->config.teb_address);
             w->entry=entry;w->parameter=parameter;w->suspended=(flags&4)!=0;w->phase=1;
             fnv_host_mutex_lock(&p->kernel_guard);w->object=event_lookup(p,handle);w->object->waiters++;w->object->owner=w->config.thread_id;fnv_host_mutex_unlock(&p->kernel_guard);

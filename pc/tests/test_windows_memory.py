@@ -23,7 +23,7 @@ def test(a):
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
     frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_memory_host.c',pc/'tests/pe_fixture.py',
         *[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
-        'windows_thread.c','windows_thread.h','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
+        'windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','windows_events.inc','windows_workers.inc','windows_time.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     exe=out/'fixture.exe';write_pe(exe,['KERNEL32.dll']*len(NAMES));raw=bytearray(exe.read_bytes())
     struct.pack_into('<I',raw,0x98+224+36,0x60000020);cursor=0xC00;programs=[]
@@ -48,7 +48,7 @@ def test(a):
     generated=out/'generated.c';generated.write_text(source)
     command=[*a.cc,'-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable',
         '-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(sdk/'templates/runtime'),'-include',str(pc/'native/fnv_sdk_runtime.h'),str(generated),
-        *[str(pc/'native'/n) for n in ('cpu_runtime.c','pe_image.c','windows_thread.c','guest_memory.c','memory_horizon.c','windows_memory.c')],
+        *[str(pc/'native'/n) for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','guest_memory.c','memory_horizon.c','windows_memory.c')],
         str(pc/'tests/windows_memory_host.c'),'-o',str(out/'memory-test.exe')]
     built=subprocess.run(command,capture_output=True,text=True);(out/'compiler.log').write_text(built.stdout+built.stderr)
     if built.returncode:raise RuntimeError(built.stderr)

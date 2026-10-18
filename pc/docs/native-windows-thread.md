@@ -156,3 +156,6 @@ sin incorporar su codigo ni DLLs.
 
 La tabla actual contiene 50 exports: incluye semaforos, mutex, esperas multiples,
 [hilos administrados](native-windows-workers.md), Sleep y [QPC/QPF](native-windows-time.md). Ver [contratos y pruebas](native-windows-kernel-waits.md).
+
+El [TLS estatico PE32](native-pe-tls.md) de un EXE sin callbacks se inicializa al
+adjuntar cada hilo, con bloques separados configurados por el host.
