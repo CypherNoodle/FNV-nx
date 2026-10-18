@@ -10,4 +10,4 @@ if __name__=='__main__':
     shared.NAMES=['QueryPerformanceCounter','QueryPerformanceFrequency','Sleep','GetLastError','SetLastError']
     shared.ARGS=[1,1,1,0,1]
     shared.test(p.parse_args(),host_source='windows_time_host.c',extra_inputs=(Path(__file__).resolve(),),
-                strict_modes=('--strict-counter','--strict-frequency'))
+                strict_modes=('--strict-counter','--strict-frequency','--strict-clock-backwards','--strict-clock-failure'))

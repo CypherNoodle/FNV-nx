@@ -28,6 +28,13 @@ struct fnv_windows_config {
     uint32_t worker_address,worker_bytes,worker_stack_bytes,worker_capacity;
     uint32_t worker_host_stack_bytes;
     uint32_t worker_tls_bytes; /* Optional page-aligned vector+static TLS budget per worker. */
+    /* Zero selects maximum generations available for the configured capacity.
+     * A smaller explicit budget permits bounded exhaustion validation. */
+    uint32_t kernel_generation_limit;
+    /* Optional QPC-only monotonic nanosecond source. Must not reenter/longjmp;
+     * called under the performance clock lock. NULL uses host_clock.h. */
+    void *performance_clock_context;
+    int (*performance_clock_ns)(void *,uint64_t *);
 };
 struct fnv_windows_thread_config {
     struct fnv_cpu_state state;
@@ -59,6 +66,8 @@ enum fnv_cpu_result fnv_windows_heap_stats(struct fnv_windows_process *,struct f
 struct fnv_windows_handle_stats {
     uint32_t live_handles,waiting_threads;
     uint64_t blocking_waits,timeouts,sets,resets;
+    uint32_t retired_slots,generation_limit;
+    uint64_t total_creations,remaining_creations;
 };
 enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *,struct fnv_windows_handle_stats *);
 struct fnv_windows_worker_stats {

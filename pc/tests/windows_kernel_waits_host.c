@@ -17,6 +17,38 @@ static DWORD WINAPI multi_worker(void *context){
 }
 static void join_thread(HANDLE t){assert(WaitForSingleObject(t,5000)==0);DWORD code;assert(GetExitCodeThread(t,&code) && !code);CloseHandle(t);}
 static DWORD WINAPI native_abandon(void *context){assert(WaitForSingleObject((HANDLE)context,5000)==0);return 0;}
+struct ordered_wait {unsigned index;uint32_t h[2],result;HANDLE done;};
+static DWORD WINAPI ordered_worker(void *context){
+    struct ordered_wait *w=context;struct fnv_windows_thread_config t=thread_config(w->index+1);
+    assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
+    uint32_t at=BASE+0x9400+w->index*16;write32(at,w->h[0]);write32(at+4,w->h[1]);
+    w->result=call(WAIT_MANY,2,at,0,5000);
+    assert(fnv_windows_thread_detach()==FNV_CPU_OK);assert(SetEvent(w->done));return 0;
+}
+static void review_regressions(void){
+    /* Queue order is deterministic; host thread scheduling order is not. */
+    uint32_t ev=call(CREATE_EVENT,0,0,0,0),other=call(CREATE_EVENT,0,0,0,0);assert(ev && other);
+    struct ordered_wait w[2];HANDLE threads[2];
+    for(unsigned i=0;i<2;++i){w[i]=(struct ordered_wait){i,{ev,other},UINT32_MAX,CreateEventW(NULL,TRUE,FALSE,NULL)};
+        assert(w[i].done);threads[i]=CreateThread(NULL,0,ordered_worker,w+i,0,NULL);assert(threads[i]);wait_count(i+1);}
+    assert(call(SET_EVENT,ev,0,0,0));assert(WaitForSingleObject(w[0].done,5000)==0);
+    assert(WaitForSingleObject(w[1].done,0)==WAIT_TIMEOUT);wait_count(1);
+    /* Grant is complete when Set returns. Closing an unselected object must not revoke it. */
+    assert(call(SET_EVENT,ev,0,0,0));assert(call(CLOSE_HANDLE,other,0,0,0));
+    for(unsigned i=0;i<2;++i){join_thread(threads[i]);assert(w[i].result==0);CloseHandle(w[i].done);}
+    assert(call(CLOSE_HANDLE,ev,0,0,0));wait_count(0);
+    /* Check ignored low tag bits against the Windows kernel, not a local model. */
+    ev=call(CREATE_EVENT,0,1,0,0);HANDLE native=CreateEventW(NULL,TRUE,FALSE,NULL);assert(ev && native && !(ev&3));
+    for(unsigned tag=0;tag<4;++tag){HANDLE tagged=(HANDLE)((uintptr_t)native|tag);
+        assert(call(SET_EVENT,ev|tag,0,0,0)==(uint32_t)(SetEvent(tagged)!=0));
+        assert(call(WAIT_ONE,ev|tag,0,0,0)==WaitForSingleObject(tagged,0));
+        assert(call(RESET_EVENT,ev|tag,0,0,0)==(uint32_t)(ResetEvent(tagged)!=0));}
+    uint32_t aliases[]={ev,ev|3};HANDLE native_aliases[]={native,(HANDLE)((uintptr_t)native|3)};
+    SetLastError(0);uint32_t expected=WaitForMultipleObjects(2,native_aliases,TRUE,0);DWORD error=GetLastError();
+    call(SET_ERROR,0,0,0,0);assert(many(aliases,2,1,0)==expected && call(GET_ERROR,0,0,0,0)==error);
+    assert(call(CLOSE_HANDLE,ev|3,0,0,0)==(uint32_t)(CloseHandle((HANDLE)((uintptr_t)native|3))!=0));
+    assert(call(WAIT_ONE,ev,0,0,0)==WAIT_FAILED);
+}
 int main(int argc,char **argv){
     if(argc==3)return event_suite(argc,argv);
     assert(event_suite(argc,argv)==0); /* Preserve all event race/strict regressions. */
@@ -27,6 +59,7 @@ int main(int argc,char **argv){
     assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count;
     assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&count)==FNV_NATIVE_OK && count==15);
     struct fnv_windows_thread_config config=thread_config(0);assert(fnv_windows_thread_attach(process,&config)==FNV_CPU_OK);
+    review_regressions();
     unsigned seed=0xc2a9,comparisons=0;
     for(unsigned trial=0;trial<200;++trial){
         uint32_t h[]={call(CREATE_EVENT,0,trial&1,trial&2,0),call(CREATE_SEM,0,1,3,0),call(CREATE_MUTEX,0,trial&1,0,0)};
@@ -83,5 +116,5 @@ int main(int argc,char **argv){
     assert(many(objects,64,1,0)==0);for(unsigned i=0;i<64;++i)assert(call(CLOSE_HANDLE,objects[i],0,0,0));
     for(unsigned i=0;i<3;++i)assert(call(CLOSE_HANDLE,list[i],0,0,0));
     assert(!stats().live_handles && !stats().waiting_threads);assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"mixed_windows_comparisons\":%u,\"event_regression_comparisons\":12000,\"event_contention_rounds\":300,\"wait_all_atomic_grant\":true,\"mutex_abandonment\":true,\"pending_abandonment_rounds\":100,\"max_wait_objects\":64,\"native_engine_started\":false}\n",comparisons);return 0;
+    printf("{\"status\":\"PASS\",\"mixed_windows_comparisons\":%u,\"event_regression_comparisons\":12000,\"event_contention_rounds\":300,\"wait_all_atomic_grant\":true,\"mutex_abandonment\":true,\"pending_abandonment_rounds\":100,\"max_wait_objects\":64,\"oldest_eligible_checked\":true,\"grant_then_close_checked\":true,\"tagged_windows_comparisons\":13,\"adaptive_handle_budgets_checked\":4,\"native_engine_started\":false}\n",comparisons);return 0;
 }

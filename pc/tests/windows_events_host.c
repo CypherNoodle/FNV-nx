@@ -98,13 +98,26 @@ int main(int argc,char **argv){
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
     c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;c.kernel_handle_capacity=65537;
     assert(fnv_windows_create(&c,&process)==FNV_CPU_INVALID && !process);c.kernel_handle_capacity=argc==3 && !strcmp(argv[2],"--strict-disabled")?0:4;
+    if(argc==2){
+        const uint32_t capacities[]={1,3,1024,65536};
+        for(unsigned i=0;i<4;++i){c.kernel_handle_capacity=capacities[i];
+            uint32_t bits=0;while((1u<<bits)<capacities[i])bits++;uint32_t maximum=(1u<<(26-bits))-1;
+            c.kernel_generation_limit=maximum+1;assert(fnv_windows_create(&c,&process)==FNV_CPU_INVALID && !process);
+            c.kernel_generation_limit=0;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
+            struct fnv_windows_handle_stats budget=stats();assert(!budget.total_creations && !budget.retired_slots && budget.generation_limit==maximum);
+            assert(budget.remaining_creations==(uint64_t)maximum*capacities[i]);
+            assert(fnv_windows_destroy(process)==FNV_CPU_OK);
+        }
+        c.kernel_handle_capacity=4;
+    }
+    c.kernel_generation_limit=c.kernel_handle_capacity?4095:0;
     assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count;
     assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&count)==FNV_NATIVE_OK && count==sizeof(args_count)/sizeof(*args_count));
     struct fnv_windows_thread_config t=thread_config(0);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);if(argc==3){strict_case(argv[2]);return 0;}
     unsigned comparisons=0,seed=0x59ab83;
     for(unsigned trial=0;trial<400;++trial){unsigned manual=trial&1,initial=(trial>>1)&1;
         call(SET_ERROR,0x1234,0,0,0);SetLastError(0x1234);HANDLE native=CreateEventA(NULL,(BOOL)manual,(BOOL)initial,NULL);DWORD err=GetLastError();
-        uint32_t h=call(CREATE_EVENT,0,manual,initial,0);assert(h && native && call(GET_ERROR,0,0,0,0)==err);
+        uint32_t h=call(CREATE_EVENT,0,manual,initial,0);assert(h && !(h&3) && native && call(GET_ERROR,0,0,0,0)==err);
         for(unsigned i=0;i<30;++i){seed=seed*1664525u+1013904223u;unsigned op=seed%3;call(SET_ERROR,0x3579,0,0,0);SetLastError(0x3579);
             uint32_t result,expected;if(!op){result=call(SET_EVENT,h,0,0,0);expected=SetEvent(native)!=0;}
             else if(op==1){result=call(RESET_EVENT,h,0,0,0);expected=ResetEvent(native)!=0;}
@@ -114,14 +127,16 @@ int main(int argc,char **argv){
         assert(!call(SET_EVENT,h,0,0,0) && call(GET_ERROR,0,0,0,0)==6);
     }
     uint32_t h=call(CREATE_W,0,0,1,0);assert(h && call(WAIT_ONE,h,0,0,0)==WAIT_OBJECT_0 && call(WAIT_ONE,h,0,0,0)==WAIT_TIMEOUT);
-    ULONGLONG before=GetTickCount64();assert(call(WAIT_ONE,h,25,0,0)==WAIT_TIMEOUT && GetTickCount64()-before>=24);
+    LARGE_INTEGER before,after,frequency;assert(QueryPerformanceFrequency(&frequency) && QueryPerformanceCounter(&before));
+    assert(call(WAIT_ONE,h,25,0,0)==WAIT_TIMEOUT && QueryPerformanceCounter(&after));
+    assert((after.QuadPart-before.QuadPart)*1000>=frequency.QuadPart*25);
     assert(call(CLOSE_HANDLE,h,0,0,0) && !call(CLOSE_HANDLE,h,0,0,0));
     assert(call(WAIT_ONE,h,0,0,0)==WAIT_FAILED && call(GET_ERROR,0,0,0,0)==6);
     uint32_t objects[4];for(unsigned i=0;i<4;++i){objects[i]=call(CREATE_EVENT,0,0,0,0);assert(objects[i]);}
     assert(!call(CREATE_EVENT,0,0,0,0) && call(GET_ERROR,0,0,0,0)==8);for(unsigned i=0;i<4;++i)assert(call(CLOSE_HANDLE,objects[i],0,0,0));
     uint64_t manual_cpu=contention(1),auto_cpu=contention(0);close_pending();
     unsigned recycled=0;while((h=call(CREATE_EVENT,0,0,0,0))){assert(call(CLOSE_HANDLE,h,0,0,0));recycled++;assert(recycled<=16380);}
-    assert(recycled>10000 && call(GET_ERROR,0,0,0,0)==8);struct fnv_windows_handle_stats s=stats();assert(!s.live_handles && !s.waiting_threads && s.blocking_waits && s.timeouts);
+    assert(recycled>10000 && call(GET_ERROR,0,0,0,0)==8);struct fnv_windows_handle_stats s=stats();assert(!s.live_handles && !s.waiting_threads && s.blocking_waits && s.timeouts && s.retired_slots==4 && s.generation_limit==4095 && !s.remaining_creations && s.total_creations==16380);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
     printf("{\"status\":\"PASS\",\"event_oracle_comparisons\":%u,\"set_reset_contention_rounds\":300,\"manual_blocked_cpu_100ns\":%llu,\"auto_blocked_cpu_100ns\":%llu,\"generation_recycles\":%u,\"all_handles_released\":true,\"native_engine_started\":false}\n",comparisons,(unsigned long long)manual_cpu,(unsigned long long)auto_cpu,recycled);return 0;
 }

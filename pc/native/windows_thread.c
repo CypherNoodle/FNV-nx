@@ -40,7 +40,7 @@ struct kernel_object {
     fnv_host_condition condition;
 };
 struct kernel_wait {
-    struct kernel_wait *next;
+    struct kernel_wait *next,*previous;
     struct kernel_object *objects[64];
     uint32_t count,all,owner,released,result;
 };
@@ -66,9 +66,13 @@ struct fnv_windows_process {
     uint64_t sync_waits,sync_wakes,sync_try_failures;
     fnv_host_mutex kernel_guard;
     struct kernel_object *handles;
-    uint32_t kernel_free,kernel_waiting;
-    struct kernel_wait *kernel_pending;
+    uint32_t kernel_free,kernel_free_tail,kernel_waiting,kernel_slot_bits,kernel_slot_mask,kernel_generation_max;
+    struct kernel_wait *kernel_pending,*kernel_pending_tail;
     uint64_t kernel_waits,kernel_timeouts,kernel_sets,kernel_resets;
+    uint64_t kernel_creations;
+    uint32_t kernel_retired;
+    fnv_host_mutex performance_guard;
+    uint64_t performance_epoch,performance_last;
     struct managed_worker *workers;
     fnv_host_mutex worker_guard;
     uint32_t worker_next_id;
@@ -272,6 +276,9 @@ enum fnv_cpu_result fnv_windows_create(const struct fnv_windows_config *c,struct
     result=workers_prepare(p);
     if(result!=FNV_CPU_OK){events_dispose(p);sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
+    result=time_prepare(p);
+    if(result!=FNV_CPU_OK){workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){write32(memory(p,c->peb_address)+0x18,0);free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
+        (void)fnv_cpu_destroy(p->cpu);fnv_vm_release_reference(c->memory);free(p);return result;}
     *out=p;return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
@@ -280,7 +287,7 @@ enum fnv_cpu_result fnv_windows_destroy(struct fnv_windows_process *p) {
     if(p->threads || p->private_heaps){unlock(p);return FNV_CPU_BUSY;}
     if(!workers_idle(p)){unlock(p);return FNV_CPU_BUSY;}
     enum fnv_cpu_result result=fnv_cpu_destroy(p->cpu);
-    unlock(p);if(result==FNV_CPU_OK){fnv_pe_tls_destroy(p->tls);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
+    unlock(p);if(result==FNV_CPU_OK){time_dispose(p);fnv_pe_tls_destroy(p->tls);workers_dispose(p);events_dispose(p);sync_dispose(p);if(p->heap.blocks){
             if(read32(memory(p,p->config.peb_address)+0x18)==p->config.heap_address)write32(memory(p,p->config.peb_address)+0x18,0);
             free(p->heap.blocks);fnv_host_mutex_destroy(&p->heap_guard);}
         fnv_vm_release_reference(p->config.memory);free(p);}return result;

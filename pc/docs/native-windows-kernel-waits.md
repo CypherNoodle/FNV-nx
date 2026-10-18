@@ -41,14 +41,16 @@ registra en su pila host los objetos que mantiene pinneados y su resultado. El
 despachador retira y concede peticiones elegibles antes de notificarlas: ResetEvent
 no revoca una concesion ya realizada y otro hilo no puede robarla. El coste de un
 despacho es proporcional a peticiones pendientes por objetos consultados, no a
-toda la capacidad de handles; no se promete FIFO ni equidad entre peticiones.
+toda la capacidad de handles. Se atiende al waiter elegible mas antiguo,
+sin prometer orden de ejecucion host ni equidad para wait-all no satisfecho.
 Crear/buscar handles sigue O(1). Abandonar mutex al separar un hilo recorre la tabla.
 
 Las condiciones nativas liberan el lock mientras esperan; deadlines monotonos y
 segmentos de hasta 250 ms conservan la deteccion de fallos CPU de otros hilos.
 No hay un bucle de spin. Los contadores de diagnostico cuentan una espera por
 hilo, aunque espere 64 objetos, e incluyen concesiones aun pendientes de retornar.
-Cerrar durante una espera sigue siendo una extension segura WAIT_FAILED/error 6;
+Cerrar durante una espera pendiente devuelve WAIT_FAILED/error 6; una concesion
+ya hecha conserva su resultado aunque despues se cierre alguno de sus objetos.
 Windows declara ese caso indefinido. Los slots se reciclan despues del ultimo pin.
 
 ## Verificacion reproducible

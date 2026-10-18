@@ -7,11 +7,11 @@ No se cargan DLLs Windows en Switch. Son seis exports propios sobre el runtime.
 
 El host configura `kernel_handle_capacity` antes del attach. Se preasignan tabla,
 mutex y condiciones; cero deshabilita este proveedor. Hasta 65536 slots usan una
-lista libre O(1), sin buscar desde el principio al crear cada evento. Los handles
+lista libre FIFO O(1), sin buscar desde el principio al crear cada evento. Los handles
 guest32 contienen prefijo, indice y generacion; nunca contienen un puntero host.
 Lookup es O(1). Al cerrar, un slot solo se reutiliza tras retirar sus waiters.
 Una generacion agotada retira ese slot en vez de volver valido un handle viejo;
-hay hasta 4095 creaciones por slot. Agotar capacidad/generaciones falla con
+la capacidad determina los bits de indice y deja los restantes para generacion. Agotar capacidad/generaciones falla con
 NULL y error 8. El presupuesto se define explicitamente, no es ilimitado.
 
 ## Senales y esperas
@@ -27,7 +27,9 @@ compartida del proceso. Una espera conjunta solo es elegible si cumple su condic
 concesion sobrevive a ResetEvent aunque el hilo no haya vuelto a ejecutarse.
 Un nuevo waiter no puede robar la senal ya concedida a otro. WakeAll notifica
 los waiters; cada uno verifica su concesion bajo mutex. Puede haber despertares
-sin concesion; no se promete FIFO ni rendimiento definitivo del scheduler.
+sin concesion. Se concede al waiter elegible mas antiguo; se puede saltar un
+wait-all no satisfecho. No se promete orden de ejecucion del scheduler ni
+equivalencia con una garantia FIFO de Windows.
 
 WaitForSingleObject soporta poll cero, timeout finito e INFINITE. Devuelve
 WAIT_OBJECT_0 al adquirir, WAIT_TIMEOUT al agotar el plazo y WAIT_FAILED con
@@ -39,7 +41,7 @@ arquitectural y su frecuencia real en Horizon. La conversion a ns evita el
 overflow de multiplicar directamente todos los ticks acumulados. El limite de
 frecuencia admitido es UINT32_MAX Hz. No usa frecuencia CPU/GPU, guest RDTSC ni
 presume que overclock cambie ese contador. No modifica los temporizadores del
-juego ni implementa aun QueryPerformanceCounter guest o Sleep.
+juego. QPC guest y Sleep se describen en [temporizadores](native-windows-time.md).
 
 Los plazos se fijan una vez por llamada y se reevalua el tiempo restante tras
 notificaciones espurias. Se usan esperas relativas de hasta 250 ms para detectar
@@ -48,8 +50,10 @@ y soltar el mutex. No se devuelve una adquisicion exitosa ni se espera en spin.
 No se modelan todavia las diferencias de suspension de Windows segun su version.
 
 Cerrar un handle durante una espera es indefinido en Windows. Esta implementacion
-lo cancela con WAIT_FAILED/error 6 y mantiene el slot vivo para el waiter hasta
-que se retire; ese caso se prueba por seguridad, no como oraculo Windows.
+cancela una espera todavia pendiente con WAIT_FAILED/error 6 y mantiene el slot vivo para el waiter hasta
+que se retire. Si ya hubo concesion, conserva su resultado aun cuando se cierre
+un objeto seleccionado o no seleccionado; esos casos son politica de seguridad,
+no un oraculo de comportamiento Windows indefinido.
 La destruccion host del proceso requiere que se hayan separado todos los hilos;
 puede cerrar los eventos restantes al destruir su tabla. El snapshot prestado
 `fnv_windows_handle_stats` expone handles vivos, waiters y contadores de espera,
@@ -81,3 +85,27 @@ bloque ni NRO que ejecute el motor.
 Contratos: [CreateEventA](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa),
 [WaitForSingleObject](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject),
 [CloseHandle](https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-closehandle).
+
+## Presupuesto y bits de etiqueta
+
+Los tokens son multiplos de cuatro. Se ignoran sus dos bits bajos al buscar un
+objeto y al detectar duplicados en WaitForMultipleObjects, como para los handles
+kernel de Windows. No se generaliza a pseudo-handles ni objetos USER/GDI.
+Con prefijo de 4 bits, 2 bits de etiqueta y ceil(log2(capacity)) bits de indice,
+quedan 26-ceil(log2(capacity)) bits de generacion. A capacidad 1024 son 65535
+asignaciones por slot (67107840 totales); a 65536, 1023 por slot. Cada generacion
+solo se usa una vez. La cola libre FIFO reparte el consumo, no elimina su limite.
+
+kernel_generation_limit=0 usa ese maximo; un limite explicito menor permite
+pruebas de agotamiento acotadas. Un limite mayor o sin tabla se rechaza.
+El snapshot agrega retired_slots, generation_limit, total_creations y
+remaining_creations. Cuenta asignaciones de objetos, incluso si despues falla
+la creacion del hilo host. Remaining es presupuesto de futuras generaciones,
+no numero de handles libres actuales. No se midio aun el ritmo de FNV.
+
+Las regresiones cubren capacidades 1, 3, 1024 y 65536, limites invalidos,
+16380 asignaciones hasta retirar cuatro slots con limite 4095, orden de dos
+waiters y grant seguido de cierre. Set/Reset/Wait/Close con etiquetas 0..3 y
+arrays con aliases se comparan contra Windows real.
+
+Referencia: [bits bajos de handles kernel](https://devblogs.microsoft.com/oldnewthing/20050121-00/?p=36633/).

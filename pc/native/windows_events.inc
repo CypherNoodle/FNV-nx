@@ -1,8 +1,13 @@
 /* Unnamed, process-local synchronization. Handles carry a slot and a nonwrapping
  * generation; they are neither host HANDLEs nor guest memory pointers. */
 static enum fnv_cpu_result events_prepare(struct fnv_windows_process *p){
-    uint32_t count=p->config.kernel_handle_capacity;if(!count)return FNV_CPU_OK;
+    uint32_t count=p->config.kernel_handle_capacity;if(!count)return p->config.kernel_generation_limit?FNV_CPU_INVALID:FNV_CPU_OK;
     if(count>65536)return FNV_CPU_INVALID;
+    uint32_t bits=0;while((1u<<bits)<count)bits++;
+    uint32_t maximum=(1u<<(26-bits))-1;
+    if(p->config.kernel_generation_limit>maximum)return FNV_CPU_INVALID;
+    p->kernel_slot_bits=bits;p->kernel_slot_mask=(1u<<bits)-1;
+    p->kernel_generation_max=p->config.kernel_generation_limit?p->config.kernel_generation_limit:maximum;
     struct kernel_object *items=calloc(count,sizeof(*items));if(!items)return FNV_CPU_NO_MEMORY;
     if(!fnv_host_mutex_init(&p->kernel_guard)){free(items);return FNV_CPU_NO_MEMORY;}
     for(uint32_t i=0;i<count;++i)if(!fnv_host_condition_init(&items[i].condition)){
@@ -10,7 +15,7 @@ static enum fnv_cpu_result events_prepare(struct fnv_windows_process *p){
         fnv_host_mutex_destroy(&p->kernel_guard);free(items);return FNV_CPU_NO_MEMORY;
     }
     for(uint32_t i=0;i<count;++i)items[i].free_next=i+1<count?i+1:UINT32_MAX;
-    p->handles=items;p->kernel_free=0;return FNV_CPU_OK;
+    p->handles=items;p->kernel_free=0;p->kernel_free_tail=count-1;return FNV_CPU_OK;
 }
 static void events_dispose(struct fnv_windows_process *p){
     if(!p->handles)return;
@@ -23,14 +28,18 @@ static struct fnv_windows_process *event_process(void){
     return p;
 }
 static struct kernel_object *event_lookup(struct fnv_windows_process *p,uint32_t handle){
-    uint32_t slot=handle&65535,generation=(handle>>16)&4095;
+    handle&=~3u; /* Kernel handle low tag bits are ignored, as on Windows. */
+    uint32_t slot=(handle>>2)&p->kernel_slot_mask,generation=(handle&0x0fffffffu)>>(p->kernel_slot_bits+2);
     if((handle&0xf0000000u)!=0xe0000000u || !generation || slot>=p->config.kernel_handle_capacity)return NULL;
     struct kernel_object *o=p->handles+slot;
     return o->live && o->generation==generation?o:NULL;
 }
 static void event_recycle(struct fnv_windows_process *p,struct kernel_object *o){
-    if(o->generation==4095)return; /* Never wrap a stale handle into validity. */
-    o->free_next=p->kernel_free;p->kernel_free=(uint32_t)(o-p->handles);
+    if(o->generation==p->kernel_generation_max){p->kernel_retired++;return;}
+    uint32_t index=(uint32_t)(o-p->handles);o->free_next=UINT32_MAX;
+    if(p->kernel_free_tail!=UINT32_MAX)p->handles[p->kernel_free_tail].free_next=index;
+    else p->kernel_free=index;
+    p->kernel_free_tail=index;
 }
 /* All object transitions and wait grants use kernel_guard. A wait-all only
  * consumes state after every object qualifies. Granted requests are removed
@@ -69,11 +78,16 @@ static int kernel_acquire(struct kernel_wait *w){
     w->result=abandoned!=UINT32_MAX?0x80+(w->all?0:abandoned):(w->all?0:chosen);
     return 1;
 }
+static void kernel_remove_wait(struct fnv_windows_process *p,struct kernel_wait *w){
+    if(w->previous)w->previous->next=w->next;else p->kernel_pending=w->next;
+    if(w->next)w->next->previous=w->previous;else p->kernel_pending_tail=w->previous;
+    w->previous=w->next=NULL;
+}
 static void kernel_dispatch(struct fnv_windows_process *p){
-    struct kernel_wait **link=&p->kernel_pending;
-    while(*link){struct kernel_wait *w=*link;
-        if(kernel_acquire(w)){*link=w->next;w->released=1;fnv_host_condition_wake_all(&w->objects[0]->condition);}
-        else link=&w->next;
+    struct kernel_wait *w=p->kernel_pending;
+    while(w){struct kernel_wait *next=w->next;
+        if(kernel_acquire(w)){kernel_remove_wait(p,w);w->released=1;fnv_host_condition_wake_all(&w->objects[0]->condition);}
+        w=next;
     }
 }
 static void kernel_thread_exit(struct fnv_windows_process *p,uint32_t owner){
@@ -88,7 +102,9 @@ enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *p,struc
     if(!p || !out)return FNV_CPU_INVALID;
     struct fnv_windows_handle_stats s={0};
     if(p->handles){fnv_host_mutex_lock(&p->kernel_guard);
-        for(uint32_t i=0;i<p->config.kernel_handle_capacity;++i)s.live_handles+=p->handles[i].live!=0;
+        for(uint32_t i=0;i<p->config.kernel_handle_capacity;++i){s.live_handles+=p->handles[i].live!=0;
+            s.remaining_creations+=p->kernel_generation_max-p->handles[i].generation;}
+        s.total_creations=p->kernel_creations;s.retired_slots=p->kernel_retired;s.generation_limit=p->kernel_generation_max;
         s.waiting_threads=p->kernel_waiting;
         s.blocking_waits=p->kernel_waits;s.timeouts=p->kernel_timeouts;s.sets=p->kernel_sets;s.resets=p->kernel_resets;
         fnv_host_mutex_unlock(&p->kernel_guard);}
@@ -96,10 +112,10 @@ enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *p,struc
 }
 static uint32_t kernel_create(struct fnv_windows_process *p,uint32_t kind,uint32_t manual,uint32_t initial,uint32_t maximum){
     uint32_t handle=0;fnv_host_mutex_lock(&p->kernel_guard);
-    if(p->kernel_free!=UINT32_MAX){uint32_t i=p->kernel_free;struct kernel_object *o=p->handles+i;p->kernel_free=o->free_next;
+    if(p->kernel_free!=UINT32_MAX){uint32_t i=p->kernel_free;struct kernel_object *o=p->handles+i;p->kernel_free=o->free_next;if(p->kernel_free==UINT32_MAX)p->kernel_free_tail=UINT32_MAX;
         o->generation++;o->live=1;o->kind=kind;o->manual=manual!=0;o->signaled=initial;o->maximum=maximum;
         o->owner=kind==KERNEL_MUTEX && initial?current.config.thread_id:0;o->recursion=o->owner?1:0;o->abandoned=0;
-        handle=0xe0000000u|(o->generation<<16)|i;
+        handle=0xe0000000u|(o->generation<<(p->kernel_slot_bits+2))|(i<<2);p->kernel_creations++;
     }
     fnv_host_mutex_unlock(&p->kernel_guard);fnv_windows_set_last_error(handle?0:8);return handle;
 }
@@ -168,7 +184,9 @@ static uint32_t kernel_wait(struct fnv_windows_process *p,const uint32_t *handle
     if(!fnv_host_now_ns(&now))failure="Windows event monotonic clock unavailable";
     else if(ms!=UINT32_MAX && now>UINT64_MAX-(uint64_t)ms*1000000)failure="Windows event deadline overflow";
     else {last=now;if(ms!=UINT32_MAX)deadline=now+(uint64_t)ms*1000000;}
-    waiter.next=p->kernel_pending;p->kernel_pending=&waiter;
+    waiter.previous=p->kernel_pending_tail;
+    if(p->kernel_pending_tail)p->kernel_pending_tail->next=&waiter;else p->kernel_pending=&waiter;
+    p->kernel_pending_tail=&waiter;
     p->kernel_waiting++;
     for(uint32_t i=0;i<count;++i)waiter.objects[i]->waiters++;
     while(!failure && !waiter.released){
@@ -180,10 +198,9 @@ static uint32_t kernel_wait(struct fnv_windows_process *p,const uint32_t *handle
         else if(fnv_cpu_is_faulted(p->cpu))failure="Windows event peer CPU fault";
     }
     if(waiter.released)value=waiter.result;
-    else {struct kernel_wait **link=&p->kernel_pending;while(*link!=&waiter)link=&(*link)->next;*link=waiter.next;}
+    else kernel_remove_wait(p,&waiter);
     p->kernel_waiting--;
     for(uint32_t i=0;i<count;++i){struct kernel_object *o=waiter.objects[i];
-        if(!o->live)value=UINT32_MAX;
         o->waiters--;if(!o->live && !o->waiters)event_recycle(p,o);
     }
 done:
@@ -203,7 +220,7 @@ static void api_wait_multiple(void){
     if(!address || (address&3) || !inside(&p->config,address,count*4))sync_invalid("Windows wait array unavailable",address);
     if(pool_overlap(p,address,count*4) && !fnv_vm_access(p->config.memory,address,count*4,0))sync_invalid("Windows wait array not readable",address);
     unsigned char *input=memory(p,address);uint32_t handles[64];
-    for(uint32_t i=0;i<count;++i){handles[i]=read32(input+i*4);
+    for(uint32_t i=0;i<count;++i){handles[i]=read32(input+i*4)&~3u;
         for(uint32_t j=0;j<i;++j)if(handles[j]==handles[i]){fnv_windows_set_last_error(87);fnv_cpu_return_u32(UINT32_MAX,16);return;}
     }
     fnv_cpu_return_u32(kernel_wait(p,handles,count,all!=0,ms),16);
