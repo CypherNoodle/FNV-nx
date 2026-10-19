@@ -43,6 +43,12 @@ def emit(instruction):
         else:call=f'fnv_x87_stack_store_register(&fnv_x87_state,{index},{int(m=="fstp")})'
     elif m in ('fcompp','fucompp') and not ops:
         call=f'fnv_x87_stack_compare(&fnv_x87_state,1,{int(m=="fucompp")},2)'
+    elif m in ('fcom','fcomp') and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size in (4,8):
+        call=f'fnv_x87_stack_compare_memory(&fnv_x87_state,(const unsigned char *)(g_xbox_mem_offset+(uint32_t)({_fmt_mem(ops[0])})),{ops[0].mem_size},{int(m=="fcomp")})'
+    elif m=='ftst' and not ops:
+        call='fnv_x87_stack_test_zero(&fnv_x87_state)'
+    elif m in ('fchs','fabs') and not ops:
+        call=f'fnv_x87_stack_sign(&fnv_x87_state,{int(m=="fabs")})'
     elif m in ('fcom','fcomp','fucom','fucomp') and (not ops or (len(ops)==1 and register_index(ops[0]) is not None)):
         call=f'fnv_x87_stack_compare(&fnv_x87_state,{register_index(ops[0]) if ops else 1},{int(m.startswith("fu"))},{int(m.endswith("p"))})'
     elif m=='fldcw' and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size==2:
@@ -56,12 +62,24 @@ def emit(instruction):
         return ['fnv_x87_stack_clear_exceptions(&fnv_x87_state);']
     elif m=='fninit' and not ops:
         return ['fnv_x87_stack_init(&fnv_x87_state);']
-    elif m in ('faddp','fsubp','fmulp','fdivp'):
-        # Only ST(1) <- ST(1) op ST(0), then pop, is implemented here.
-        normalized=[op.reg.replace('(','').replace(')','') if op.type=='reg' and op.reg else None for op in ops]
-        if normalized in ([],['st1'],['st1','st0']):
-            operation={'faddp':'ADD','fsubp':'SUB','fmulp':'MUL','fdivp':'DIV'}[m]
-            call=f'fnv_x87_stack_binary_pop(&fnv_x87_state,FNV_X87_{operation})'
+    elif m in ('fadd','fmul','fsub','fsubr','fdiv','fdivr','faddp','fmulp','fsubp','fsubrp','fdivp','fdivrp',
+               'fiadd','fimul','fisub','fisubr','fidiv','fidivr'):
+        integer=m.startswith('fi');base=m[2:] if integer else m[1:]
+        pop=base.endswith('p');base=base[:-1] if pop else base
+        reverse=base.endswith('r');base=base[:-1] if reverse else base
+        operation={'add':'ADD','sub':'SUB','mul':'MUL','div':'DIV'}[base]
+        if len(ops)==1 and ops[0].type=='mem' and not pop and (
+                ops[0].mem_size in ((2,4) if integer else (4,8))):
+            address=f'(const unsigned char *)(g_xbox_mem_offset+(uint32_t)({_fmt_mem(ops[0])}))'
+            call=f'fnv_x87_stack_binary_memory(&fnv_x87_state,FNV_X87_{operation},{address},{ops[0].mem_size},{int(integer)},{int(reverse)})'
+        elif not integer:
+            indices=[register_index(op) for op in ops]
+            destination=source=None
+            if not ops:destination,source=(1,0) if pop else (0,1)
+            elif len(indices)==1 and indices[0] is not None:destination,source=(indices[0],0) if pop else (0,indices[0])
+            elif len(indices)==2 and None not in indices and 0 in indices:destination,source=indices
+            if destination is not None:
+                call=f'fnv_x87_stack_binary_register(&fnv_x87_state,FNV_X87_{operation},{destination},{source},{int(pop)},{int(reverse)})'
     if call is None:return None
     return [f'if ({call} != FNV_X87_STACK_OK) {{ RECOMP_UNIMPL("extended x87 operand/state unsupported", 0x{instruction.address:08X}u); }}']
 

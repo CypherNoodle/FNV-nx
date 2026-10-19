@@ -31,6 +31,13 @@ rounds within the extended representation. The 16-bit conversion checks its
 own range, returns the integer indefinite value on masked invalid conversion,
 and does not incorrectly retain an inexact flag from an intermediate result.
 
+General register arithmetic now includes every ST(i) destination, normal and
+reverse subtraction/division, and pop/non-pop variants. Memory arithmetic
+supports binary32/64 and signed integer16/32 operands. Memory comparisons,
+`FTST`, `FCHS` and `FABS` are implemented too. Memory arithmetic preserves a
+signaling NaN's identity during payload selection and handles NaN-before-DE
+exception priority instead of treating the operand as a separate `FLD`.
+
 `tools/aot_x87_extended.py` is an **opt-in experiment**. Install it after the
 mandatory frame overlay and provide `x87_stack.h` plus a context named
 `fnv_x87_state`. It emits calls for the implemented memory and arithmetic forms.
@@ -71,6 +78,13 @@ NaN/overflow integer-indefinite results and extended round-to-integer.
 Both scripts accept `--build`, `--arm-build`, `--sdk`, `--python-deps` and a
 fresh `--output`, using the same completed builds shown above.
 
+`tests/test_x87_arithmetic_forms.py` covers 168 register/memory encodings,
+checking all eight stack registers so an incorrect destination or pop is
+visible. Native execution uses the original operation opcode bytes; emitted
+ARM64 executes the same decoded form. The control suite additionally checks
+memory comparisons and sign operations, excluding undefined sign-op condition
+bits and starting the native FPU in an explicit known state.
+
 The native oracle currently requires an x86-64 Windows host and GCC-compatible
 inline assembly. It uses binary pipes, not text-mode standard streams.
 
@@ -88,8 +102,7 @@ outside the implemented stack contract. Such unsupported stack inputs are
 rejected rather than approximated. Unmasked controls are rejected without
 modifying the stack; no guest exception delivery is claimed.
 
-General memory arithmetic, general register-destination arithmetic, FCOMI
-integer-EFLAGS integration and transcendental operations are still missing.
+FCOMI integer-EFLAGS integration and transcendental operations are still missing.
 Control/status support above is a subset, not a full environment implementation.
 
 The low-level arithmetic API returns raised flags independently of masking;

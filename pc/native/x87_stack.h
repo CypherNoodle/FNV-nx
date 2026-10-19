@@ -28,6 +28,11 @@ void fnv_x87_stack_clear_exceptions(struct fnv_x87_stack *state);
 enum fnv_x87_stack_result fnv_x87_stack_load_integer(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width);
 enum fnv_x87_stack_result fnv_x87_stack_store_integer(struct fnv_x87_stack *state,unsigned char *bytes,unsigned width,int pop,int truncate);
 enum fnv_x87_stack_result fnv_x87_stack_round_integer(struct fnv_x87_stack *state);
+enum fnv_x87_stack_result fnv_x87_stack_binary_register(struct fnv_x87_stack *state,enum fnv_x87_operation operation,unsigned destination,unsigned source,int pop,int reverse);
+enum fnv_x87_stack_result fnv_x87_stack_binary_memory(struct fnv_x87_stack *state,enum fnv_x87_operation operation,const unsigned char *bytes,unsigned width,int integer,int reverse);
+enum fnv_x87_stack_result fnv_x87_stack_compare_memory(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width,int pop);
+enum fnv_x87_stack_result fnv_x87_stack_test_zero(struct fnv_x87_stack *state);
+enum fnv_x87_stack_result fnv_x87_stack_sign(struct fnv_x87_stack *state,int absolute);
 /* Full/empty/unsupported are explicit precondition failures, not implemented
  * x87 stack-fault delivery. Only masked exceptions are supported by this
  * staging core; unmasked controls and pending ES are rejected without writes. */

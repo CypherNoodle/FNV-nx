@@ -156,3 +156,73 @@ enum fnv_x87_stack_result fnv_x87_stack_round_integer(struct fnv_x87_stack *s) {
     if(!fnv_x87_round_integer(s->control,s->registers[s->top],&value,&flags))return FNV_X87_STACK_INVALID;
     s->registers[s->top]=value;s->status|=flags;return FNV_X87_STACK_OK;
 }
+enum fnv_x87_stack_result fnv_x87_stack_binary_register(struct fnv_x87_stack *s,enum fnv_x87_operation op,unsigned destination,unsigned source,int pop,int reverse) {
+    if(!s || s->top>7 || destination>7 || source>7 || op<FNV_X87_ADD || op>FNV_X87_DIV ||
+       (pop!=0 && pop!=1) || (reverse!=0 && reverse!=1))return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned dst=(s->top+destination)&7u,src=(s->top+source)&7u;
+    if(!(s->occupied&(1u<<dst)) || !(s->occupied&(1u<<src)))return FNV_X87_STACK_EMPTY;
+    struct fnv_x87_extended a=s->registers[dst],b=s->registers[src],result;
+    if(!canonical(a) || !canonical(b))return FNV_X87_STACK_UNSUPPORTED;
+    if(reverse){struct fnv_x87_extended swap=a;a=b;b=swap;}
+    uint16_t flags;
+    if(!fnv_x87_calculate(op,s->control,a,b,&result,&flags))return FNV_X87_STACK_INVALID;
+    s->registers[dst]=result;s->status|=flags;
+    if(pop){s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);}
+    top_status(s);return FNV_X87_STACK_OK;
+}
+enum fnv_x87_stack_result fnv_x87_stack_binary_memory(struct fnv_x87_stack *s,enum fnv_x87_operation op,const unsigned char *bytes,unsigned width,int integer,int reverse) {
+    if(!s || !bytes || s->top>7 || op<FNV_X87_ADD || op>FNV_X87_DIV ||
+       (integer!=0 && integer!=1) || (reverse!=0 && reverse!=1) ||
+       (integer ? (width!=2 && width!=4) : (width!=4 && width!=8)))return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    if(!(s->occupied&(1u<<s->top)))return FNV_X87_STACK_EMPTY;
+    struct fnv_x87_extended a=s->registers[s->top],b,result;
+    if(!canonical(a))return FNV_X87_STACK_UNSUPPORTED;
+    uint64_t bits=0;for(unsigned i=0;i<width;i++)bits|=(uint64_t)bytes[i]<<(i*8);
+    uint16_t loaded=0,flags;
+    if(integer){if(!fnv_x87_from_integer(width,bits,&b))return FNV_X87_STACK_INVALID;}
+    else {
+        if(!fnv_x87_from_binary(width,bits,&b,&loaded))return FNV_X87_STACK_INVALID;
+        /* Conversion quiets a signaling NaN. Arithmetic must still distinguish
+         * it from a quiet NaN when selecting an operand's NaN payload. */
+        if(loaded&1u)b.significand&=~UINT64_C(0x4000000000000000);
+        /* x87 processes NaN operands before the denormal-operand exception.
+         * A standalone FLD conversion would have reported DE already. */
+        if((a.sign_exponent&0x7fff)==0x7fff && (a.significand&UINT64_C(0x7fffffffffffffff)))loaded&=(uint16_t)~2u;
+    }
+    if(reverse){struct fnv_x87_extended swap=a;a=b;b=swap;}
+    if(!fnv_x87_calculate(op,s->control,a,b,&result,&flags))return FNV_X87_STACK_INVALID;
+    s->registers[s->top]=result;s->status|=(uint16_t)(flags|loaded);return FNV_X87_STACK_OK;
+}
+static enum fnv_x87_stack_result compare_value(struct fnv_x87_stack *s,struct fnv_x87_extended value,uint16_t loaded,int pop) {
+    if(!s || s->top>7 || (pop!=0 && pop!=1))return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    if(!(s->occupied&(1u<<s->top)))return FNV_X87_STACK_EMPTY;
+    struct fnv_x87_extended a=s->registers[s->top];
+    if(!canonical(a))return FNV_X87_STACK_UNSUPPORTED;
+    if((a.sign_exponent&0x7fff)==0x7fff && (a.significand&UINT64_C(0x7fffffffffffffff)))loaded&=(uint16_t)~2u;
+    int order;uint16_t flags;
+    if(!fnv_x87_compare(a,value,0,&order,&flags))return FNV_X87_STACK_INVALID;
+    s->status=(uint16_t)((s->status&~0x4700u)|flags|loaded|(order==2 ? 0x4500u : order<0 ? 0x100u : order==0 ? 0x4000u : 0));
+    if(pop){s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);}
+    top_status(s);return FNV_X87_STACK_OK;
+}
+enum fnv_x87_stack_result fnv_x87_stack_compare_memory(struct fnv_x87_stack *s,const unsigned char *bytes,unsigned width,int pop) {
+    if(!s || !bytes || (width!=4 && width!=8))return FNV_X87_STACK_INVALID;
+    uint64_t bits=0;for(unsigned i=0;i<width;i++)bits|=(uint64_t)bytes[i]<<(i*8);
+    struct fnv_x87_extended value;uint16_t flags;
+    if(!fnv_x87_from_binary(width,bits,&value,&flags))return FNV_X87_STACK_INVALID;
+    return compare_value(s,value,flags,pop);
+}
+enum fnv_x87_stack_result fnv_x87_stack_test_zero(struct fnv_x87_stack *s) {
+    return compare_value(s,(struct fnv_x87_extended){0,0},0,0);
+}
+enum fnv_x87_stack_result fnv_x87_stack_sign(struct fnv_x87_stack *s,int absolute) {
+    if(!s || s->top>7 || (absolute!=0 && absolute!=1))return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    if(!(s->occupied&(1u<<s->top)))return FNV_X87_STACK_EMPTY;
+    if(!canonical(s->registers[s->top]))return FNV_X87_STACK_UNSUPPORTED;
+    s->registers[s->top].sign_exponent=absolute ? s->registers[s->top].sign_exponent&0x7fff : s->registers[s->top].sign_exponent^0x8000;
+    s->status&=(uint16_t)~0x200u;return FNV_X87_STACK_OK;
+}
