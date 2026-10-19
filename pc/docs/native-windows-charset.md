@@ -13,7 +13,8 @@ zero. Invalid/unavailable pages or NULL output return false/error 87.
 
 - CP_ACP/1252 directly representable Unicode characters with flags 0, including
   the complete 256-byte repertoire. Best-fit substitutions for other characters
-  are pending and explicitly fault instead of guessing equivalent letters.
+  are pending and explicitly fault instead of guessing equivalent letters, except
+  the verified U+0191 -> byte 0x83 case needed by western uppercase tables.
 - CP_ACP/1252 with WC_NO_BEST_FIT_CHARS, including default-character substitution
   per UTF-16 code unit and the optional used-default BOOL. A caller-supplied
   replacement byte is supported, including NUL.
@@ -40,7 +41,8 @@ managed-VM access are checked before host access; invalid guest memory faults
 explicitly. Same input/output pointer with a nonzero capacity returns error 87.
 Other overlapping buffers, unsupported code pages, flags and best-fit/composition
 mapping fault explicitly. This is a supported subset, not a full NLS replacement.
-MultiByteToWideChar, GetStringTypeW and general locale services remain pending.
+[MultiByteToWideChar, western GetStringTypeW and LCMapStringW](native-windows-nls.md)
+now cover the corresponding bounded CRT operations. General locale services remain pending.
 
 `tests/test_windows_charset.py` translates actual x86 import callers and compares
 results, LastError, output guards, partial writes, input preservation and optional
@@ -52,8 +54,8 @@ The CP_ACP oracle uses explicit 1252, since the host's ACP may be UTF-8. This is
 an intentional virtual locale, not passthrough. ARM64 fixture and runtime compile
 checks do not establish execution on Switch.
 
-The captured CRT experiment now passes environment conversion and code-page
-queries, then stops at GetStringTypeW. No engine entry, cold EXE boot or game
+The captured CRT experiment now passes western NLS and reaches its C++ initializer
+table. No engine entry, cold EXE boot or game
 frame is established.
 
 References: [WideCharToMultiByte](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-widechartomultibyte),

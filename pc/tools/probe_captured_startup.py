@@ -18,9 +18,9 @@ from audit_install import pe_info
 
 
 def probe(a):
-    if a.output.exists() or not 1<=a.budget<=256:raise ValueError('Fresh output; budget 1..256')
+    if a.output.exists() or not 1<=a.budget<=512:raise ValueError('Fresh output; budget 1..512')
     sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve())]
-    from capstone import Cs,CS_ARCH_X86,CS_MODE_32,CS_GRP_JUMP
+    from capstone import Cs,CS_ARCH_X86,CS_MODE_32,CS_GRP_JUMP,CS_GRP_RET
     from capstone.x86_const import X86_OP_IMM
     from tools.recomp import config
     from tools.recomp.translator import FunctionTranslator
@@ -64,7 +64,7 @@ def probe(a):
                 if ins.operands and ins.operands[0].type==X86_OP_IMM:
                     target=ins.operands[0].imm & 0xffffffff
                     if not at<=target<end:pending.append(target)
-        if instructions[-1].mnemonic not in ('ret','retf','jmp','int3','ud2','hlt'):pending.appendleft(end)
+        if not instructions[-1].group(CS_GRP_RET) and instructions[-1].mnemonic not in ('jmp','int3','ud2','hlt'):pending.appendleft(end)
     if a.entry not in selected:raise ValueError('Entry absent from existing analysis function database')
     own=[Path(__file__),pc/'tests/captured_startup_host.c',pc/'tools/aot_frame_restore.py',pc/'tools/aot_simd_bits.py',pc/'tools/aot_mul_flags.py',
         pc/'tools/audit_startup.py',pc/'tools/audit_install.py',pc/'tools/audit_seh_helpers.py',pc/'tools/run_aot_analysis.py',database,a.helpers.resolve()]

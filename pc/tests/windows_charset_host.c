@@ -102,6 +102,9 @@ int main(int argc,char **argv){
     for(unsigned strict=0;strict<2;strict++)for(int cap=0;cap<14;cap++)
         compare(65001,strict?0x80:0,special,7,7,cap,1,1,0,0);
     const WCHAR ascii[]={65,0,66,0};
+    const WCHAR f_hook[]={0x191,0};
+    for(int cap=0;cap<3;cap++)for(unsigned no_best=0;no_best<2;no_best++)
+        compare(1252,no_best?0x400:0,f_hook,2,-1,cap,0,1,0,0);
     for(unsigned cp=0;cp<2;cp++)for(int count=-2;count<=4;count++)for(int cap=-1;cap<=6;cap++){
         compare(cp?65001:1252,0,ascii,4,count,cap,0,0,0,0);
         compare(cp?65001:1252,0,ascii,4,count,cap,0,0,1,0);

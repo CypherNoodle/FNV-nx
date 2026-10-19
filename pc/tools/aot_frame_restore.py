@@ -2,10 +2,13 @@
 
 The SDK publishes frame establishment, but these restores left its frame
 shadows pointing at a dead inner frame. LEA-based frame establishment also
-needs publication. Normal nested registration helpers
+needs publication. Exact F3 C3 REP RET is a near return, not an unsupported
+string operation; mark it as a terminator and lift it through the normal RET.
+Normal nested registration helpers
 then unwound using that stale frame. This is not exception dispatch or SEH.
 """
 import argparse
+from dataclasses import replace
 from pathlib import Path
 import runpy
 import sys
@@ -13,10 +16,17 @@ import sys
 
 def install():
     from tools.recomp.lifter import Lifter
+    from tools.recomp.disasm import Instruction
     if getattr(Lifter.lift_instruction, '_fnv_frame_restore', False):
         return
     original = Lifter.lift_instruction
+    original_ret = Instruction.is_ret.fget
+    def prefixed_return(instruction):
+        return instruction.size == 2 and instruction.bytes_hex.replace(' ', '').lower() == 'f3c3' and not instruction.operands
+    Instruction.is_ret = property(lambda instruction: prefixed_return(instruction) or original_ret(instruction))
     def lift(self, instruction):
+        if prefixed_return(instruction):
+            instruction = replace(instruction, mnemonic='ret', op_str='')
         result = original(self, instruction)
         operands = instruction.operands
         restored = instruction.mnemonic == 'leave' or (

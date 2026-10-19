@@ -19,7 +19,7 @@ the generated leaf for ARM64; it does not execute it there.
 `tools/probe_captured_startup.py` is a bounded diagnostic experiment. Supply
 the installation, existing analysis, verified helper report, external SDK and
 Python dependencies, a fresh output directory and an explicit analysis entry.
-Its `--budget` bounds selected functions to at most 256. `--include` prioritizes
+Its `--budget` bounds selected functions to at most 512. `--include` prioritizes
 an existing function observed as an indirect target. `--stop-at` leaves an
 existing function as a diagnostic trap and excludes its descendants.
 
@@ -51,8 +51,8 @@ memory accesses remain unchecked, so run only as an isolated diagnostic.
 
 Current evidence: the cookie leaf passed on Windows desktop and compiled for
 ARM64. A broader captured CRT experiment reached an explicit missing-import
-fault at `GetStringTypeW`, after passing standard handles, environment conversion
-and code-page queries, and creating two heaps and four live blocks. It did
+fault at an uncompiled C++ constructor, after passing standard handles, western
+NLS, module-path lookup, filter registration and C initialization. It did
 not reach the engine entry or produce a game frame. Earlier bounded probes
 that omitted split continuations are exploratory and cannot support startup
 claims. Neither experiment has executed on Switch.
@@ -61,3 +61,9 @@ The environment in that experiment is explicitly empty. Normal launch still
 requires an audited process configuration; no desktop environment is inherited.
 See [native CRT services](native-windows-crt.md) for implemented contracts and
 their narrower validation scope.
+
+The small C initializer table was separately checked against the existing
+function database before supplying its roots. The larger C++ initializer table
+contains 17,728 known nonzero entries. The bounded probe does not execute that
+whole stage; full-generation coverage and later execution must be verified
+separately. Neither table audit establishes a cold entry.

@@ -37,6 +37,34 @@ static struct fnv_windows_process *parameters_process(void){
 }
 static void api_command_a(void){fnv_cpu_return_u32(parameters_process()->command_a,0);}
 static void api_command_w(void){fnv_cpu_return_u32(parameters_process()->command_w,0);}
+static void module_filename(int wide){
+    uint32_t handle=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),capacity=fnv_cpu_argument_u32(2);
+    struct fnv_windows_process *p=thread()->process;uint32_t value=0,error=0;
+    if(!capacity){error=122;goto finish;}
+    /* Windows W initializes its output even when the module lookup fails;
+     * the A wrapper leaves the caller's buffer untouched on that failure. */
+    if(wide){
+        if(!at || !inside(&p->config,at,2) || (pool_overlap(p,at,2) && !fnv_vm_access(p->config.memory,at,2,1)))
+            sync_invalid("Windows module filename pointer unavailable",at);
+        unsigned char *first=memory(p,at);first[0]=first[1]=0;
+    }
+    if(handle && handle!=p->config.cpu.guest_base){error=126;goto finish;}
+    if(!p->command_a)sync_invalid("Windows process parameters unavailable",0);
+    uint32_t length=(uint32_t)strlen(p->image_path),copy=length<capacity?length:capacity-1,bytes=(copy+1)*(wide?2u:1u);
+    if(!at || !inside(&p->config,at,bytes) || (pool_overlap(p,at,bytes) && !fnv_vm_access(p->config.memory,at,bytes,1)))
+        sync_invalid("Windows module filename pointer unavailable",at);
+    unsigned char *out=memory(p,at);
+    for(uint32_t i=0;i<=copy;i++){
+        unsigned char ch=i==copy?0:(unsigned char)p->image_path[i];
+        if(wide){out[i*2]=ch;out[i*2+1]=0;}else out[i]=ch;
+    }
+    value=length<capacity?length:capacity;
+    if(length>=capacity)error=122;
+finish:
+    fnv_windows_set_last_error(error);fnv_cpu_return_u32(value,12);
+}
+static void api_module_filename_a(void){module_filename(0);}
+static void api_module_filename_w(void){module_filename(1);}
 static void api_local_free(void){
     uint32_t at=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     if(!at){fnv_cpu_return_u32(0,4);return;}

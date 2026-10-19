@@ -88,6 +88,7 @@ struct fnv_windows_process {
     char image_path[1024];
     char *environment;
     uint32_t environment_bytes;
+    uint32_t exception_filter; /* Registration only; exception delivery pending. */
 };
 static RECOMP_TLS struct windows_thread current;
 static RECOMP_TLS struct managed_worker *managed_current;
@@ -142,6 +143,11 @@ static void api_get_error(void) {
 static void api_set_error(void) {
     uint32_t n=fnv_cpu_argument_u32(0);struct windows_thread *t=thread();
     write32(t->teb+TEB_ERROR,n);fnv_cpu_return_u32(g_eax,4);
+}
+static void api_exception_filter(void){
+    uint32_t value=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
+    lock(p);uint32_t previous=p->exception_filter;p->exception_filter=value;unlock(p);
+    fnv_cpu_return_u32(previous,4);
 }
 static void api_thread_id(void) {
     struct windows_thread *t=thread();fnv_cpu_return_u32(read32(t->teb+0x24),0);
@@ -238,6 +244,7 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","TlsSetValue",0,0,api_tls_set},
     {"kernel32.dll","GetLastError",0,0,api_get_error},
     {"kernel32.dll","SetLastError",0,0,api_set_error},
+    {"kernel32.dll","SetUnhandledExceptionFilter",0,0,api_exception_filter},
     {"kernel32.dll","GetCurrentThreadId",0,0,api_thread_id},
     {"kernel32.dll","GetCurrentProcessId",0,0,api_process_id},
     {"kernel32.dll","GetProcessHeap",0,0,api_process_heap},
@@ -296,8 +303,13 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetACP",0,0,api_ansi_code_page},
     {"kernel32.dll","IsValidCodePage",0,0,api_valid_code_page},
     {"kernel32.dll","GetCPInfo",0,0,api_code_page_info},
+    {"kernel32.dll","GetStringTypeW",0,0,api_string_type_w},
+    {"kernel32.dll","MultiByteToWideChar",0,0,api_multi_to_wide},
+    {"kernel32.dll","LCMapStringW",0,0,api_map_string_w},
     {"kernel32.dll","GetCommandLineA",0,0,api_command_a},
     {"kernel32.dll","GetCommandLineW",0,0,api_command_w},
+    {"kernel32.dll","GetModuleFileNameA",0,0,api_module_filename_a},
+    {"kernel32.dll","GetModuleFileNameW",0,0,api_module_filename_w},
     {"kernel32.dll","LocalFree",0,0,api_local_free},
     {"shell32.dll","CommandLineToArgvW",0,0,api_command_argv},
     {"kernel32.dll","CreateFileA",0,0,api_file_create_a},

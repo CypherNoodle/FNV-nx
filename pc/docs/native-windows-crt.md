@@ -1,11 +1,33 @@
 # Native CRT startup services
 
-The built-in Windows catalog now has 83 exports, separate from module, Virtual*,
+The built-in Windows catalog now has 89 exports, separate from module, Virtual*,
 graphics and input catalogs. Six additions described here unblock calls in the private
 [captured CRT experiment](captured-startup.md). They do not establish engine
 startup or executable cold boot.
 
 Four more exports cover [character conversion and code-page queries](native-windows-charset.md).
+Three cover [western classification, decoding and case mapping](native-windows-nls.md).
+
+GetModuleFileNameA/W reads the copied main-image path from the process parameter
+configuration, for NULL or the guest image base handle. The caller must supply
+the intended virtual path; the service never queries a host executable path.
+Other image handles return error 126. The current catalog's native API providers
+have no corresponding guest DLL file image. Truncation includes a terminator,
+returns the supplied capacity and sets error 122. Success clears LastError.
+The W variant initializes the first UTF-16 unit even on a failed lookup; A leaves
+the caller buffer intact on that failure. Modern Windows behavior is modeled,
+not XP's unterminated truncation. Missing configuration or invalid guest memory
+faults explicitly. Tests compare all capacities around the actual Windows test
+executable path, both main-image handle forms and invalid modules; counts vary
+with the private test path length.
+
+SetUnhandledExceptionFilter stores an opaque guest filter pointer under the
+process lock and returns the previous registration, including NULL reset. This
+is registration support only: it neither installs that pointer as a native OS
+handler nor implements guest exception delivery, unwind, resume or callback
+execution. Unsupported guest exceptions still stop explicitly. Tests compare
+5,000 registration/replacement operations to Windows and verify process reset;
+they do not trigger exceptions or claim working exception handling.
 
 `GetStdHandle` models a GUI process without a console or inherited standard
 handles. The three documented selectors return NULL while preserving LastError.
