@@ -15,6 +15,7 @@ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def test(a):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private directory')
+    if bool(a.arm_cc)!=bool(a.libnx):raise ValueError('--arm-cc and --libnx must be supplied together')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
     from tools.recomp import config
     from tools.recomp.translator import FunctionTranslator
@@ -25,6 +26,8 @@ def test(a):
         *[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
         'windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','host_wallclock.h','host_memory.h','windows_events.inc','windows_workers.inc','windows_time.inc','windows_parameters.inc','command_line.h','windows_files.inc','host_file.h','host_directory.h','windows_directory.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
+    if a.arm_cc:
+        frozen.update({p:sha(p) for p in [a.arm_cc.resolve(),pc/'tools/build_cpu_runtime.py',*sorted((a.libnx.resolve()/'include').rglob('*.h'))]})
     exe=out/'fixture.exe';write_pe(exe,['KERNEL32.dll']*len(NAMES));raw=bytearray(exe.read_bytes())
     struct.pack_into('<I',raw,0x98+224+36,0x60000020);cursor=0xC00;programs=[]
     for i,(name,argc) in enumerate(zip(NAMES,ARGS)):
@@ -59,6 +62,17 @@ def test(a):
     for mode in ('--noaccess','--readonly'):
         child=subprocess.run([*invocation,mode],capture_output=True,text=True,timeout=15)
         assert child.returncode==77,(mode,child.returncode,child.stderr)
+    if a.arm_cc:
+        from build_cpu_runtime import SWITCH_FLAGS
+        arm_flags=[*SWITCH_FLAGS,'-Wall','-Wextra','-Werror'];compiled=[]
+        for name in ('windows_memory.c','windows_thread.c'):
+            obj=out/('arm_'+Path(name).stem+'.o')
+            command=[str(a.arm_cc.resolve()),*arm_flags,*['-I'+str(p) for p in (pc/'native',sdk/'templates/runtime',sdk/'src/kernel',a.libnx.resolve()/'include')],
+                '-include',str(pc/'native/fnv_sdk_runtime.h'),'-c',str(pc/'native'/name),'-o',str(obj)]
+            built=subprocess.run(command,capture_output=True,text=True);(out/('arm_'+name+'.log')).write_text(built.stdout+built.stderr)
+            if built.returncode:raise RuntimeError(built.stderr)
+            compiled.append(dict(source=name,object_sha256=sha(obj)))
+        result.update(arm_native_compile=compiled,arm_compiler_flags=arm_flags,arm_code_executed=False)
     assert all(sha(p)==h for p,h in frozen.items()) and sdk_identity(sdk)==sdk_hash
     result.update(source_sha256={str(p):h for p,h in frozen.items()},sdk_sha256=sdk_hash,synthetic_functions=len(functions),
         actual_generated_access_violations=2,exe_sha256=sha(out/'memory-test.exe'),switch_hardware_tested=False)
@@ -68,4 +82,5 @@ def test(a):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('sdk','python-deps','output'):p.add_argument('--'+n,type=Path,required=True)
+    p.add_argument('--arm-cc',type=Path);p.add_argument('--libnx',type=Path)
     p.add_argument('--cc',nargs='+',required=True);test(p.parse_args())

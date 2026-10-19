@@ -30,3 +30,8 @@ unaligned result, reserve/commit/release accounting and readonly-output failure.
 The existing actual access-violation tests remain enabled. The memory provider
 and thread bridge also compile with the Switch ABI. None of this proves a game
 frame, memory fit or execution on Switch.
+
+Supply both `--arm-cc /path/to/aarch64-none-elf-gcc` and
+`--libnx /path/to/libnx` to the same test command to repeat that compilation.
+It records the compiler, libnx headers, flags and object identities separately
+from the executed Windows checks.

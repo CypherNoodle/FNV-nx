@@ -51,6 +51,14 @@ def install():
     def lift(self, instruction):
         if prefixed_return(instruction):
             instruction = replace(instruction, mnemonic='ret', op_str='')
+        # The runtime stores x87 registers as doubles. The SDK otherwise
+        # drops some ten-byte stores or reads them as floats. Neither is a
+        # valid extended-real/packed-BCD conversion: stop at the exact site.
+        if instruction.mnemonic.startswith('f') and any(
+                op.type == 'mem' and op.mem_size == 10
+                for op in instruction.operands):
+            return self._unimplemented(instruction, instruction.mnemonic,
+                                       ' (unsupported ten-byte x87 memory operand)')
         result = original(self, instruction)
         operands = instruction.operands
         restored = instruction.mnemonic == 'leave' or (
