@@ -25,6 +25,8 @@ def build(a):
     names=list(dict.fromkeys(re.findall(r'\b([A-Za-z0-9_]+)\$\(OBJ\)',make)))
     selected={'extF80_add','extF80_sub','extF80_mul','extF80_div','extF80_sqrt','softfloat_state',
               'f32_to_extF80','f64_to_extF80','extF80_to_f32','extF80_to_f64'}
+    selected.update(('extF80_eq','extF80_eq_signaling','extF80_lt'))
+    selected.update(('i64_to_extF80','extF80_to_i32','extF80_to_i64','extF80_roundToInt'))
     sources=[]
     for name in names:
         if not (name.startswith('s_') or name.startswith('softfloat_') or name in selected):continue

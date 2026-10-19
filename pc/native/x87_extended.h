@@ -15,4 +15,8 @@ int fnv_x87_calculate(enum fnv_x87_operation operation, uint16_t control,
     struct fnv_x87_extended *result, uint16_t *raised);
 int fnv_x87_from_binary(unsigned width,uint64_t bits,struct fnv_x87_extended *result,uint16_t *raised);
 int fnv_x87_to_binary(unsigned width,uint16_t control,struct fnv_x87_extended value,uint64_t *bits,uint16_t *raised);
+int fnv_x87_compare(struct fnv_x87_extended a,struct fnv_x87_extended b,int quiet,int *order,uint16_t *raised);
+int fnv_x87_from_integer(unsigned width,uint64_t bits,struct fnv_x87_extended *result);
+int fnv_x87_to_integer(unsigned width,uint16_t control,struct fnv_x87_extended value,int truncate,uint64_t *bits,uint16_t *raised);
+int fnv_x87_round_integer(uint16_t control,struct fnv_x87_extended value,struct fnv_x87_extended *result,uint16_t *raised);
 #endif

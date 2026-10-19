@@ -19,6 +19,18 @@ constants zero/one are also implemented. Tests include the `FSTP ST(0); FLD1`
 pattern, plus independent copied contexts, an eight-register stack and rejected
 operations that must not modify their destination or context.
 
+The experimental overlay also covers register `FCOM`/`FUCOM` variants and
+their pop forms, `FLDCW`, `FNSTCW`, `FNSTSW` (memory and AX), `FNCLEX`, and
+`FNINIT`. Comparisons update C0/C2/C3 without projecting their operands to
+binary64. The supported control-word subset has masked exceptions and a
+defined precision encoding; reserved and unmasked settings are rejected.
+
+Signed integer loads support 16, 32 and 64 bits. `FIST`/`FISTP` convert under
+the guest rounding mode; `FISTTP` truncates independently of it. `FRNDINT`
+rounds within the extended representation. The 16-bit conversion checks its
+own range, returns the integer indefinite value on masked invalid conversion,
+and does not incorrectly retain an inexact flag from an intermediate result.
+
 `tools/aot_x87_extended.py` is an **opt-in experiment**. Install it after the
 mandatory frame overlay and provide `x87_stack.h` plus a context named
 `fnv_x87_state`. It emits calls for the implemented memory and arithmetic forms.
@@ -49,6 +61,16 @@ binary64 loses, overflow/underflow, halfway rounding, signed zeros, infinities,
 quiet/signaling NaN conversions and binary32/64 denormal-load flags. The native
 test also exercises four concurrent rounding controls and invalid calls.
 
+`tests/test_x87_control.py` adds native and emitted-ARM64 comparisons, NaN
+ordered/quiet behavior, TOP/pop cleanup, AX high-half preservation, control
+round trips, clear-exception behavior and initialization. It also tests the
+legacy infinity-control bit without assuming it affects modern arithmetic.
+`tests/test_x87_integer.py` tests exact integer loads beyond binary64's
+precision, integer boundaries, half-way rounding, non-pop stores, truncation,
+NaN/overflow integer-indefinite results and extended round-to-integer.
+Both scripts accept `--build`, `--arm-build`, `--sdk`, `--python-deps` and a
+fresh `--output`, using the same completed builds shown above.
+
 The native oracle currently requires an x86-64 Windows host and GCC-compatible
 inline assembly. It uses binary pipes, not text-mode standard streams.
 
@@ -65,6 +87,10 @@ fault delivery, unmasked exceptions and transcendental instructions remain
 outside the implemented stack contract. Such unsupported stack inputs are
 rejected rather than approximated. Unmasked controls are rejected without
 modifying the stack; no guest exception delivery is claimed.
+
+General memory arithmetic, general register-destination arithmetic, FCOMI
+integer-EFLAGS integration and transcendental operations are still missing.
+Control/status support above is a subset, not a full environment implementation.
 
 The low-level arithmetic API returns raised flags independently of masking;
 it does not publish a guest instruction's result or deliver an exception.

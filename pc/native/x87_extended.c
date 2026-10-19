@@ -69,3 +69,48 @@ int fnv_x87_to_binary(unsigned width,uint16_t control,struct fnv_x87_extended va
     *raised=exception_bits((unsigned)softfloat_exceptionFlags);
     atomic_flag_clear_explicit(&guard,memory_order_release);return 1;
 }
+int fnv_x87_compare(struct fnv_x87_extended a,struct fnv_x87_extended b,int quiet,int *order,uint16_t *raised) {
+    if(!order || !raised || (quiet!=0 && quiet!=1))return 0;
+    extFloat80_t x,y;x.signif=a.significand;x.signExp=a.sign_exponent;y.signif=b.significand;y.signExp=b.sign_exponent;
+    unsigned nan=((a.sign_exponent&0x7fff)==0x7fff && (a.significand&UINT64_C(0x7fffffffffffffff))) ||
+        ((b.sign_exponent&0x7fff)==0x7fff && (b.significand&UINT64_C(0x7fffffffffffffff)));
+    while(atomic_flag_test_and_set_explicit(&guard,memory_order_acquire)) {}
+    softfloat_exceptionFlags=0;
+    int equal=quiet ? extF80_eq(x,y) : extF80_eq_signaling(x,y);
+    *order=nan ? 2 : equal ? 0 : extF80_lt(x,y) ? -1 : 1;
+    *raised=exception_bits((unsigned)softfloat_exceptionFlags);
+    atomic_flag_clear_explicit(&guard,memory_order_release);return 1;
+}
+int fnv_x87_from_integer(unsigned width,uint64_t bits,struct fnv_x87_extended *result) {
+    if(!result || (width!=2 && width!=4 && width!=8))return 0;
+    if(width<8) {
+        uint64_t mask=(UINT64_C(1)<<(width*8))-1;bits&=mask;
+        if(bits&(UINT64_C(1)<<(width*8-1)))bits|=~mask;
+    }
+    int64_t integer=bits<=INT64_MAX ? (int64_t)bits : -1-(int64_t)(UINT64_MAX-bits);
+    extFloat80_t value=i64_to_extF80(integer);
+    *result=(struct fnv_x87_extended){value.signif,value.signExp};return 1;
+}
+int fnv_x87_to_integer(unsigned width,uint16_t control,struct fnv_x87_extended value,int truncate,uint64_t *bits,uint16_t *raised) {
+    if(!bits || !raised || (width!=2 && width!=4 && width!=8) || (truncate!=0 && truncate!=1))return 0;
+    extFloat80_t x;x.signif=value.significand;x.signExp=value.sign_exponent;
+    while(atomic_flag_test_and_set_explicit(&guard,memory_order_acquire)) {}
+    uint_fast8_t mode=truncate ? softfloat_round_minMag : rounding[(control>>10)&3u];
+    softfloat_exceptionFlags=0;
+    int64_t n=width==8 ? extF80_to_i64(x,mode,true) : extF80_to_i32(x,mode,true);
+    if(width==2 && (n<-32768 || n>32767 || (softfloat_exceptionFlags&softfloat_flag_invalid))) {
+        n=-32768;softfloat_exceptionFlags=softfloat_flag_invalid;
+    }
+    *bits=(uint64_t)n;if(width<8)*bits&=(UINT64_C(1)<<(width*8))-1;
+    *raised=exception_bits((unsigned)softfloat_exceptionFlags);
+    atomic_flag_clear_explicit(&guard,memory_order_release);return 1;
+}
+int fnv_x87_round_integer(uint16_t control,struct fnv_x87_extended value,struct fnv_x87_extended *result,uint16_t *raised) {
+    if(!result || !raised)return 0;
+    extFloat80_t x;x.signif=value.significand;x.signExp=value.sign_exponent;
+    while(atomic_flag_test_and_set_explicit(&guard,memory_order_acquire)) {}
+    softfloat_exceptionFlags=0;
+    extFloat80_t z=extF80_roundToInt(x,rounding[(control>>10)&3u],true);
+    *result=(struct fnv_x87_extended){z.signif,z.signExp};*raised=exception_bits((unsigned)softfloat_exceptionFlags);
+    atomic_flag_clear_explicit(&guard,memory_order_release);return 1;
+}

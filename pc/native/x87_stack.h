@@ -22,6 +22,12 @@ enum fnv_x87_stack_result fnv_x87_stack_duplicate(struct fnv_x87_stack *state,un
 enum fnv_x87_stack_result fnv_x87_stack_exchange(struct fnv_x87_stack *state,unsigned index);
 enum fnv_x87_stack_result fnv_x87_stack_store_register(struct fnv_x87_stack *state,unsigned index,int pop);
 enum fnv_x87_stack_result fnv_x87_stack_constant(struct fnv_x87_stack *state,int one);
+enum fnv_x87_stack_result fnv_x87_stack_compare(struct fnv_x87_stack *state,unsigned index,int quiet,unsigned pops);
+enum fnv_x87_stack_result fnv_x87_stack_control(struct fnv_x87_stack *state,const unsigned char bytes[2]);
+void fnv_x87_stack_clear_exceptions(struct fnv_x87_stack *state);
+enum fnv_x87_stack_result fnv_x87_stack_load_integer(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width);
+enum fnv_x87_stack_result fnv_x87_stack_store_integer(struct fnv_x87_stack *state,unsigned char *bytes,unsigned width,int pop,int truncate);
+enum fnv_x87_stack_result fnv_x87_stack_round_integer(struct fnv_x87_stack *state);
 /* Full/empty/unsupported are explicit precondition failures, not implemented
  * x87 stack-fault delivery. Only masked exceptions are supported by this
  * staging core; unmasked controls and pending ES are rejected without writes. */

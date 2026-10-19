@@ -24,6 +24,12 @@ def emit(instruction):
         else:call=f'fnv_x87_stack_store_binary(&fnv_x87_state,{address},{ops[0].mem_size},{int(m=="fstp")})'
     elif m=='fsqrt' and not ops:
         call='fnv_x87_stack_sqrt(&fnv_x87_state)'
+    elif m=='frndint' and not ops:
+        call='fnv_x87_stack_round_integer(&fnv_x87_state)'
+    elif m in ('fild','fist','fistp','fisttp') and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size in (2,4,8):
+        address=f'(unsigned char *)(g_xbox_mem_offset + (uint32_t)({_fmt_mem(ops[0])}))'
+        if m=='fild':call=f'fnv_x87_stack_load_integer(&fnv_x87_state,{address},{ops[0].mem_size})'
+        else:call=f'fnv_x87_stack_store_integer(&fnv_x87_state,{address},{ops[0].mem_size},{int(m!="fist")},{int(m=="fisttp")})'
     elif m in ('fld1','fldz') and not ops:
         call=f'fnv_x87_stack_constant(&fnv_x87_state,{int(m=="fld1")})'
     elif m=='fxch' and (not ops or (len(ops)==1 and register_index(ops[0]) is not None)):
@@ -35,6 +41,21 @@ def emit(instruction):
         index=register_index(ops[0])
         if m=='fld':call=f'fnv_x87_stack_duplicate(&fnv_x87_state,{index})'
         else:call=f'fnv_x87_stack_store_register(&fnv_x87_state,{index},{int(m=="fstp")})'
+    elif m in ('fcompp','fucompp') and not ops:
+        call=f'fnv_x87_stack_compare(&fnv_x87_state,1,{int(m=="fucompp")},2)'
+    elif m in ('fcom','fcomp','fucom','fucomp') and (not ops or (len(ops)==1 and register_index(ops[0]) is not None)):
+        call=f'fnv_x87_stack_compare(&fnv_x87_state,{register_index(ops[0]) if ops else 1},{int(m.startswith("fu"))},{int(m.endswith("p"))})'
+    elif m=='fldcw' and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size==2:
+        call=f'fnv_x87_stack_control(&fnv_x87_state,(const unsigned char *)(g_xbox_mem_offset + (uint32_t)({_fmt_mem(ops[0])})))'
+    elif m in ('fnstcw','fnstsw') and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size==2:
+        field='control' if m=='fnstcw' else 'status'
+        return [f'{{ unsigned char *_fnv_out=(unsigned char *)(g_xbox_mem_offset+(uint32_t)({_fmt_mem(ops[0])})); _fnv_out[0]=(unsigned char)fnv_x87_state.{field}; _fnv_out[1]=(unsigned char)(fnv_x87_state.{field}>>8); }}']
+    elif m=='fnstsw' and len(ops)==1 and ops[0].type=='reg' and ops[0].reg=='ax':
+        return ['eax=(eax&0xffff0000u)|(uint32_t)fnv_x87_state.status;']
+    elif m=='fnclex' and not ops:
+        return ['fnv_x87_stack_clear_exceptions(&fnv_x87_state);']
+    elif m=='fninit' and not ops:
+        return ['fnv_x87_stack_init(&fnv_x87_state);']
     elif m in ('faddp','fsubp','fmulp','fdivp'):
         # Only ST(1) <- ST(1) op ST(0), then pop, is implemented here.
         normalized=[op.reg.replace('(','').replace(')','') if op.type=='reg' and op.reg else None for op in ops]
