@@ -10,6 +10,10 @@ def emit(instruction):
     from tools.recomp.lifter import _fmt_mem
     m,ops=instruction.mnemonic,instruction.operands
     call=None
+    def register_index(op):
+        if op.type!='reg' or not op.reg:return None
+        name=op.reg.replace('(','').replace(')','')
+        return int(name[2]) if len(name)==3 and name[:2]=='st' and name[2] in '01234567' else None
     if m in ('fld','fstp') and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size==10:
         address=f'(unsigned char *)(g_xbox_mem_offset + (uint32_t)({_fmt_mem(ops[0])}))'
         name='load' if m=='fld' else 'store_pop'
@@ -20,6 +24,17 @@ def emit(instruction):
         else:call=f'fnv_x87_stack_store_binary(&fnv_x87_state,{address},{ops[0].mem_size},{int(m=="fstp")})'
     elif m=='fsqrt' and not ops:
         call='fnv_x87_stack_sqrt(&fnv_x87_state)'
+    elif m in ('fld1','fldz') and not ops:
+        call=f'fnv_x87_stack_constant(&fnv_x87_state,{int(m=="fld1")})'
+    elif m=='fxch' and (not ops or (len(ops)==1 and register_index(ops[0]) is not None)):
+        call=f'fnv_x87_stack_exchange(&fnv_x87_state,{register_index(ops[0]) if ops else 1})'
+    elif m=='fxch' and len(ops)==2 and register_index(ops[0])==0 and register_index(ops[1]) is not None:
+        # SDK decoding materializes the implicit ST(0) operand.
+        call=f'fnv_x87_stack_exchange(&fnv_x87_state,{register_index(ops[1])})'
+    elif m in ('fld','fst','fstp') and len(ops)==1 and register_index(ops[0]) is not None:
+        index=register_index(ops[0])
+        if m=='fld':call=f'fnv_x87_stack_duplicate(&fnv_x87_state,{index})'
+        else:call=f'fnv_x87_stack_store_register(&fnv_x87_state,{index},{int(m=="fstp")})'
     elif m in ('faddp','fsubp','fmulp','fdivp'):
         # Only ST(1) <- ST(1) op ST(0), then pop, is implemented here.
         normalized=[op.reg.replace('(','').replace(')','') if op.type=='reg' and op.reg else None for op in ops]

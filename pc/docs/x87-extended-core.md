@@ -14,6 +14,11 @@ than the host's `long double` ABI. The SoftFloat process-global environment is
 serialized inside this experimental wrapper; this is a correctness baseline,
 not a measured performance optimization.
 
+Register copies, exchanges, stores with and without pop, discard, and the exact
+constants zero/one are also implemented. Tests include the `FSTP ST(0); FLD1`
+pattern, plus independent copied contexts, an eight-register stack and rejected
+operations that must not modify their destination or context.
+
 `tools/aot_x87_extended.py` is an **opt-in experiment**. Install it after the
 mandatory frame overlay and provide `x87_stack.h` plus a context named
 `fnv_x87_state`. It emits calls for the implemented memory and arithmetic forms.

@@ -75,3 +75,35 @@ enum fnv_x87_stack_result fnv_x87_stack_store_binary(struct fnv_x87_stack *s,uns
     if(pop){s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);}
     top_status(s);return FNV_X87_STACK_OK;
 }
+enum fnv_x87_stack_result fnv_x87_stack_duplicate(struct fnv_x87_stack *s,unsigned index) {
+    if(!s || s->top>7 || index>7)return FNV_X87_STACK_INVALID;
+    unsigned source=(s->top+index)&7u;
+    if(!(s->occupied&(1u<<source)))return FNV_X87_STACK_EMPTY;
+    unsigned char bytes[10];fnv_x87_pack(bytes,s->registers[source]);
+    return fnv_x87_stack_load(s,bytes);
+}
+enum fnv_x87_stack_result fnv_x87_stack_exchange(struct fnv_x87_stack *s,unsigned index) {
+    if(!s || s->top>7 || index>7)return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned source=(s->top+index)&7u;
+    if(!(s->occupied&(1u<<source)) || !(s->occupied&(1u<<s->top)))return FNV_X87_STACK_EMPTY;
+    if(!canonical(s->registers[source]) || !canonical(s->registers[s->top]))return FNV_X87_STACK_UNSUPPORTED;
+    struct fnv_x87_extended value=s->registers[source];s->registers[source]=s->registers[s->top];s->registers[s->top]=value;
+    s->status&=(uint16_t)~0x200u;return FNV_X87_STACK_OK;
+}
+enum fnv_x87_stack_result fnv_x87_stack_store_register(struct fnv_x87_stack *s,unsigned index,int pop) {
+    if(!s || s->top>7 || index>7 || (pop!=0 && pop!=1))return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    if(!(s->occupied&(1u<<s->top)))return FNV_X87_STACK_EMPTY;
+    if(!canonical(s->registers[s->top]))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned destination=(s->top+index)&7u;
+    s->registers[destination]=s->registers[s->top];s->occupied|=(uint8_t)(1u<<destination);
+    if(pop){s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);}
+    s->status&=(uint16_t)~0x200u;top_status(s);return FNV_X87_STACK_OK;
+}
+enum fnv_x87_stack_result fnv_x87_stack_constant(struct fnv_x87_stack *s,int one) {
+    if(one!=0 && one!=1)return FNV_X87_STACK_INVALID;
+    struct fnv_x87_extended value={one ? UINT64_C(0x8000000000000000):0,one ? 0x3fff:0};
+    unsigned char bytes[10];fnv_x87_pack(bytes,value);
+    return fnv_x87_stack_load(s,bytes);
+}

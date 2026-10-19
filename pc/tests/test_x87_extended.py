@@ -61,14 +61,17 @@ def test(a):
     (out/'oracle.log').write_bytes(r.stderr)
     (out/'expected.bin').write_bytes(r.stdout)
     if r.returncode:raise RuntimeError(r.stderr.decode(errors='replace'))
-    assert len(r.stdout)==len(records)*76
+    assert len(r.stdout)==len(records)*124
     assert b'PASS 40000 concurrent arithmetic calls' in r.stderr
+    assert b'PASS context copies, stack capacity and non-writing failure paths' in r.stderr
     # At 64-bit significand precision, 1 + 2^-63 must survive. Binary64 loses it.
     index=(2*4*5)*len(pairs)
-    assert r.stdout[index*76:index*76+10]==value((1<<63)+1,0x3fff)
+    assert r.stdout[index*124:index*124+10]==value((1<<63)+1,0x3fff)
     assert all(sha(Path(p))==h for p,h in proof['source_sha256'].items())
     result=dict(status='PASS',native_x87_cases=len(records),operations=5,rounding_modes=4,
                 concurrent_calls=40000,invalid_call_checks=4,conversion_cases=len(records)*6,
+                register_sequence_cases=len(records)*4,
+                context_copy_and_failure_checks=True,
                 precision_controls=[24,53,64],extended_precision_regression=True,
                 inputs_sha256=sha(out/'inputs.bin'),expected_sha256=sha(out/'expected.bin'),
                 source_sha256={str(p):sha(p) for p in (Path(__file__).resolve(),source,a.build.resolve())},
@@ -122,6 +125,19 @@ def test(a):
                 'if(fnv_x87_state.top || fnv_x87_state.occupied){out[0]=251;return;}')
             offset+=length+2
         assert offset==76
+        for sequence,body in enumerate((b'\xd9\xc0\xde\xc1',b'\xdb\x2d\x10\x00\x20\x00\xd9\xc9\xdd\xd1\xde\xc1',
+                                        b'\xdd\xd8\xd9\xe8',b'\xdd\xd8\xd9\xee')):
+            raw=b'\xdb\x2d\x00\x00\x20\x00'+body+b'\xdb\x3d\x20\x00\x20\x00'
+            lifter=Lifter();lines=[]
+            for decoded in decoder.disasm(raw,0x400200+sequence*32):
+                lines+=lifter.lift_instruction(disassembler._decode_instruction(decoded));translated+=1
+            assert not lifter.unimplemented
+            conversions.append('fnv_x87_stack_init(&fnv_x87_state);fnv_x87_state.control=(uint16_t)(request[20]|request[21]<<8);\n'+
+                '\n'.join(lines)+f'\nfor(unsigned i=0;i<10;i++)out[{offset}+i]=guest[32+i];\n'+
+                f'out[{offset+10}]=(unsigned char)(fnv_x87_state.status&0x3f);out[{offset+11}]=0;\n'+
+                'if(fnv_x87_state.top || fnv_x87_state.occupied){out[0]=250;return;}')
+            offset+=12
+        assert offset==124
         arm_proof=json.loads(a.arm_build.read_text())
         assert arm_proof['status']=='COMPILED'
         assert all(sha(Path(p))==h for p,h in arm_proof['source_sha256'].items())
@@ -160,12 +176,12 @@ out[10]=(unsigned char)(fnv_x87_state.status&0x3d);out[11]=0;
         arm.mem_write(0x100000,binary.read_bytes());arm.mem_map(0x800000,0x10000)
         expected=(out/'expected.bin').read_bytes()
         for index,record in enumerate(records):
-            arm.mem_write(0x800100,record);arm.mem_write(0x800200,bytes([0xa5])*80)
+            arm.mem_write(0x800100,record);arm.mem_write(0x800200,bytes([0xa5])*128)
             arm.reg_write(ar.UC_ARM64_REG_X0,0x800100);arm.reg_write(ar.UC_ARM64_REG_X1,0x800200)
             arm.reg_write(ar.UC_ARM64_REG_SP,0x80f000);arm.reg_write(ar.UC_ARM64_REG_LR,0x2ff000)
             arm.emu_start(0x100000,0x2ff000,count=50000)
             assert arm.reg_read(ar.UC_ARM64_REG_PC)==0x2ff000, index
-            assert bytes(arm.mem_read(0x800200,80))==expected[index*76:index*76+76]+bytes([0xa5])*4,index
+            assert bytes(arm.mem_read(0x800200,128))==expected[index*124:index*124+124]+bytes([0xa5])*4,index
         result['arm64_differential_cases']=len(records)
         result['stack_roundtrips']=len(records)
         result['translated_instruction_forms']=translated

@@ -59,10 +59,58 @@ static void hardware_convert(const unsigned char *input,unsigned short cw,unsign
 #undef CONVERT
     __asm__ volatile("fnclex; fldcw %0" : : "m"(old));
 }
+static void hardware_sequence(const unsigned char *a,const unsigned char *b,unsigned short cw,
+                              unsigned sequence,unsigned char result[10],unsigned short *status) {
+    unsigned short old;__asm__ volatile("fnstcw %0" : "=m"(old));
+    __asm__ volatile("fnclex; fldcw %0" : : "m"(cw));
+#define SEQUENCE(text) __asm__ volatile("fldt %2; " text "; fstpt %0; fnstsw %1" \
+    : "=m"(*(unsigned char (*)[10])result),"=m"(*status) \
+    : "m"(*(const unsigned char (*)[10])a),"m"(*(const unsigned char (*)[10])b) : "st","st(1)")
+    switch(sequence) {
+    case 0:SEQUENCE(".byte 0xd9,0xc0,0xde,0xc1");break;
+    case 1:SEQUENCE("fldt %3; .byte 0xd9,0xc9,0xdd,0xd1,0xde,0xc1");break;
+    case 2:SEQUENCE(".byte 0xdd,0xd8,0xd9,0xe8");break;
+    default:SEQUENCE(".byte 0xdd,0xd8,0xd9,0xee");break;
+    }
+#undef SEQUENCE
+    __asm__ volatile("fnclex; fldcw %0" : : "m"(old));
+}
+static int contexts(void) {
+    struct fnv_x87_stack state,before,copy,other;
+    unsigned char memory[10],saved[10];memset(memory,0xa5,10);memcpy(saved,memory,10);
+    fnv_x87_stack_init(&state);memcpy(&before,&state,sizeof(state));
+    if(fnv_x87_stack_store_pop(&state,memory)!=FNV_X87_STACK_EMPTY ||
+       memcmp(memory,saved,10) || memcmp(&state,&before,sizeof(state)))return 1;
+    unsigned char unnormal[10]={1,0,0,0,0,0,0,0,0xff,0x3f};
+    if(fnv_x87_stack_load(&state,unnormal)!=FNV_X87_STACK_UNSUPPORTED || memcmp(&state,&before,sizeof(state)))return 2;
+    state.control=0x037e;memcpy(&before,&state,sizeof(state));
+    if(fnv_x87_stack_constant(&state,1)!=FNV_X87_STACK_UNSUPPORTED || memcmp(&state,&before,sizeof(state)))return 3;
+    fnv_x87_stack_init(&state);memcpy(&before,&state,sizeof(state));
+    if(fnv_x87_stack_duplicate(&state,8)!=FNV_X87_STACK_INVALID || memcmp(&state,&before,sizeof(state)))return 4;
+    for(unsigned i=0;i<8;i++) {
+        fnv_x87_pack(memory,(struct fnv_x87_extended){UINT64_C(0x8000000000000000)+i,0x3fff});
+        if(fnv_x87_stack_load(&state,memory)!=FNV_X87_STACK_OK)return 5;
+    }
+    memcpy(&before,&state,sizeof(state));
+    if(fnv_x87_stack_constant(&state,1)!=FNV_X87_STACK_FULL || memcmp(&state,&before,sizeof(state)))return 6;
+    memcpy(&copy,&state,sizeof(state));fnv_x87_stack_init(&other);
+    for(unsigned i=0;i<8;i++) {
+        if(fnv_x87_stack_constant(&other,i%2)!=FNV_X87_STACK_OK || fnv_x87_stack_store_pop(&other,saved)!=FNV_X87_STACK_OK ||
+           fnv_x87_stack_store_pop(&copy,memory)!=FNV_X87_STACK_OK)return 7;
+        struct fnv_x87_extended value=fnv_x87_unpack(memory),constant=fnv_x87_unpack(saved);
+        if(value.significand!=UINT64_C(0x8000000000000000)+7-i || value.sign_exponent!=0x3fff ||
+           constant.significand!=(i%2 ? UINT64_C(0x8000000000000000):0) ||
+           constant.sign_exponent!=(i%2 ? 0x3fff:0) || memcmp(&state,&before,sizeof(state)))return 8;
+    }
+    if(copy.top || copy.occupied || other.top || other.occupied)return 9;
+    return 0;
+}
 int main(void) {
 #ifdef _WIN32
     if(_setmode(_fileno(stdin),_O_BINARY)<0 || _setmode(_fileno(stdout),_O_BINARY)<0)return 8;
 #endif
+    if(contexts())return 26;
+    fprintf(stderr,"PASS context copies, stack capacity and non-writing failure paths\n");
     struct fnv_x87_extended sentinel={123,456},zero={0,0};uint16_t raised=0xabcd;
     if(fnv_x87_calculate(FNV_X87_ADD,0x017f,zero,zero,&sentinel,&raised) ||
        fnv_x87_calculate((enum fnv_x87_operation)99,0x037f,zero,zero,&sentinel,&raised) ||
@@ -88,7 +136,7 @@ int main(void) {
         if(!n)break;
         if(n!=sizeof(request))return 3;
         unsigned short cw=(unsigned short)(request[20]|request[21]<<8),hwstatus,flags;
-        unsigned char actual[14],expected[76];struct fnv_x87_extended result;
+        unsigned char actual[14],expected[124];struct fnv_x87_extended result;
         if(!fnv_x87_calculate((enum fnv_x87_operation)request[22],cw,
             fnv_x87_unpack(request),fnv_x87_unpack(request+10),&result,&flags))return 4;
         fnv_x87_pack(actual,result);
@@ -134,7 +182,25 @@ int main(void) {
             for(unsigned i=length;i<sizeof(actual);i++)if(actual[i]!=0xa5)return 20;
             offset+=length+2;
         }
-        if(offset!=76 || fwrite(expected,1,76,stdout)!=76)return 6;
+        for(unsigned sequence=0;sequence<4;sequence++) {
+            hardware_sequence(request,request+10,cw,sequence,expected+offset,&hwstatus);hwstatus&=0x3f;
+            fnv_x87_stack_init(&stack);stack.control=cw;
+            if(fnv_x87_stack_load(&stack,request)!=FNV_X87_STACK_OK)return 21;
+            if(sequence==0) {
+                if(fnv_x87_stack_duplicate(&stack,0)!=FNV_X87_STACK_OK ||
+                   fnv_x87_stack_binary_pop(&stack,FNV_X87_ADD)!=FNV_X87_STACK_OK)return 22;
+            } else if(sequence==1) {
+                if(fnv_x87_stack_load(&stack,request+10)!=FNV_X87_STACK_OK ||
+                   fnv_x87_stack_exchange(&stack,1)!=FNV_X87_STACK_OK ||
+                   fnv_x87_stack_store_register(&stack,1,0)!=FNV_X87_STACK_OK ||
+                   fnv_x87_stack_binary_pop(&stack,FNV_X87_ADD)!=FNV_X87_STACK_OK)return 23;
+            } else if(fnv_x87_stack_store_register(&stack,0,1)!=FNV_X87_STACK_OK ||
+                      fnv_x87_stack_constant(&stack,sequence==2)!=FNV_X87_STACK_OK)return 24;
+            if(fnv_x87_stack_store_pop(&stack,actual)!=FNV_X87_STACK_OK || memcmp(actual,expected+offset,10) ||
+               (stack.status&0x3f)!=hwstatus || stack.top || stack.occupied)return 25;
+            expected[offset+10]=(unsigned char)hwstatus;expected[offset+11]=(unsigned char)(hwstatus>>8);offset+=12;
+        }
+        if(offset!=124 || fwrite(expected,1,124,stdout)!=124)return 6;
         count++;
     }
     if(ferror(stdin))return 7;

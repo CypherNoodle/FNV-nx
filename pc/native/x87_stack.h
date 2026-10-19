@@ -18,6 +18,10 @@ enum fnv_x87_stack_result fnv_x87_stack_binary_pop(struct fnv_x87_stack *state,e
 enum fnv_x87_stack_result fnv_x87_stack_sqrt(struct fnv_x87_stack *state);
 enum fnv_x87_stack_result fnv_x87_stack_load_binary(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width);
 enum fnv_x87_stack_result fnv_x87_stack_store_binary(struct fnv_x87_stack *state,unsigned char *bytes,unsigned width,int pop);
+enum fnv_x87_stack_result fnv_x87_stack_duplicate(struct fnv_x87_stack *state,unsigned index);
+enum fnv_x87_stack_result fnv_x87_stack_exchange(struct fnv_x87_stack *state,unsigned index);
+enum fnv_x87_stack_result fnv_x87_stack_store_register(struct fnv_x87_stack *state,unsigned index,int pop);
+enum fnv_x87_stack_result fnv_x87_stack_constant(struct fnv_x87_stack *state,int one);
 /* Full/empty/unsupported are explicit precondition failures, not implemented
  * x87 stack-fault delivery. Only masked exceptions are supported by this
  * staging core; unmasked controls and pending ES are rejected without writes. */
