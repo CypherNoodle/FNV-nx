@@ -18,6 +18,15 @@ from run_aot_analysis import sdk_identity,sha
 from audit_install import pe_info
 
 
+def object_response(path, objects, executable):
+    """Keep large object inventories below Windows' process command-line limit."""
+    arguments=[*(Path(p).resolve().as_posix() for p in objects),'-o',Path(executable).resolve().as_posix()]
+    if any('"' in p or '\n' in p or '\r' in p for p in arguments):
+        raise ValueError('Unsupported response-file path')
+    path.write_text('\n'.join('"'+p+'"' for p in arguments)+'\n',encoding='utf-8',newline='\n')
+    return '@'+str(path.resolve())
+
+
 def probe(a):
     if a.output.exists() or not 1<=a.budget<=32768:raise ValueError('Fresh output; budget 1..32768')
     if not 1<=a.jobs<=4 or not 0<=a.split<=512:raise ValueError('Use 1..4 compiler jobs and split 0..512')
@@ -175,7 +184,10 @@ def probe(a):
             print('compiled',path.name,flush=True)
             return dict(source=path.name,object=obj.name,object_sha256=sha(obj))
         with ThreadPoolExecutor(max_workers=a.jobs) as pool:compiled=list(pool.map(compile_one,sources))
-        command([*a.cc,*[out/item['object'] for item in compiled],'-o',out/'startup-test.exe'],'link.log')
+        response=out/'link.rsp'
+        argument=object_response(response,[out/item['object'] for item in compiled],out/'startup-test.exe')
+        generated_files[response.name]=sha(response)
+        command([*a.cc,argument],'link.log')
     else:
         command([*a.cc,*flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h',*generated,*native,pc/'tests/captured_startup_host.c','-o',out/'startup-test.exe'],'compiler.log')
     host_args=[out/'startup-test.exe',a.exe.resolve(),a.exe.resolve().parent]
