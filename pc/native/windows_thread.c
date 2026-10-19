@@ -131,6 +131,7 @@ static unsigned char *slot(struct windows_thread *t,uint32_t index) {
     return index<64?t->teb+TEB_SLOTS+index*4:t->expansion+(index-64)*4;
 }
 struct fnv_guest_memory *fnv_windows_current_memory(void) { return thread()->process->config.memory; }
+uint32_t fnv_windows_current_address_space_bytes(void) { return thread()->process->config.cpu.memory_bytes; }
 void fnv_windows_set_last_error(uint32_t value) { write32(thread()->teb+TEB_ERROR,value); }
 static int pool_overlap(struct fnv_windows_process *p,uint32_t address,uint32_t bytes) {
     unsigned char *backing;uint32_t base,size;

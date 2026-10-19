@@ -117,5 +117,6 @@ enum fnv_cpu_result fnv_windows_thread_attach(struct fnv_windows_process *, cons
 enum fnv_cpu_result fnv_windows_thread_detach(void);
 /* For native import modules; require the matching attached Windows thread. */
 struct fnv_guest_memory *fnv_windows_current_memory(void);
+uint32_t fnv_windows_current_address_space_bytes(void);
 void fnv_windows_set_last_error(uint32_t value);
 #endif

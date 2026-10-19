@@ -1,6 +1,7 @@
 #include "fnv_sdk_runtime.h"
 #include "windows_memory.h"
 #include "guest_memory.h"
+#include "host_memory.h"
 #include <stdlib.h>
 static struct fnv_guest_memory *manager(void) {
     struct fnv_guest_memory *v=fnv_windows_current_memory();
@@ -19,6 +20,31 @@ static unsigned char *output_pointer(struct fnv_guest_memory *v,uint32_t address
     return fnv_cpu_memory(address,bytes);
 }
 static void write32(unsigned char *p,uint32_t value) { for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(value>>(8*i)); }
+static uint32_t read32(const unsigned char *p) {return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
+static void write64(unsigned char *p,uint64_t value) {write32(p,(uint32_t)value);write32(p+4,(uint32_t)(value>>32));}
+static void api_memory_status(void) {
+    struct fnv_guest_memory *v=manager();uint32_t address=fnv_cpu_argument_u32(0);
+    unsigned char *length=output_pointer(v,address,4);
+    if(!length){finish((struct fnv_vm_result){0,998,0},4);return;}
+    if(read32(length)!=64){finish((struct fnv_vm_result){0,87,0},4);return;}
+    unsigned char *destination=output_pointer(v,address,64);
+    if(!destination){finish((struct fnv_vm_result){0,998,0},4);return;}
+    struct fnv_vm_counters counters;fnv_vm_get_counters(v,&counters);
+    if(counters.poisoned){finish((struct fnv_vm_result){0,FNV_VM_CORRUPT,0},4);return;}
+    struct fnv_host_memory_snapshot physical;
+    if(!fnv_host_memory_snapshot(&physical)){finish((struct fnv_vm_result){0,50,0},4);return;}
+    unsigned char *backing;uint32_t base,bytes;
+    if(!fnv_vm_binding(v,&backing,&base,&bytes) || counters.reserved_bytes>bytes ||
+       counters.committed_bytes>counters.commit_limit){finish((struct fnv_vm_result){0,FNV_VM_CORRUPT,0},4);return;}
+    /* The guest can commit only its VM budget and allocate only unreserved
+     * VM pages. Fixed code/TLS/stack/heap arenas are already reserved. */
+    uint64_t values[]={physical.total,physical.available,counters.commit_limit,
+        counters.commit_limit-counters.committed_bytes,fnv_windows_current_address_space_bytes(),
+        bytes-counters.reserved_bytes,0};
+    write32(destination,64);write32(destination+4,physical.load);
+    for(unsigned i=0;i<7;i++)write64(destination+8+i*8,values[i]);
+    finish((struct fnv_vm_result){1,0,0},4);
+}
 static void api_allocate(void) {
     uint32_t at=fnv_cpu_argument_u32(0),bytes=fnv_cpu_argument_u32(1);
     uint32_t flags=fnv_cpu_argument_u32(2),protection=fnv_cpu_argument_u32(3);
@@ -60,6 +86,7 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_MEMORY_EXPORTS]={
     {"kernel32.dll","VirtualFree",0,0,api_free},
     {"kernel32.dll","VirtualQuery",0,0,api_query},
     {"kernel32.dll","VirtualProtect",0,0,api_protect},
+    {"kernel32.dll","GlobalMemoryStatusEx",0,0,api_memory_status},
 };
 const struct fnv_cpu_export *fnv_windows_memory_exports(size_t *count) {
     if(count)*count=FNV_WINDOWS_MEMORY_EXPORTS;

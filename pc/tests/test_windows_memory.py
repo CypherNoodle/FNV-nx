@@ -8,8 +8,8 @@ import subprocess
 import sys
 from pe_fixture import write_pe
 
-NAMES=['VirtualAlloc','VirtualFree','VirtualQuery','VirtualProtect','GetLastError','SetLastError']
-ARGS=[4,3,3,4,0,1]
+NAMES=['VirtualAlloc','VirtualFree','VirtualQuery','VirtualProtect','GetLastError','SetLastError','GlobalMemoryStatusEx']
+ARGS=[4,3,3,4,0,1,1]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
 def test(a):
@@ -23,7 +23,7 @@ def test(a):
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
     frozen={p:sha(p) for p in [Path(__file__).resolve(),pc/'tests/windows_memory_host.c',pc/'tests/pe_fixture.py',
         *[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
-        'windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','host_wallclock.h','windows_events.inc','windows_workers.inc','windows_time.inc','windows_parameters.inc','command_line.h','windows_files.inc','host_file.h','host_directory.h','windows_directory.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
+        'windows_thread.c','windows_thread.h','pe_tls.h','pe_tls.c','windows_heap.inc','windows_sync.inc','host_condition.h','host_clock.h','host_wallclock.h','host_memory.h','windows_events.inc','windows_workers.inc','windows_time.inc','windows_parameters.inc','command_line.h','windows_files.inc','host_file.h','host_directory.h','windows_directory.inc','host_thread.h','guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h','windows_memory.c','windows_memory.h')],
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     exe=out/'fixture.exe';write_pe(exe,['KERNEL32.dll']*len(NAMES));raw=bytearray(exe.read_bytes())
     struct.pack_into('<I',raw,0x98+224+36,0x60000020);cursor=0xC00;programs=[]

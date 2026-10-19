@@ -1,5 +1,10 @@
 # FNV-nx: recompilacion estatica PC
 
+La [consulta nativa de memoria](docs/native-windows-memory-status.md) ya conecta
+`GlobalMemoryStatusEx` con datos del host y los limites reales del asignador
+guest. Sus contratos de ABI/error se contrastan con Windows; la ruta Horizon
+compila para ARM64 y sigue pendiente de prueba en consola.
+
 El [experimento acotado del CRT capturado](docs/captured-startup.md) ya supera
 los [handles estandar y el bloque de entorno virtual](docs/native-windows-crt.md).
 Tambien supera [conversion de cadenas y consultas de code page](docs/native-windows-charset.md).
