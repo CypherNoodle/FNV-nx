@@ -4,6 +4,9 @@ El [experimento acotado del CRT capturado](docs/captured-startup.md) ya supera
 los [handles estandar y el bloque de entorno virtual](docs/native-windows-crt.md).
 Tambien supera [conversion de cadenas y consultas de code page](docs/native-windows-charset.md).
 La [tanda NLS/CRT](docs/native-windows-nls.md) alcanza la tabla de inicializadores C++;
+la [correccion de marcos EH3](docs/native-windows-eh3.md) evita una salida prematura
+que podia simular la llegada a la entrada del motor. El diagnostico de consola
+queda sujeto a comprobar el recorrido y las devoluciones de esos inicializadores;
 aun no demuestra arranque desde el EXE,
 entrada del motor ni un frame del juego en Switch.
 

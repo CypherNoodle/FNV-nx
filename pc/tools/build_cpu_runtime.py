@@ -101,6 +101,12 @@ def build(a):
         from audit_seh_helpers import verify
         verify(analysis,report['normal_frame_helpers'])
         path=pc/'tools/audit_seh_helpers.py';frozen[path]=sha(path)
+    if report.get('eh3_frame_overlay'):
+        from audit_eh3_helpers import verify as verify_eh3
+        info=report['eh3_frame_overlay'];verify_eh3(analysis,info['audit'])
+        path=pc/'tools/aot_eh3_frames.py'
+        if sha(path)!=info['source_sha256']:raise ValueError('Changed EH3 overlay')
+        frozen[path]=sha(path);path=pc/'tools/audit_eh3_helpers.py';frozen[path]=sha(path)
     for path in [pc / 'native' / n for n in (
             'cpu_runtime.c', 'cpu_runtime.h', 'fnv_sdk_runtime.h', 'pe_image.c', 'pe_image.h')]:
         frozen[path] = sha(path)
@@ -121,21 +127,30 @@ def build(a):
     if a.reuse_generated_validation:
         prior_path=a.reuse_generated_validation.resolve();prior=json.loads(prior_path.read_text())
         if (prior['status']!='PASS' or prior['compiler_flags']!=SWITCH_FLAGS or
-            prior['sdk_sha256']!=sdk_hash or prior['generation_report_sha256']!=sha(paths['report']) or
+            prior['sdk_sha256']!=sdk_hash or
             prior['compile_units']!=len(sources) or len(prior['compiled'])!=len(sources)):
             raise ValueError('Incompatible prior generated-object validation')
         # Only the native CPU/PE implementation and this validator may differ.
         # Generated C uses fnv_sdk_runtime/SDK, not cpu_runtime.h or pe_image.h.
         allowed_changes={Path(__file__).resolve(),*[pc/'native'/n for n in ('cpu_runtime.c','cpu_runtime.h','pe_image.c','pe_image.h')]}
-        for name,digest in prior['source_sha256'].items():
-            path=Path(name).resolve()
-            if path not in allowed_changes and sha(path)!=digest:raise ValueError('Changed reused dependency: '+name)
-        for path in (p for p in frozen if p.suffix in ('.c','.h') and p not in allowed_changes):
-            if re.search(r'#\s*include\s*[<"][^>"\n]*(?:cpu_runtime|pe_image)\.h[>"]',path.read_text()):
-                raise ValueError('Generated code includes changed native ABI header')
+        same_generation=prior['generation_report_sha256']==sha(paths['report'])
+        if same_generation:
+            for name,digest in prior['source_sha256'].items():
+                path=Path(name).resolve()
+                if path not in allowed_changes and sha(path)!=digest:raise ValueError('Changed reused dependency: '+name)
+            for path in (p for p in frozen if p.suffix in ('.c','.h') and p not in allowed_changes):
+                if re.search(r'#\s*include\s*[<"][^>"\n]*(?:cpu_runtime|pe_image)\.h[>"]',path.read_text()):
+                    raise ValueError('Generated code includes changed native ABI header')
+            eligible={p.name for p in sources[:-2]}
+        else:
+            from generation_object_reuse import candidates
+            eligible,dependencies=candidates(prior_path,prior,report,paths,frozen,sources[:-2],a.cc)
+            frozen.update(dependencies)
+            helper=pc/'tools/generation_object_reuse.py';frozen[helper]=sha(helper)
         old={item['source']:item for item in prior['compiled']}
         if set(old)!={p.name for p in sources}:raise ValueError('Prior compiled inventory mismatch')
         for source in sources[:-2]:
+            if source.name not in eligible:continue
             item=old[source.name];obj=prior_path.parent/(source.stem+'.o')
             if item['exit_code'] or obj.stat().st_size!=item['object_bytes'] or sha(obj)!=item['object_sha256']:
                 raise ValueError('Changed prior generated object: '+source.name)
@@ -273,7 +288,7 @@ if __name__ == '__main__':
     parser.add_argument('--generation-name', required=True)
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--reuse-generated-validation',type=Path,
-                        help='Reuse hash-verified generated objects only; rebuild native CPU/PE units')
+                        help='Reuse identical C units with identical headers/compiler across audited generations; rebuild changed units and native CPU/PE')
     parser.add_argument('--recheck', action='store_true', help='Verify identical existing objects after a validator-only change')
     parser.add_argument('--previous-validator', type=Path, help='Exact archived script recorded by the original build')
     arguments = parser.parse_args()

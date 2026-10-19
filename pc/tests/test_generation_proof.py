@@ -20,7 +20,7 @@ def run(output):
         except ValueError:checks+=1
         else:raise AssertionError('Invalid proof accepted')
     fields=('input_profile_sha256','sdk_sha256','index_wrapper_sha256',
-            'codegen_overlay','multiply_overlay','frame_restore_overlay','normal_frame_helpers')
+            'codegen_overlay','multiply_overlay','frame_restore_overlay','normal_frame_helpers','eh3_frame_overlay')
     report={key:{'source_sha256':'a'} if key.endswith('overlay') else 'a' for key in fields}
     report['normal_frame_helpers']={'abi':'fixture'}
     matching_generation_inputs(report,deepcopy(report));checks+=1

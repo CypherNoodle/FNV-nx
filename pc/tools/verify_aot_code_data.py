@@ -60,7 +60,7 @@ def matching_generation_inputs(before, after):
     if any(key not in report for key in required for report in (before,after)):
         raise ValueError('Missing generation input identity')
     for field in ('input_profile_sha256','sdk_sha256','index_wrapper_sha256',
-                  'codegen_overlay','multiply_overlay','frame_restore_overlay','normal_frame_helpers'):
+                  'codegen_overlay','multiply_overlay','frame_restore_overlay','normal_frame_helpers','eh3_frame_overlay'):
         if before.get(field)!=after.get(field):
             raise ValueError('Unexpected generation input difference: '+field)
     if after.get('normal_frame_helpers') and not after.get('frame_restore_overlay'):
@@ -102,6 +102,12 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
         verify_helpers(analysis,after['normal_frame_helpers'])
         verify_helpers(baseline_analysis,before['normal_frame_helpers'])
         p=pc/'tools/audit_seh_helpers.py';frozen[p]=sha(p)
+    if after.get('eh3_frame_overlay'):
+        from audit_eh3_helpers import verify as verify_eh3
+        info=after['eh3_frame_overlay'];verify_eh3(analysis,info['audit']);verify_eh3(baseline_analysis,info['audit'])
+        p=pc/'tools/aot_eh3_frames.py'
+        if sha(p)!=info['source_sha256']:raise ValueError('EH3 overlay changed')
+        frozen[p]=sha(p);p=pc/'tools/audit_eh3_helpers.py';frozen[p]=sha(p)
     for p in (pc/'tools/aot_code_data.py',pc/'tools/verify_aot_code_data.py',paths['report'],old_paths['report'],analysis/'scan-identity.json'):
         frozen[p]=sha(p)
     runtime_headers={p:sha(p) for directory in (sdk/'templates/runtime',sdk/'src/kernel') for p in directory.rglob('*.h')}

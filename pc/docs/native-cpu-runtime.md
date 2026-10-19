@@ -140,6 +140,14 @@ el hash original y que fuentes, SDK, herramientas, objetos y enlace no hayan
 cambiado. Conserva `validation.json` y escribe `revalidation.json`; no sirve
 para aceptar cambios de codigo sin recompilarlos.
 
+`--reuse-generated-validation` tambien admite una generacion distinta que ya
+paso su propia comparacion completa de codigo/datos. Exige el mismo compilador,
+opciones y SDK, cabeceras nativas/SDK y cabeceras ABI generadas identicas, y
+fuente C identica para cada objeto reutilizado. Comprueba el informe y fuente
+archivados y el hash del objeto original. Las unidades modificadas se compilan;
+CPU/PE se reconstruyen y se repiten el enlace y las comprobaciones TLS/simbolos.
+Una receta nueva no autoriza reutilizar codigo maquina de una fuente cambiada.
+
 ## Evidencia y limite
 
 La prueba host traduce ocho rutinas x86 sinteticas con el generador real,
@@ -170,3 +178,12 @@ de `__aarch64_read_tp`. Todavia no se enlazo un ejecutable del motor.
 `fnv_cpu_import_token` consulta el token canonico desde un thread adjunto, sin
 registrar metodos ni modificar la tabla. Devuelve cero para funciones ausentes,
 runtime sin bind o thread no adjunto. Los aliases de imports no duplican tokens.
+
+El overlay obligatorio `aot_frame_restore.py` tambien corrige SHL/SHR: enmascara
+el contador a cinco bits y desplaza un valor unsigned, evitando comportamiento
+indefinido de C tanto con inmediatos grandes como con operandos de byte.
+El contador cero conserva destino y snapshots de flags. No define CF/OF donde
+x86 los deja indefinidos ni completa la reconstruccion general de EFLAGS.
+`tests/test_aot_shift_counts.py` compara instrucciones x86 con codigo ARM64
+compilado bajo Unicorn: 96 formas, 69.432 casos de registros/memoria, 40.920
+comparaciones de CF definido y 2.640 de contador cero. No es una prueba HW.

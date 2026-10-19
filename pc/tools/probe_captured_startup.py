@@ -23,6 +23,7 @@ def probe(a):
     if not 1<=a.jobs<=4 or not 0<=a.split<=512:raise ValueError('Use 1..4 compiler jobs and split 0..512')
     if a.budget>512 and not a.split:raise ValueError('Large experiments require --split to bound compiler units')
     if bool(a.generation_name)!=bool(a.generation_validation):raise ValueError('Generation name and validation must be supplied together')
+    if a.all_generated and (not a.generation_name or not a.split):raise ValueError('--all-generated requires a validated generation and split compilation')
     sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve())]
     from capstone import Cs,CS_ARCH_X86,CS_MODE_32,CS_GRP_JUMP,CS_GRP_RET
     from capstone.x86_const import X86_OP_IMM
@@ -77,7 +78,9 @@ def probe(a):
             generation_bodies[a.entry]=source;generation_refs[a.entry]=set(explicit_wrapper['targets'])
             generation_symbols[a.entry]=f'sub_{a.entry:08X}'
     selected={};decode_rejected=set();pending=deque([a.entry,prolog['address'],epilog['address'],*a.include])
-    while pending and len(selected)<a.budget:
+    budget=len(generation_bodies) if a.all_generated else a.budget
+    if a.all_generated:pending.extend(sorted(generation_bodies))
+    while pending and len(selected)<budget:
         at=pending.popleft()
         if at in selected or at not in db or at in a.stop_at:continue
         info=db[at];end=int(info['end'],0) if isinstance(info['end'],str) else info['end']
@@ -139,7 +142,17 @@ def probe(a):
     imports=[]
     for item in pe_info(a.exe)['imports']:
         for symbol in item['symbols']:imports.append(dict(dll=item['dll'],**symbol))
-    lines=[f'#define FNV_STARTUP_ENTRY 0x{a.entry:X}u']
+    text_data=None
+    if a.captured_text_data:
+        captured=image[row[3]:row[3]+row[4]]
+        if len(captured)!=text['virtual_bytes'] or hashlib.sha256(captured).hexdigest()!=profile['text_sha256']:
+            raise ValueError('Captured text data does not match the audited analysis image')
+        path=out/'captured-text-data.bin';path.write_bytes(captured)
+        generated_files[path.name]=sha(path)
+        text_data=dict(source='audited-captured-text',rva=text['rva'],bytes=len(captured),sha256=sha(path),
+                       executable_file_modified=False,cold_entry_verified=False)
+    lines=[f'#define FNV_STARTUP_ENTRY 0x{a.entry:X}u',f'#define FNV_STARTUP_CAPTURED_TEXT {int(a.captured_text_data)}',
+           f'#define FNV_STARTUP_TEXT_RVA 0x{text["rva"]:X}u',f'#define FNV_STARTUP_TEXT_BYTES 0x{text["virtual_bytes"]:X}u']
     for i,item in enumerate(imports):
         label=item['dll']+'!'+item.get('name','#'+str(item.get('ordinal',0)))
         lines.append(f'static void missing_import_{i}(void){{recomp_unimpl({json.dumps(label)},0);}}')
@@ -165,7 +178,9 @@ def probe(a):
         command([*a.cc,*[out/item['object'] for item in compiled],'-o',out/'startup-test.exe'],'link.log')
     else:
         command([*a.cc,*flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h',*generated,*native,pc/'tests/captured_startup_host.c','-o',out/'startup-test.exe'],'compiler.log')
-    host=json.loads(command([out/'startup-test.exe',a.exe.resolve(),a.exe.resolve().parent],'host.log').strip().splitlines()[-1])
+    host_args=[out/'startup-test.exe',a.exe.resolve(),a.exe.resolve().parent]
+    if a.captured_text_data:host_args.append(out/'captured-text-data.bin')
+    host=json.loads(command(host_args,'host.log').strip().splitlines()[-1])
     if audit(a.exe,analysis)!=identity or sdk_identity(sdk)!=sdk_hash or verify(analysis,helpers)!=helpers:raise ValueError('Inputs changed')
     for name,h in frozen.items():
         if sha(Path(name))!=h:raise ValueError('Source changed: '+name)
@@ -178,6 +193,8 @@ def probe(a):
         executable_sha256=sha(out/'startup-test.exe'),
         initializer_tables=[dict(start=t['start'],end=t['end'],unique_roots=t['unique_roots'],table_sha256=t['table_sha256']) for t in table_reports],
         generation=generation_info,
+        text_data=text_data,
+        all_generated=a.all_generated,effective_budget=budget,
         native_engine_started=False,cold_boot_supported=False,switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k not in ('source_sha256','identity')},indent=2))
 
@@ -191,6 +208,8 @@ if __name__=='__main__':
     p.add_argument('--include-table',type=Path,action='append',default=[],help='Revalidate an explicit initializer audit and include every known root; does not establish ABI or reachability')
     p.add_argument('--generation-name',help='Use exact bodies and references from an already audited complete generation instead of the bounded linear decoder')
     p.add_argument('--generation-validation',type=Path,help='Frozen complete code/data comparison proof for --generation-name')
+    p.add_argument('--captured-text-data',action='store_true',help='Use audited captured text bytes also for inline data/tables in the private host image; never changes the original EXE or verifies cold boot')
+    p.add_argument('--all-generated',action='store_true',help='Compile every known generated function, retaining explicit --stop-at traps; avoids one missing indirect target per subset run')
     p.add_argument('--entry-end',type=lambda s:int(s,0),help='Isolated explicit 10-byte call/tail-jump wrapper audit, not cold-entry proof')
     p.add_argument('--include',type=lambda s:int(s,0),action='append',default=[],help='Prioritize an existing function in the bounded translation; not an entry override')
     p.add_argument('--stop-at',type=lambda s:int(s,0),action='append',default=[],help='Leave an existing function as an explicit diagnostic trap; do not explore its descendants')

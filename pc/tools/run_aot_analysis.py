@@ -48,7 +48,7 @@ def verified_scan_wrapper(analysis, scan, current_wrapper):
     raise ValueError('Scan wrapper identity unavailable; preserve its exact source or rerun a fresh scan')
 
 
-def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False, frame_restore=False, seh_helpers=None):
+def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False, frame_restore=False, seh_helpers=None, eh3_helpers=None):
     analysis=analysis.resolve(); sdk=sdk.resolve()
     paths = generation_paths(analysis, generation_name)
     if max_functions is not None and max_functions <= 0:
@@ -56,6 +56,12 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     if (simd_bits or mul_flags or frame_restore) and (generation_name is None or stage == 'scan'):
         raise ValueError('Codegen overlays require a separate named generation')
     helper_audit=None
+    eh3_audit=None
+    if eh3_helpers is not None:
+        if not frame_restore or generation_name is None or stage=='scan':raise ValueError('EH3 helpers require a separate frame-restored generation')
+        if deps:sys.path.insert(0,str(deps.resolve()))
+        from audit_eh3_helpers import verify as verify_eh3
+        eh3_audit=verify_eh3(analysis,json.loads(eh3_helpers.read_text()))
     if seh_helpers is not None:
         if not frame_restore or generation_name is None or stage=='scan':
             raise ValueError('Audited SEH helpers require frame restore and a named generation')
@@ -79,6 +85,8 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     overlay = Path(__file__).with_name('aot_simd_bits.py')
     mul_overlay = Path(__file__).with_name('aot_mul_flags.py')
     frame_overlay = Path(__file__).with_name('aot_frame_restore.py')
+    eh3_overlay = Path(__file__).with_name('aot_eh3_frames.py')
+    eh3_identity=({'source_sha256':sha(eh3_overlay),'audit':eh3_audit} if eh3_audit else None)
     frame_identity = {'source_sha256':sha(frame_overlay)} if frame_restore else None
     native = Path(__file__).resolve().parents[1]/'native'
     overlay_identity = ({'source_sha256':sha(overlay), 'runtime_header_sha256':sha(native/'fnv_simd_bits.h')} if simd_bits else None)
@@ -93,6 +101,11 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
             invocation=[sys.executable,"-u","-m",*args]
             if args[0]=='tools.disasm':
                 invocation=[sys.executable,"-u",str(index_wrapper),'--sdk',str(sdk),*args[1:]]
+            elif args[0]=='tools.recomp' and eh3_audit:
+                invocation=[sys.executable,'-u',str(eh3_overlay),'--sdk',str(sdk),'--analysis',str(analysis),'--eh3-helpers',str(eh3_helpers.resolve())]
+                if simd_bits:invocation+=['--simd-bits']
+                if mul_flags:invocation+=['--mul-flags']
+                invocation+=args[1:]
             elif args[0]=='tools.recomp' and frame_restore:
                 invocation=[sys.executable,'-u',str(frame_overlay),'--sdk',str(sdk)]
                 if simd_bits: invocation+=['--simd-bits']
@@ -161,6 +174,10 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     if helper_audit:
         verify(analysis,helper_audit)
         if json.loads(seh_helpers.read_text())!=helper_audit:raise ValueError('Helper audit changed during generation')
+    if eh3_audit:
+        verify_eh3(analysis,eh3_audit)
+        if sha(eh3_overlay)!=eh3_identity['source_sha256'] or json.loads(eh3_helpers.read_text())!=eh3_audit:
+            raise ValueError('EH3 overlay/audit changed during generation')
     if sha(scan_manifest)!=scan_sha or (code_data_filter and verify_derivation(analysis,decoder)!=code_data_filter):
         raise ValueError('Analysis selection changed during generation')
     for identity, source, runtime in ((overlay_identity,overlay,native/'fnv_simd_bits.h'),
@@ -179,6 +196,7 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         scan_identity_sha256=scan_sha,code_data_filter=code_data_filter,
         codegen_overlay=overlay_identity,multiply_overlay=multiply_identity,frame_restore_overlay=frame_identity,
         normal_frame_helpers=helper_audit,
+        eh3_frame_overlay=eh3_identity,
         functions_detected=len(json.loads((analysis/"disasm/functions.json").read_text())),
         functions_requested=summary.get("total"),functions_generated=summary.get("translated"),
         max_functions=max_functions,full_selection=max_functions is None,gaps=gaps,
@@ -204,5 +222,6 @@ if __name__=="__main__":
     p.add_argument('--mul-flags', action='store_true', help='Enable wide multiply and defined CF/OF overlay')
     p.add_argument('--frame-restore', action='store_true', help='Publish restored EBP after POP EBP / LEAVE')
     p.add_argument('--seh-helpers',type=Path,help='Identity-checked normal-frame helper audit, not exception support')
+    p.add_argument('--eh3-helpers',type=Path,help='Whole-body-audited additional normal EH3 frame pair')
     a=p.parse_args()
-    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags,a.frame_restore,a.seh_helpers)
+    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags,a.frame_restore,a.seh_helpers,a.eh3_helpers)

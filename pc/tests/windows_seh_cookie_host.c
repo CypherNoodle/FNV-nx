@@ -31,8 +31,15 @@ int main(int argc,char **argv){
             assert(outer>=t.stack_low && outer+8<t.stack_high && inner<outer && inner>=t.stack_low);
             assert(read32(out+4)==UINT32_MAX && read32(out+8)==outer && read32(out+16)==outer);
             assert(read32(outer+4)==0x4019e0 && read32(inner+4)==0x4019e0);
+#ifdef FNV_EH3_FIXTURE
+            assert(read32(outer+8)==UINT32_MAX && read32(inner+8)==UINT32_MAX);
+            /* The EH3 epilog reuses [EBP] for its synthetic return. Check the
+             * saved caller values captured while each frame was live. */
+            assert(read32(out+20)==0x13579bdfu && read32(out+24)==outer+12);
+#else
             assert(read32(outer+8)==(0x4019e0u^0xa15c3e79u) && read32(inner+8)==(0x4019e0u^0xa15c3e79u));
             assert(read32(outer+12)==0xfffffffeu && read32(inner+12)==0xfffffffeu);
+#endif
             assert(read32(t.teb_address)==UINT32_MAX && read32(t.teb_address+0x34)==0x789abc);
             if(s.gpr[4]!=t.state.gpr[4]+4 || s.gpr[5]!=0x13579bdf || s.fs_base!=t.teb_address)fprintf(stderr,"final esp=%x expected=%x ebp=%x fs=%x\n",s.gpr[4],t.state.gpr[4]+4,s.gpr[5],s.fs_base);
             assert(s.gpr[4]==t.state.gpr[4]+4 && s.gpr[5]==0x13579bdf && s.fs_base==t.teb_address);

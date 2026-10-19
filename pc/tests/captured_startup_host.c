@@ -25,8 +25,15 @@ static int same(const struct fnv_cpu_export *e,const struct fnv_native_import *i
 static void string(const char *s){putchar('"');for(;*s;s++){unsigned c=(unsigned char)*s;if(c=='"' || c=='\\')putchar('\\');
     if(c>=32)putchar((int)c);else printf("\\u%04x",c);}putchar('"');}
 int main(int argc,char **argv){
-    assert(argc==3);arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
+    assert(argc==3+FNV_STARTUP_CAPTURED_TEXT);arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,ARENA,&image)==FNV_NATIVE_OK);
+#if FNV_STARTUP_CAPTURED_TEXT
+    assert(FNV_STARTUP_TEXT_RVA<image.size && FNV_STARTUP_TEXT_BYTES<=image.size-FNV_STARTUP_TEXT_RVA);
+    unsigned char *text=fnv_native_guest_range(&image,image.base+FNV_STARTUP_TEXT_RVA,FNV_STARTUP_TEXT_BYTES);assert(text);
+    FILE *captured=fopen(argv[3],"rb");assert(captured);
+    assert(fread(text,1,FNV_STARTUP_TEXT_BYTES,captured)==FNV_STARTUP_TEXT_BYTES && fgetc(captured)==EOF && !ferror(captured));
+    assert(fclose(captured)==0);
+#endif
     struct fnv_vm_permissions permissions={NULL,permission};struct fnv_guest_memory *vm;
     struct fnv_vm_config v={arena+0x2800000,BASE+0x2800000,0x1800000,0x1000000,&permissions,fnv_vm_eager_apply};
     assert(!fnv_vm_create(&v,&vm).error);
