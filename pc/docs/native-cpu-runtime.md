@@ -119,6 +119,21 @@ el acceso TLS en el runtime y una unidad generada; las restantes reciben
 las mismas opciones, sin reutilizar objetos ARM64 genericos. La salida
 derivada del juego debe mantenerse privada.
 
+Al actualizar overlays, hay que generar tambien la referencia sin filtrar
+con los mismos overlays y helpers. `verify_aot_code_data.py` compara sus
+identidades, todos los cuerpos retenidos, dispatch y cobertura. Una prueba de
+una generacion anterior no sirve si han cambiado los cuerpos legitimamente.
+`--audit-only` omite compilacion y enlace y devuelve `STRUCTURE_PASS`, con
+`objects_compiled: false`; no es una prueba de compilacion. El constructor CPU
+acepta esa evidencia estructural verificando sus fuentes y despues compila
+todas las unidades con el ABI Switch. Asi se evita una compilacion ARM64
+generica redundante sin omitir la comprobacion de los cuerpos ni el build real.
+
+El modo normal del auditor conserva su compilacion completa. Los overlays
+de frame restore y el par de helpers normales tambien deben coincidir entre
+generaciones y sus hashes deben seguir vigentes. Esto no verifica entrega
+de excepciones ni demuestra equivalencia semantica con x86 para todo el juego.
+
 Si cambia solo el auditor, `--recheck --previous-validator /ruta/script-anterior.py`
 permite revisar el mismo lote. Exige que el script archivado coincida con
 el hash original y que fuentes, SDK, herramientas, objetos y enlace no hayan

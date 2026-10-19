@@ -5,6 +5,7 @@ stubs. All generated/captured code and reports stay private.
 """
 import argparse
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 from pathlib import Path
@@ -18,7 +19,9 @@ from audit_install import pe_info
 
 
 def probe(a):
-    if a.output.exists() or not 1<=a.budget<=512:raise ValueError('Fresh output; budget 1..512')
+    if a.output.exists() or not 1<=a.budget<=32768:raise ValueError('Fresh output; budget 1..32768')
+    if not 1<=a.jobs<=4 or not 0<=a.split<=512:raise ValueError('Use 1..4 compiler jobs and split 0..512')
+    if a.budget>512 and not a.split:raise ValueError('Large experiments require --split to bound compiler units')
     sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve())]
     from capstone import Cs,CS_ARCH_X86,CS_MODE_32,CS_GRP_JUMP,CS_GRP_RET
     from capstone.x86_const import X86_OP_IMM
@@ -32,6 +35,15 @@ def probe(a):
     helpers=verify(analysis,json.loads(a.helpers.read_text()));prolog,epilog=helpers['helpers']
     database=analysis/'disasm/functions.json';db={int(f['start'],0):dict(f) for f in json.loads(database.read_text())}
     profile=json.loads((analysis/'input-profile.json').read_text());image=(analysis/'fnv-analysis.xbe').read_bytes()
+    table_reports=[]
+    if a.include_table:
+        from audit_initializer_table import inspect
+        for path in a.include_table:
+            report=json.loads(path.read_text())
+            if report!=inspect(a.exe.resolve(),analysis,report['start'],report['end']) or report['unknown_roots']:
+                raise ValueError('Initializer table audit changed or has unknown entries')
+            table_reports.append(report)
+        a.include=list(dict.fromkeys([*a.include,*[at for report in table_reports for at in report['roots']]]))
     text=next(s for s in profile['sections'] if s['name']=='.text');low=profile['image_base']+text['rva'];high=low+text['virtual_bytes']
     count,table=struct.unpack_from('<II',image,0x11c);sections=[struct.unpack_from('<5I',image,table-profile['image_base']+i*56) for i in range(count)]
     row=next(r for r in sections if r[1]==low)
@@ -66,8 +78,11 @@ def probe(a):
                     if not at<=target<end:pending.append(target)
         if not instructions[-1].group(CS_GRP_RET) and instructions[-1].mnemonic not in ('jmp','int3','ud2','hlt'):pending.appendleft(end)
     if a.entry not in selected:raise ValueError('Entry absent from existing analysis function database')
+    if any(set(report['roots'])-set(selected) for report in table_reports):
+        raise ValueError('Budget did not include every audited initializer root')
     own=[Path(__file__),pc/'tests/captured_startup_host.c',pc/'tools/aot_frame_restore.py',pc/'tools/aot_simd_bits.py',pc/'tools/aot_mul_flags.py',
         pc/'tools/audit_startup.py',pc/'tools/audit_install.py',pc/'tools/audit_seh_helpers.py',pc/'tools/run_aot_analysis.py',database,a.helpers.resolve()]
+    if table_reports:own += [pc/'tools/audit_initializer_table.py',*[p.resolve() for p in a.include_table]]
     native=[pc/'native'/n for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]
     frozen={str(p.resolve()):sha(p) for p in [*own,*native,Path(a.cc[0]).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
@@ -84,12 +99,22 @@ def probe(a):
         snippets.append(source.replace('RECOMP_ICALL_SAFE_AT(', 'FNV_STARTUP_ICALL('))
     references={int(m,16) for source in snippets for m in re.findall(r'\bsub_([0-9A-Fa-f]{8})\b',source)}
     missing=references-set(selected)
-    source='#include "fnv_sdk_runtime.h"\n#include "fnv_simd_bits.h"\n#include "fnv_mul_flags.h"\n'
-    source+='extern uint32_t fnv_probe_site;\n#define FNV_STARTUP_ICALL(target, saved, site) do { fnv_probe_site=(site); RECOMP_ICALL_SAFE_AT(target,saved,site); } while(0)\n'
-    source+=''.join(f'void sub_{at:08X}(void);\n' for at in sorted(references|set(selected)))+''.join(snippets)
-    source+=''.join(f'void sub_{at:08X}(void){{recomp_unimpl("Unselected startup target",0x{at:X}u);}}\n' for at in sorted(missing))
-    source+='recomp_func_t recomp_lookup(uint32_t at){switch(at){'+''.join(f'case 0x{at:X}u:return sub_{at:08X};' for at in sorted(references|set(selected)))+'default:return NULL;}}\n'
-    generated=out/'generated.c';generated.write_text(source)
+    header='#include "fnv_sdk_runtime.h"\n#include "fnv_simd_bits.h"\n#include "fnv_mul_flags.h"\n'
+    header+='extern uint32_t fnv_probe_site;\n#define FNV_STARTUP_ICALL(target, saved, site) do { fnv_probe_site=(site); RECOMP_ICALL_SAFE_AT(target,saved,site); } while(0)\n'
+    header+=''.join(f'void sub_{at:08X}(void);\n' for at in sorted(references|set(selected)))
+    stubs=''.join(f'void sub_{at:08X}(void){{recomp_unimpl("Unselected startup target",0x{at:X}u);}}\n' for at in sorted(missing))
+    lookup='recomp_func_t recomp_lookup(uint32_t at){switch(at){'+''.join(f'case 0x{at:X}u:return sub_{at:08X};' for at in sorted(references|set(selected)))+'default:return NULL;}}\n'
+    generated=[]
+    if a.split:
+        (out/'generated_functions.h').write_text(header)
+        for i in range(0,len(snippets),a.split):
+            path=out/f'generated_{i//a.split:04d}.c'
+            path.write_text('#include "generated_functions.h"\n'+''.join(snippets[i:i+a.split]));generated.append(path)
+        path=out/'generated_lookup.c';path.write_text('#include "generated_functions.h"\n'+stubs+lookup);generated.append(path)
+    else:
+        path=out/'generated.c';path.write_text(header+''.join(snippets)+stubs+lookup);generated.append(path)
+    generated_files={p.name:sha(p) for p in generated}
+    if a.split:generated_files['generated_functions.h']=sha(out/'generated_functions.h')
     imports=[]
     for item in pe_info(a.exe)['imports']:
         for symbol in item['symbols']:imports.append(dict(dll=item['dll'],**symbol))
@@ -99,6 +124,7 @@ def probe(a):
         lines.append(f'static void missing_import_{i}(void){{recomp_unimpl({json.dumps(label)},0);}}')
     lines.append('static fnv_cpu_function missing_imports[]={'+','.join(f'missing_import_{i}' for i in range(len(imports)))+'};')
     (out/'startup_profile.h').write_text('\n'.join(lines)+'\n')
+    generated_files['startup_profile.h']=sha(out/'startup_profile.h')
     def command(args,log):
         r=subprocess.run([str(x) for x in args],capture_output=True,text=True,timeout=120)
         (out/log).write_text(r.stdout+r.stderr)
@@ -106,15 +132,31 @@ def probe(a):
         return r.stdout
     flags=['-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-parentheses-equality','-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable','-fno-strict-aliasing','-ffp-contract=off']
     includes=['-I'+str(p) for p in (out,pc/'native',sdk/'templates/runtime',sdk/'src/kernel')]
-    command([*a.cc,*flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h',generated,*native,pc/'tests/captured_startup_host.c','-o',out/'startup-test.exe'],'compiler.log')
+    compiled=[]
+    if a.split:
+        sources=[*generated,*native,pc/'tests/captured_startup_host.c']
+        def compile_one(path):
+            obj=out/(path.stem+'.o')
+            command([*a.cc,*flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h','-c',path,'-o',obj],path.stem+'.log')
+            print('compiled',path.name,flush=True)
+            return dict(source=path.name,object=obj.name,object_sha256=sha(obj))
+        with ThreadPoolExecutor(max_workers=a.jobs) as pool:compiled=list(pool.map(compile_one,sources))
+        command([*a.cc,*[out/item['object'] for item in compiled],'-o',out/'startup-test.exe'],'link.log')
+    else:
+        command([*a.cc,*flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h',*generated,*native,pc/'tests/captured_startup_host.c','-o',out/'startup-test.exe'],'compiler.log')
     host=json.loads(command([out/'startup-test.exe',a.exe.resolve(),a.exe.resolve().parent],'host.log').strip().splitlines()[-1])
     if audit(a.exe,analysis)!=identity or sdk_identity(sdk)!=sdk_hash or verify(analysis,helpers)!=helpers:raise ValueError('Inputs changed')
     for name,h in frozen.items():
         if sha(Path(name))!=h:raise ValueError('Source changed: '+name)
+    if any(sha(out/name)!=h for name,h in generated_files.items()):raise ValueError('Generated source changed')
+    if any(sha(out/item['object'])!=item['object_sha256'] for item in compiled):raise ValueError('Compiled object changed')
     result=dict(status='EXPERIMENT_STOPPED' if host['faulted'] else 'EXPERIMENT_RETURNED',host=host,
         identity=identity,source_sha256=frozen,sdk_sha256=sdk_hash,selected_functions=len(selected),
         rejected_functions=rejected,unselected_direct_targets=len(missing),budget=a.budget,explicit_wrapper=explicit_wrapper,included_roots=a.include,explicit_stops=a.stop_at,
-        generated_sha256=sha(generated),native_engine_started=False,cold_boot_supported=False,switch_hardware_tested=False)
+        generated_sha256=generated_files.get('generated.c'),generated_files_sha256=generated_files,compiled=compiled,
+        executable_sha256=sha(out/'startup-test.exe'),
+        initializer_tables=[dict(start=t['start'],end=t['end'],unique_roots=t['unique_roots'],table_sha256=t['table_sha256']) for t in table_reports],
+        native_engine_started=False,cold_boot_supported=False,switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k not in ('source_sha256','identity')},indent=2))
 
 
@@ -122,6 +164,9 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('exe','analysis','sdk','python-deps','helpers','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--entry',type=lambda s:int(s,0),required=True);p.add_argument('--budget',type=int,default=64)
+    p.add_argument('--split',type=int,default=0,help='Functions per generated compiler unit (1..512); required above budget512')
+    p.add_argument('--jobs',type=int,default=2,help='Concurrent compiler processes, 1..4, for split experiments')
+    p.add_argument('--include-table',type=Path,action='append',default=[],help='Revalidate an explicit initializer audit and include every known root; does not establish ABI or reachability')
     p.add_argument('--entry-end',type=lambda s:int(s,0),help='Isolated explicit 10-byte call/tail-jump wrapper audit, not cold-entry proof')
     p.add_argument('--include',type=lambda s:int(s,0),action='append',default=[],help='Prioritize an existing function in the bounded translation; not an entry override')
     p.add_argument('--stop-at',type=lambda s:int(s,0),action='append',default=[],help='Leave an existing function as an explicit diagnostic trap; do not explore its descendants')

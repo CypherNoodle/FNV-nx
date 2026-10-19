@@ -19,9 +19,25 @@ the generated leaf for ARM64; it does not execute it there.
 `tools/probe_captured_startup.py` is a bounded diagnostic experiment. Supply
 the installation, existing analysis, verified helper report, external SDK and
 Python dependencies, a fresh output directory and an explicit analysis entry.
-Its `--budget` bounds selected functions to at most 512. `--include` prioritizes
+Its `--budget` bounds selected functions to at most 32,768. Budgets above 512
+require `--split` (1..512 functions per compiler unit), with `--jobs` limited
+to 1..4 compiler processes. Small experiments keep the original single-unit
+mode by default. `--include` prioritizes
 an existing function observed as an indirect target. `--stop-at` leaves an
 existing function as a diagnostic trap and excludes its descendants.
+
+`--include-table /private/table-audit.json` revalidates an explicit table audit
+against the original installation and analysis database, then prioritizes all
+of its known roots. Repeat it for separate C and C++ tables. Every audited
+root must fit the selected budget or the experiment fails before compilation.
+This changes selection only; it never fabricates an unknown function, assumes
+the roots' ABI, or treats an unexecuted initializer as successfully run.
+
+Split experiments inventory hashes of each generated unit, shared declaration
+header, profile, object and linked host executable. Sources and objects are
+rechecked after execution. Reports distinguish the selected functions and
+initializer roots from the actual trace and stop reason. Detailed reports and
+compiler outputs remain private even when the probe tool is public.
 
 An optional `--entry-end` permits only a complete 10-byte direct call followed
 by a direct tail jump, with both destinations already in the function database.
@@ -64,6 +80,7 @@ their narrower validation scope.
 
 The small C initializer table was separately checked against the existing
 function database before supplying its roots. The larger C++ initializer table
-contains 17,728 known nonzero entries. The bounded probe does not execute that
-whole stage; full-generation coverage and later execution must be verified
-separately. Neither table audit establishes a cold entry.
+contains 17,728 known nonzero entries. The full generation now contains all
+of those dispatch destinations, but that is not evidence of their execution.
+The split host experiment can select them together; its runtime result must
+be checked separately. Neither table audit establishes a cold entry.

@@ -38,6 +38,19 @@ def run(command, log):
     return result.stdout
 
 
+def validate_selection_proof(audit, selection, report, report_sha256):
+    structure_only = audit.get('status') == 'STRUCTURE_PASS'
+    if (audit.get('status') not in ('PASS','STRUCTURE_PASS') or
+            (structure_only and (audit.get('audit_kind') != 'table-selection-structure-v1' or
+                                 audit.get('objects_compiled') is not False or audit.get('compiled') != [] or
+                                 not audit.get('source_sha256'))) or
+            audit.get('retained_function_bodies_identical') is not True or
+            audit.get('variant_report_sha256') != report_sha256 or
+            audit.get('selection') != selection or report.get('code_data_filter') != selection):
+        raise ValueError('Missing or mismatched prior code/data validation')
+    return structure_only
+
+
 def build(a):
     if not 1 <= a.jobs <= 8:
         raise ValueError('Use 1..8 compile jobs')
@@ -56,14 +69,17 @@ def build(a):
     audit = json.loads(a.audit_validation.read_text())
     if not selection or not report['full_selection'] or report['gaps']['failed_functions']:
         raise ValueError('Require a complete, successfully generated derived selection')
-    if (audit['status'] != 'PASS' or not audit['retained_function_bodies_identical'] or
-            audit['variant_report_sha256'] != sha(paths['report']) or
-            audit['selection'] != selection or report['code_data_filter'] != selection):
-        raise ValueError('Missing or mismatched prior code/data validation')
+    structure_only = validate_selection_proof(audit,selection,report,sha(paths['report']))
+    if structure_only:
+        # This build compiles every source below with the Switch ABI. A structural
+        # proof is not accepted as evidence of any pre-existing compiled object.
+        for name,digest in audit['source_sha256'].items():
+            if sha(Path(name)) != digest:raise ValueError('Changed structural audit input: '+name)
     sdk_hash = sdk_identity(sdk)
     if sdk_hash != report['sdk_sha256']:
         raise ValueError('SDK identity changed')
     frozen = {}
+    if structure_only:frozen.update({Path(name):digest for name,digest in audit['source_sha256'].items()})
     for name, digest in report['output_files'].items():
         path = paths['generated'] / name
         if sha(path) != digest:
@@ -214,8 +230,7 @@ def recheck(a):
     decoder.detail = True
     selection = verify_derivation(a.analysis.resolve(), decoder)
     audit = json.loads(a.audit_validation.read_text())
-    if audit['status'] != 'PASS' or audit['selection'] != selection:
-        raise ValueError('Code/data derivation no longer matches')
+    validate_selection_proof(audit,selection,json.loads(paths['report'].read_text()),sha(paths['report']))
     if len(prior['compiled']) != prior['compile_units']:
         raise ValueError('Incomplete unit inventory')
     for item in prior['compiled']:

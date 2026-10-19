@@ -1,4 +1,4 @@
-"""Verify table-only function selection and compile every generated C unit.
+"""Verify table-only function selection, optionally compiling all generated C.
 
 Outputs contain game-derived metadata and objects: keep private. A successful
 object build is not a linked engine, import implementation or native boot.
@@ -54,9 +54,23 @@ def dispatch(path):
     return result
 
 
-def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps, output, jobs, linker=None, nm=None):
+def matching_generation_inputs(before, after):
+    """Compare every code-generation overlay, including normal-frame helpers."""
+    required=('input_profile_sha256','sdk_sha256','index_wrapper_sha256','codegen_overlay','multiply_overlay')
+    if any(key not in report for key in required for report in (before,after)):
+        raise ValueError('Missing generation input identity')
+    for field in ('input_profile_sha256','sdk_sha256','index_wrapper_sha256',
+                  'codegen_overlay','multiply_overlay','frame_restore_overlay','normal_frame_helpers'):
+        if before.get(field)!=after.get(field):
+            raise ValueError('Unexpected generation input difference: '+field)
+    if after.get('normal_frame_helpers') and not after.get('frame_restore_overlay'):
+        raise ValueError('Normal-frame helpers require the frame restore overlay')
+
+
+def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps, output, jobs, linker=None, nm=None, audit_only=False):
     if not 1<=jobs<=8: raise ValueError('Use 1..8 compile jobs')
     if nm is not None and linker is None: raise ValueError('--nm requires --ld')
+    if audit_only and (linker is not None or nm is not None): raise ValueError('--audit-only cannot compile or link')
     if output.exists(): raise ValueError('Use a fresh private output directory')
     sys.path.insert(0,str(deps.resolve()));import capstone
     decoder=capstone.Cs(capstone.CS_ARCH_X86,capstone.CS_MODE_32);decoder.detail=True
@@ -67,8 +81,7 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
     paths=generation_paths(analysis.resolve(),name)
     before=json.loads(old_paths['report'].read_text());after=json.loads(paths['report'].read_text())
     if not before['full_selection'] or not after['full_selection']: raise ValueError('Complete generations required')
-    for field in ('input_profile_sha256','sdk_sha256','index_wrapper_sha256','codegen_overlay','multiply_overlay'):
-        if before[field]!=after[field]: raise ValueError('Unexpected generation input difference: '+field)
+    matching_generation_inputs(before,after)
     if after.get('code_data_filter')!=selection or after.get('scan_identity_sha256')!=sha(analysis/'scan-identity.json'):
         raise ValueError('Generation did not validate this table selection')
     sdk_hash=sdk_identity(sdk.resolve())
@@ -80,7 +93,16 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
                       ('runtime_header_sha256',pc/'native'/('fnv_'+stem+'.h'))):
             if sha(p)!=after[field][key]: raise ValueError('Overlay/runtime identity mismatch')
             frozen[p]=sha(p)
-    for p in (pc/'tools/aot_code_data.py',pc/'tools/verify_aot_code_data.py',paths['report'],analysis/'scan-identity.json'):
+    if after.get('frame_restore_overlay'):
+        p=pc/'tools/aot_frame_restore.py'
+        if sha(p)!=after['frame_restore_overlay']['source_sha256']:raise ValueError('Frame restore overlay changed')
+        frozen[p]=sha(p)
+    if after.get('normal_frame_helpers'):
+        from audit_seh_helpers import verify as verify_helpers
+        verify_helpers(analysis,after['normal_frame_helpers'])
+        verify_helpers(baseline_analysis,before['normal_frame_helpers'])
+        p=pc/'tools/audit_seh_helpers.py';frozen[p]=sha(p)
+    for p in (pc/'tools/aot_code_data.py',pc/'tools/verify_aot_code_data.py',paths['report'],old_paths['report'],analysis/'scan-identity.json'):
         frozen[p]=sha(p)
     runtime_headers={p:sha(p) for directory in (sdk/'templates/runtime',sdk/'src/kernel') for p in directory.rglob('*.h')}
     frozen.update(runtime_headers)
@@ -130,7 +152,9 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
         print('compiled' if result.returncode==0 else 'FAILED',name,flush=True)
         return dict(source=name,exit_code=result.returncode,object_sha256=sha(obj) if result.returncode==0 else None,
             object_bytes=obj.stat().st_size if result.returncode==0 else 0)
-    with ThreadPoolExecutor(max_workers=jobs) as pool: compiled=list(pool.map(compile_one,sources))
+    if audit_only:compiled=[]
+    else:
+        with ThreadPoolExecutor(max_workers=jobs) as pool: compiled=list(pool.map(compile_one,sources))
     partial_link=None
     if linker is not None and all(v['exit_code']==0 for v in compiled):
         partial=output/'fnv-generated-relocatable.o';response=output/'link.rsp'
@@ -150,11 +174,12 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
     if sdk_identity(sdk.resolve())!=sdk_hash or any(sha(p)!=h for p,h in frozen.items()) or verify_derivation(analysis,decoder)!=selection:
         raise ValueError('Validation inputs changed')
     collect(after,paths)
-    status='PASS' if all(v['exit_code']==0 for v in compiled) else 'COMPILE_FAILURE'
+    collect(before,old_paths)
+    status='STRUCTURE_PASS' if audit_only else 'PASS' if all(v['exit_code']==0 for v in compiled) else 'COMPILE_FAILURE'
     if partial_link and partial_link['exit_code']!=0: status='RELOCATABLE_LINK_FAILURE'
     if partial_link and any(re.fullmatch(r'sub_[0-9A-Fa-f]{8}',s) for s in partial_link.get('undefined_symbols',[])):
         status='GENERATED_SYMBOL_GAP'
-    result=dict(status=status,
+    result=dict(status=status,audit_kind='table-selection-structure-v1',objects_compiled=not audit_only,
         functions_generated=len(new),retained_function_bodies_identical=True,excluded_data_seeds=len(removed),
         unsupported_occurrences_removed_as_data={k:v for k,v in sorted(dropped.items()) if v},
         remaining_unsupported_occurrences=sum(map(len,after['gaps']['unsupported_instructions'].values())),
@@ -163,6 +188,7 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
         compiler_sha256=compiler_sha,sdk_runtime_header_sha256={p.relative_to(sdk).as_posix():h for p,h in runtime_headers.items()},
         partial_link=partial_link,
         baseline_report_sha256=sha(old_paths['report']),variant_report_sha256=sha(paths['report']),
+        source_sha256={str(p.resolve()):h for p,h in frozen.items()},
         native_engine_started=False,full_game_linked=False,cold_boot_supported=False)
     (output/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     return result
@@ -174,6 +200,7 @@ if __name__=='__main__':
     p.add_argument('--ld',type=Path,help='Optional partial link of all objects; undefined runtime symbols remain allowed')
     p.add_argument('--nm',type=Path,help='Optional undefined-symbol inventory after --ld')
     p.add_argument('--generation-name',required=True);p.add_argument('--baseline-name',required=True);p.add_argument('--jobs',type=int,default=4)
-    a=p.parse_args();r=verify(a.analysis,a.generation_name,a.baseline_analysis,a.baseline_name,a.sdk,a.cc,a.python_deps,a.output,a.jobs,a.ld,a.nm)
+    p.add_argument('--audit-only',action='store_true',help='Compare all bodies/dispatch/coverage; do not compile or link. Returns STRUCTURE_PASS, not a compiled-build PASS')
+    a=p.parse_args();r=verify(a.analysis,a.generation_name,a.baseline_analysis,a.baseline_name,a.sdk,a.cc,a.python_deps,a.output,a.jobs,a.ld,a.nm,a.audit_only)
     print(json.dumps({k:v for k,v in r.items() if k not in ('compiled','selection')},indent=2))
-    if r['status']!='PASS':raise SystemExit(1)
+    if r['status'] not in ('PASS','STRUCTURE_PASS'):raise SystemExit(1)
