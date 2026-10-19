@@ -22,6 +22,7 @@ def probe(a):
     if a.output.exists() or not 1<=a.budget<=32768:raise ValueError('Fresh output; budget 1..32768')
     if not 1<=a.jobs<=4 or not 0<=a.split<=512:raise ValueError('Use 1..4 compiler jobs and split 0..512')
     if a.budget>512 and not a.split:raise ValueError('Large experiments require --split to bound compiler units')
+    if bool(a.generation_name)!=bool(a.generation_validation):raise ValueError('Generation name and validation must be supplied together')
     sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve())]
     from capstone import Cs,CS_ARCH_X86,CS_MODE_32,CS_GRP_JUMP,CS_GRP_RET
     from capstone.x86_const import X86_OP_IMM
@@ -62,11 +63,28 @@ def probe(a):
         db[a.entry]=dict(start=hex(a.entry),end=a.entry_end,size=10,name=f'sub_{a.entry:08X}',section='.text',called_by=[])
     if any(at not in db for at in [*a.include,*a.stop_at]):raise ValueError('Requested address absent from existing function database')
     if a.entry in a.stop_at:raise ValueError('Cannot exclude the requested entry')
+    config.configure_from_xbe(str(analysis/'fnv-analysis.xbe'));simd();multiply();install()
+    translator=FunctionTranslator(image,db,seh_prolog=prolog['address'],seh_epilog=epilog['address'])
+    generation_info=None;generation_inputs=[];generation_bodies={};generation_refs={};generation_symbols={}
+    if a.generation_name:
+        from generated_subset import read_generation
+        generation_bodies,generation_refs,generation_symbols,generation_inputs,generation_info=read_generation(
+            analysis,a.generation_name,a.generation_validation.resolve(),decoder,sdk_identity(sdk))
+        if explicit_wrapper:
+            source=translator.translate_function(a.entry,db[a.entry])
+            if not source or any(m in source for m in ('translation failed',': unhandled */','recomp_unimpl(')):
+                raise ValueError('Unsupported explicit wrapper')
+            generation_bodies[a.entry]=source;generation_refs[a.entry]=set(explicit_wrapper['targets'])
+            generation_symbols[a.entry]=f'sub_{a.entry:08X}'
     selected={};decode_rejected=set();pending=deque([a.entry,prolog['address'],epilog['address'],*a.include])
     while pending and len(selected)<a.budget:
         at=pending.popleft()
         if at in selected or at not in db or at in a.stop_at:continue
         info=db[at];end=int(info['end'],0) if isinstance(info['end'],str) else info['end']
+        if generation_info:
+            if at not in generation_bodies:raise ValueError('Known selected function absent from complete generation')
+            selected[at]=dict(info,end=end,size=end-at,name=f'sub_{at:08X}')
+            pending.extend(sorted(generation_refs[at]));continue
         code=body(at,end);instructions=list(decoder.disasm(code,at))
         selected[at]=dict(info,end=end,size=end-at,name=f'sub_{at:08X}')
         if not instructions or sum(i.size for i in instructions)!=len(code):
@@ -83,27 +101,30 @@ def probe(a):
     own=[Path(__file__),pc/'tests/captured_startup_host.c',pc/'tools/aot_frame_restore.py',pc/'tools/aot_simd_bits.py',pc/'tools/aot_mul_flags.py',
         pc/'tools/audit_startup.py',pc/'tools/audit_install.py',pc/'tools/audit_seh_helpers.py',pc/'tools/run_aot_analysis.py',database,a.helpers.resolve()]
     if table_reports:own += [pc/'tools/audit_initializer_table.py',*[p.resolve() for p in a.include_table]]
+    if generation_info:own += [pc/'tools/generated_subset.py',pc/'tools/verify_aot_code_data.py',pc/'tools/build_cpu_runtime.py',pc/'tools/aot_code_data.py',*generation_inputs]
     native=[pc/'native'/n for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]
     frozen={str(p.resolve()):sha(p) for p in [*own,*native,Path(a.cc[0]).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     sdk_hash=sdk_identity(sdk);a.output.mkdir(parents=True);out=a.output.resolve()
-    config.configure_from_xbe(str(analysis/'fnv-analysis.xbe'));simd();multiply();install()
     # Keep all known boundaries visible: an unselected hotpatch continuation
     # must become an explicit trap, never an empty successful C return.
-    translator=FunctionTranslator(image,db,seh_prolog=prolog['address'],seh_epilog=epilog['address'])
     snippets=[];rejected=[]
     for at,info in selected.items():
-        source='' if at in decode_rejected else translator.translate_function(at,info)
+        source=generation_bodies[at] if generation_info else '' if at in decode_rejected else translator.translate_function(at,info)
         if at in decode_rejected or '/* translation failed */' in source or ': unhandled */' in source:
-            rejected.append(at);source=f'void sub_{at:08X}(void){{recomp_unimpl("Rejected startup translation",0x{at:X}u);}}\n'
+            rejected.append(at);source=f'void {generation_symbols.get(at,f"sub_{at:08X}")}(void){{recomp_unimpl("Rejected startup translation",0x{at:X}u);}}\n'
         snippets.append(source.replace('RECOMP_ICALL_SAFE_AT(', 'FNV_STARTUP_ICALL('))
-    references={int(m,16) for source in snippets for m in re.findall(r'\bsub_([0-9A-Fa-f]{8})\b',source)}
+    references=({v for at in selected for v in generation_refs[at]} if generation_info else
+                {int(m,16) for source in snippets for m in re.findall(r'\bsub_([0-9A-Fa-f]{8})\b',source)})
     missing=references-set(selected)
     header='#include "fnv_sdk_runtime.h"\n#include "fnv_simd_bits.h"\n#include "fnv_mul_flags.h"\n'
     header+='extern uint32_t fnv_probe_site;\n#define FNV_STARTUP_ICALL(target, saved, site) do { fnv_probe_site=(site); RECOMP_ICALL_SAFE_AT(target,saved,site); } while(0)\n'
-    header+=''.join(f'void sub_{at:08X}(void);\n' for at in sorted(references|set(selected)))
-    stubs=''.join(f'void sub_{at:08X}(void){{recomp_unimpl("Unselected startup target",0x{at:X}u);}}\n' for at in sorted(missing))
-    lookup='recomp_func_t recomp_lookup(uint32_t at){switch(at){'+''.join(f'case 0x{at:X}u:return sub_{at:08X};' for at in sorted(references|set(selected)))+'default:return NULL;}}\n'
+    def symbol(at):return generation_symbols.get(at,f'sub_{at:08X}')
+    header+=''.join(f'void {symbol(at)}(void);\n' for at in sorted(references|set(selected)))
+    stubs=''.join(f'void {symbol(at)}(void){{recomp_unimpl("Unselected startup target",0x{at:X}u);}}\n' for at in sorted(missing))
+    lookup='static const struct {uint32_t at;recomp_func_t function;} probe_functions[]={'+''.join(
+        f'{{0x{at:X}u,{symbol(at)}}},' for at in sorted(references|set(selected)))+'};\n'
+    lookup+='recomp_func_t recomp_lookup(uint32_t at){size_t low=0,high=sizeof(probe_functions)/sizeof(probe_functions[0]);while(low<high){size_t mid=low+(high-low)/2;if(probe_functions[mid].at<at)low=mid+1;else high=mid;}return low<sizeof(probe_functions)/sizeof(probe_functions[0]) && probe_functions[low].at==at?probe_functions[low].function:NULL;}\n'
     generated=[]
     if a.split:
         (out/'generated_functions.h').write_text(header)
@@ -156,6 +177,7 @@ def probe(a):
         generated_sha256=generated_files.get('generated.c'),generated_files_sha256=generated_files,compiled=compiled,
         executable_sha256=sha(out/'startup-test.exe'),
         initializer_tables=[dict(start=t['start'],end=t['end'],unique_roots=t['unique_roots'],table_sha256=t['table_sha256']) for t in table_reports],
+        generation=generation_info,
         native_engine_started=False,cold_boot_supported=False,switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k not in ('source_sha256','identity')},indent=2))
 
@@ -167,6 +189,8 @@ if __name__=='__main__':
     p.add_argument('--split',type=int,default=0,help='Functions per generated compiler unit (1..512); required above budget512')
     p.add_argument('--jobs',type=int,default=2,help='Concurrent compiler processes, 1..4, for split experiments')
     p.add_argument('--include-table',type=Path,action='append',default=[],help='Revalidate an explicit initializer audit and include every known root; does not establish ABI or reachability')
+    p.add_argument('--generation-name',help='Use exact bodies and references from an already audited complete generation instead of the bounded linear decoder')
+    p.add_argument('--generation-validation',type=Path,help='Frozen complete code/data comparison proof for --generation-name')
     p.add_argument('--entry-end',type=lambda s:int(s,0),help='Isolated explicit 10-byte call/tail-jump wrapper audit, not cold-entry proof')
     p.add_argument('--include',type=lambda s:int(s,0),action='append',default=[],help='Prioritize an existing function in the bounded translation; not an entry override')
     p.add_argument('--stop-at',type=lambda s:int(s,0),action='append',default=[],help='Leave an existing function as an explicit diagnostic trap; do not explore its descendants')

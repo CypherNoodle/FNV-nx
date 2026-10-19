@@ -39,6 +39,30 @@ rechecked after execution. Reports distinguish the selected functions and
 initializer roots from the actual trace and stop reason. Detailed reports and
 compiler outputs remain private even when the probe tool is public.
 
+The probe dispatcher uses a sorted array and binary search, including explicit
+direct-target traps. Missing addresses still return null to the CPU runtime.
+This avoids generating a single enormous C switch when tens of thousands of
+functions are selected. The first bulk attempt exceeded the compiler's
+120-second limit on that old switch before it could link or execute; this was
+a diagnostic build failure, not an observed game crash.
+
+Use `--generation-name NAME --generation-validation /private/validation.json`
+to select exact function bodies and direct references from a complete generation
+that has already passed the code/data comparison. This mode revalidates the
+derived selection, proof dependencies, SDK identity, every generated file,
+definition count and dispatch mapping. Named symbols such as the analysis
+entry retain their original names; they are not renamed or inferred as a cold
+entry. Only the separately audited 10-byte wrapper is generated locally.
+
+This mode avoids applying the bounded probe's whole-span linear decoder to
+functions that contain inline tables. The first large bounded experiment
+executed 379 indirect calls, then stopped at such a rejected copy routine;
+that does not establish a bad instruction in the full generation. The small
+generated-body control selects 316 functions and reproduces exactly the bounded
+probe's 336-call host state and stop. Large generated-body execution remains a
+separate experiment. Runtime traps in generated functions remain in place;
+unselected/unresolved direct targets remain explicit diagnostic stubs.
+
 An optional `--entry-end` permits only a complete 10-byte direct call followed
 by a direct tail jump, with both destinations already in the function database.
 This is a private wrapper experiment, not production entry registration. The
