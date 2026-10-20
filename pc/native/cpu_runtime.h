@@ -1,6 +1,37 @@
 #ifndef FNV_PC_CPU_RUNTIME_H
 #define FNV_PC_CPU_RUNTIME_H
 #include "pe_image.h"
+#ifdef FNV_CPU_EXTENDED_X87
+#include "x87_stack.h"
+#endif
+
+#ifdef FNV_CPU_EXTENDED_X87
+#define FNV_CPU_X87_STATE_ABI 0x58383701u
+/* Every native bridge and generated unit must use the same build mode.
+ * Distinct symbols make mixed CPU objects fail to link instead of copying
+ * differently sized state structures across the boundary. */
+#define fnv_cpu_create fnv_cpu_create_x87e1
+#define fnv_cpu_destroy fnv_cpu_destroy_x87e1
+#define fnv_cpu_register_native fnv_cpu_register_native_x87e1
+#define fnv_cpu_unregister_native fnv_cpu_unregister_native_x87e1
+#define fnv_cpu_prepare_memory fnv_cpu_prepare_memory_x87e1
+#define fnv_cpu_current fnv_cpu_current_x87e1
+#define fnv_cpu_import_token fnv_cpu_import_token_x87e1
+#define fnv_cpu_is_faulted fnv_cpu_is_faulted_x87e1
+#define fnv_cpu_invalidate fnv_cpu_invalidate_x87e1
+#define fnv_cpu_bind_imports fnv_cpu_bind_imports_x87e1
+#define fnv_cpu_state_init fnv_cpu_state_init_x87e1
+#define fnv_cpu_attach fnv_cpu_attach_x87e1
+#define fnv_cpu_detach fnv_cpu_detach_x87e1
+#define fnv_cpu_get_state fnv_cpu_get_state_x87e1
+#define fnv_cpu_set_state fnv_cpu_set_state_x87e1
+#define fnv_cpu_execute fnv_cpu_execute_x87e1
+#define fnv_cpu_exit_thread fnv_cpu_exit_thread_x87e1
+#define fnv_cpu_memory fnv_cpu_memory_x87e1
+#define fnv_cpu_try_memory fnv_cpu_try_memory_x87e1
+#define fnv_cpu_argument_u32 fnv_cpu_argument_u32_x87e1
+#define fnv_cpu_return_u32 fnv_cpu_return_u32_x87e1
+#endif
 
 typedef void (*fnv_cpu_function)(void);
 #define FNV_CPU_MAX_NATIVE_METHODS 1024u
@@ -16,13 +47,21 @@ enum fnv_cpu_fault_kind {
     FNV_CPU_BAD_MEMORY, FNV_CPU_CPUID_UNAVAILABLE, FNV_CPU_CLOCK_UNAVAILABLE,
     FNV_CPU_CLOCK_BACKWARDS, FNV_CPU_PEER_FAULT
 };
-/* Matches the external SDK's current model, not a complete architectural
- * EFLAGS/x87-80/MXCSR/SEH implementation. GPR order: x86 encoding order. */
+/* GPR order: x86 encoding order. Default preserves the SDK's legacy x87
+ * model. The extended build is a distinct CPU ABI, not a binary64 projection.
+ * Neither ABI claims full EFLAGS/MXCSR/SEH or guest x87 exception delivery. */
 struct fnv_cpu_state {
     uint32_t gpr[8], fs_base, seh_ebp;
+#ifdef FNV_CPU_EXTENDED_X87
+    struct fnv_x87_stack x87_extended;
+    struct fnv_x87_environment x87_environment;
+    uint32_t x87_state_abi;
+    int32_t direction;
+#else
     double x87[8];
     int32_t x87_top, direction, fp_compare;
     uint16_t fp_control, fp_status;
+#endif
     unsigned char xmm[8][16];
     uint64_t mmx[8];
 };

@@ -10,9 +10,15 @@ _Static_assert(sizeof(RecompXmm)==16 && sizeof(RecompMmx)==8, "Review SDK vector
 ptrdiff_t g_xbox_mem_offset;
 uint32_t g_xbox_code_lo, g_xbox_code_hi;
 RECOMP_TLS uint32_t g_eax,g_ecx,g_edx,g_ebx,g_esp,g_ebp,g_esi,g_edi;
+RECOMP_TLS int g_df;
+#ifdef FNV_CPU_EXTENDED_X87
+RECOMP_TLS struct fnv_x87_stack fnv_x87_state;
+RECOMP_TLS struct fnv_x87_environment fnv_x87_environment_state;
+#else
 RECOMP_TLS double g_fp_stack[8];
-RECOMP_TLS int g_fp_top,g_df,g_fp_cmp;
+RECOMP_TLS int g_fp_top,g_fp_cmp;
 RECOMP_TLS uint16_t g_fp_control_word,g_fp_cc;
+#endif
 RECOMP_TLS uint32_t g_fs_base,g_seh_ebp;
 RECOMP_TLS RecompXmm g_xmm0,g_xmm1,g_xmm2,g_xmm3,g_xmm4,g_xmm5,g_xmm6,g_xmm7;
 RECOMP_TLS RecompMmx g_mm0,g_mm1,g_mm2,g_mm3,g_mm4,g_mm5,g_mm6,g_mm7;
@@ -51,9 +57,14 @@ static void save_state(struct fnv_cpu_state *s) {
     memset(s,0,sizeof(*s));
     s->gpr[0]=g_eax;s->gpr[1]=g_ecx;s->gpr[2]=g_edx;s->gpr[3]=g_ebx;
     s->gpr[4]=g_esp;s->gpr[5]=g_ebp;s->gpr[6]=g_esi;s->gpr[7]=g_edi;
-    s->fs_base=g_fs_base;s->seh_ebp=g_seh_ebp;memcpy(s->x87,g_fp_stack,sizeof(s->x87));
-    s->x87_top=g_fp_top;s->direction=g_df;s->fp_compare=g_fp_cmp;
+    s->fs_base=g_fs_base;s->seh_ebp=g_seh_ebp;s->direction=g_df;
+#ifdef FNV_CPU_EXTENDED_X87
+    s->x87_extended=fnv_x87_state;s->x87_environment=fnv_x87_environment_state;
+    s->x87_state_abi=FNV_CPU_X87_STATE_ABI;
+#else
+    memcpy(s->x87,g_fp_stack,sizeof(s->x87));s->x87_top=g_fp_top;s->fp_compare=g_fp_cmp;
     s->fp_control=g_fp_control_word;s->fp_status=g_fp_cc;
+#endif
     for(unsigned i=0;i<8;i++){memcpy(s->xmm[i],x[i],16);s->mmx[i]=m[i]->q;}
 }
 static void restore_state(const struct fnv_cpu_state *s) {
@@ -61,9 +72,13 @@ static void restore_state(const struct fnv_cpu_state *s) {
     RecompMmx *m[]={&g_mm0,&g_mm1,&g_mm2,&g_mm3,&g_mm4,&g_mm5,&g_mm6,&g_mm7};
     g_eax=s->gpr[0];g_ecx=s->gpr[1];g_edx=s->gpr[2];g_ebx=s->gpr[3];
     g_esp=s->gpr[4];g_ebp=s->gpr[5];g_esi=s->gpr[6];g_edi=s->gpr[7];
-    g_fs_base=s->fs_base;g_seh_ebp=s->seh_ebp;memcpy(g_fp_stack,s->x87,sizeof(s->x87));
-    g_fp_top=s->x87_top;g_df=s->direction;g_fp_cmp=s->fp_compare;
+    g_fs_base=s->fs_base;g_seh_ebp=s->seh_ebp;g_df=s->direction;
+#ifdef FNV_CPU_EXTENDED_X87
+    fnv_x87_state=s->x87_extended;fnv_x87_environment_state=s->x87_environment;
+#else
+    memcpy(g_fp_stack,s->x87,sizeof(s->x87));g_fp_top=s->x87_top;g_fp_cmp=s->fp_compare;
     g_fp_control_word=s->fp_control;g_fp_cc=s->fp_status;
+#endif
     for(unsigned i=0;i<8;i++){memcpy(x[i],s->xmm[i],16);m[i]->q=s->mmx[i];}
 }
 static int within(const struct fnv_cpu_runtime *r,uint32_t at,size_t bytes) {
@@ -71,9 +86,17 @@ static int within(const struct fnv_cpu_runtime *r,uint32_t at,size_t bytes) {
     return at>=r->config.guest_base && at<=end && bytes<=end-at;
 }
 static int valid_state(const struct fnv_cpu_runtime *r,const struct fnv_cpu_state *s) {
-    return s && s->x87_top>=0 && s->x87_top<8 && (s->direction==0 || s->direction==1) &&
-        s->fp_compare>=-1 && s->fp_compare<=2 && within(r,s->gpr[4],4) &&
-        (!s->fs_base || within(r,s->fs_base,4));
+    if(!s || (s->direction!=0 && s->direction!=1) || !within(r,s->gpr[4],4) ||
+       (s->fs_base && !within(r,s->fs_base,4)))return 0;
+#ifdef FNV_CPU_EXTENDED_X87
+    unsigned control=s->x87_extended.control;
+    return s->x87_state_abi==FNV_CPU_X87_STATE_ABI && s->x87_extended.top<8 &&
+        ((s->x87_extended.status>>11)&7u)==s->x87_extended.top &&
+        (control&0x7fu)==0x7fu && !(control&~0x1f7fu) && ((control>>8)&3u)!=1 &&
+        !(s->x87_extended.status&0x8080u) && s->x87_environment.opcode<=0x7ff;
+#else
+    return s->x87_top>=0 && s->x87_top<8 && s->fp_compare>=-1 && s->fp_compare<=2;
+#endif
 }
 static _Noreturn void fail(enum fnv_cpu_fault_kind kind,uint32_t address_value,uint32_t detail,const char *text) {
     if(thread_runtime && fault_boundary) {
@@ -182,7 +205,13 @@ uint32_t fnv_cpu_import_token(fnv_cpu_function function){
     return 0;
 }
 void fnv_cpu_state_init(struct fnv_cpu_state *s,uint32_t stack,uint32_t fs) {
-    if(s){memset(s,0,sizeof(*s));s->gpr[4]=stack;s->fs_base=fs;s->fp_control=0x037F;}
+    if(s){memset(s,0,sizeof(*s));s->gpr[4]=stack;s->fs_base=fs;
+#ifdef FNV_CPU_EXTENDED_X87
+        s->x87_state_abi=FNV_CPU_X87_STATE_ABI;s->x87_extended.control=0x037f;
+#else
+        s->fp_control=0x037f;
+#endif
+    }
 }
 enum fnv_cpu_result fnv_cpu_attach(struct fnv_cpu_runtime *r,const struct fnv_cpu_state *s) {
     if(thread_runtime)return FNV_CPU_BUSY;

@@ -12,6 +12,8 @@ enum fnv_x87_stack_result {
     FNV_X87_STACK_FULL, FNV_X87_STACK_UNSUPPORTED
 };
 void fnv_x87_stack_init(struct fnv_x87_stack *state);
+/* Architectural FNINIT reset retains the physical register payloads. */
+void fnv_x87_stack_reset(struct fnv_x87_stack *state);
 enum fnv_x87_stack_result fnv_x87_stack_load(struct fnv_x87_stack *state,const unsigned char bytes[10]);
 enum fnv_x87_stack_result fnv_x87_stack_store_pop(struct fnv_x87_stack *state,unsigned char bytes[10]);
 enum fnv_x87_stack_result fnv_x87_stack_binary_pop(struct fnv_x87_stack *state,enum fnv_x87_operation operation);
@@ -33,6 +35,24 @@ enum fnv_x87_stack_result fnv_x87_stack_binary_memory(struct fnv_x87_stack *stat
 enum fnv_x87_stack_result fnv_x87_stack_compare_memory(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width,int pop);
 enum fnv_x87_stack_result fnv_x87_stack_test_zero(struct fnv_x87_stack *state);
 enum fnv_x87_stack_result fnv_x87_stack_sign(struct fnv_x87_stack *state,int absolute);
+enum fnv_x87_constant { FNV_X87_ZERO,FNV_X87_ONE,FNV_X87_PI,FNV_X87_LOG2E,FNV_X87_LOG2TEN,FNV_X87_LOG10TWO,FNV_X87_LN2 };
+enum fnv_x87_stack_result fnv_x87_stack_math_constant(struct fnv_x87_stack *state,unsigned constant);
+enum fnv_x87_stack_result fnv_x87_stack_wait(const struct fnv_x87_stack *state);
+enum fnv_x87_stack_result fnv_x87_stack_examine(struct fnv_x87_stack *state);
+enum fnv_x87_stack_result fnv_x87_stack_free(struct fnv_x87_stack *state,unsigned index);
+/* Protected-mode, 32-bit operand-size environment. The caller must supply
+ * audited guest instruction/data pointers; no host addresses are substituted. */
+struct fnv_x87_environment {
+    uint32_t instruction_pointer,data_pointer;
+    uint16_t code_selector,data_selector,opcode;
+};
+/* full=0: 28-byte FNSTENV/FLDENV image; full=1: 108-byte FNSAVE/FRSTOR.
+ * Saving masks exceptions (environment) or resets state (full). Restoring
+ * checks old pending exceptions first; unsupported inputs leave state intact.
+ * Guest pointer tracking requires the separate opt-in environment overlay. */
+enum fnv_x87_stack_result fnv_x87_stack_save32(struct fnv_x87_stack *,struct fnv_x87_environment *,unsigned char *,unsigned bytes,int full);
+enum fnv_x87_stack_result fnv_x87_stack_restore32(struct fnv_x87_stack *,struct fnv_x87_environment *,const unsigned char *,unsigned bytes,int full);
+
 /* Full/empty/unsupported are explicit precondition failures, not implemented
  * x87 stack-fault delivery. Only masked exceptions are supported by this
  * staging core; unmasked controls and pending ES are rejected without writes. */

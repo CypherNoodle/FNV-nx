@@ -12,4 +12,18 @@ extern RECOMP_TLS volatile uint64_t fnv_cpu_icall_count;
 #define g_icall_trace fnv_cpu_icall_trace
 #define g_icall_trace_idx fnv_cpu_icall_trace_idx
 #define g_icall_count fnv_cpu_icall_count
+#ifdef FNV_CPU_EXTENDED_X87
+#include "x87_stack.h"
+extern RECOMP_TLS struct fnv_x87_stack fnv_x87_state;
+extern RECOMP_TLS struct fnv_x87_environment fnv_x87_environment_state;
+/* The SDK's unused function-local FP macros may remain in a function prelude.
+ * Expanding one, or referring to an old FP global, must fail to compile. Old
+ * precompiled FP code also cannot link: extended runtime defines none of the
+ * legacy FP globals. The external SDK itself is never edited. */
+#define g_fp_stack FNV_FORBIDDEN_LEGACY_X87_STACK
+#define g_fp_top FNV_FORBIDDEN_LEGACY_X87_TOP
+#define g_fp_cmp FNV_FORBIDDEN_LEGACY_X87_COMPARE
+#define g_fp_control_word FNV_FORBIDDEN_LEGACY_X87_CONTROL
+#define g_fp_cc FNV_FORBIDDEN_LEGACY_X87_STATUS
+#endif
 #endif
