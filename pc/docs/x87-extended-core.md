@@ -43,7 +43,48 @@ mandatory frame overlay and provide `x87_stack.h` plus a context named
 `fnv_x87_state`. It emits calls for the implemented memory and arithmetic forms.
 All other x87 forms stop explicitly, so the new stack cannot silently mix with
 the SDK's existing double-backed stack. The game's normal generation does not
-enable this overlay, and its CPU state ABI has not been migrated yet.
+enable this overlay. A separate experimental runtime ABI now preserves its
+extended state per thread; see [CPU context integration](cpu-x87-context.md).
+The whole-engine generation has not been migrated.
+
+The constant-load family includes PI, log2(e), log2(10), log10(2) and ln(2).
+Their extended payloads follow the guest rounding mode; precision control does
+not narrow these constant loads. `FXAM` classifies raw representations, including
+empty registers, and reports the physical payload sign in C1 even when empty.
+`FFREE` changes occupancy without erasing the payload. Architectural `FNINIT`
+resets control, status and tags while retaining physical register values; fresh
+context construction is a separate operation.
+
+Ten-byte memory loads/stores preserve all raw payloads, including signaling
+NaNs, denormals, pseudo-denormals and unsupported encodings. This transport
+support does not imply arithmetic support for every encoding. Numeric consumers
+reject unimplemented inputs without changing the destination. `WAIT` and `FNOP`
+check pending exception state rather than silently discarding it; guest exception
+delivery remains unsupported.
+
+The independent environment API implements protected-mode 32-bit images:
+28 bytes for environment save/restore and 108 bytes including all registers.
+`fnv_x87_stack_save32` writes logical ST(0)..ST(7) register payloads while the
+tag word describes physical R0..R7. Environment-only saves mask exceptions;
+full saves reset the controls/tags and pointer metadata without erasing physical
+payloads. Restores use the tag word for occupancy, then classify nonempty raw
+payloads when saving again. Rejected lengths, control settings and pending old
+exceptions leave the context and metadata unchanged.
+
+Instruction/data pointers, selectors and the last opcode are explicit caller
+metadata. They must come from audited guest state, never host addresses. The separate `install_environment` overlay now translates those four
+instructions and tracks guest pointers for successful supported operations.
+It requires explicit guest CS/DS/SS selectors, FOP compatibility policy and FDP
+exception-only policy. It never infers this contract from host CPUID. WAIT and
+control instructions preserve pointer metadata; FNINIT clears it. Instruction
+addresses include prefixes. Register-only operations retain the otherwise
+undefined data pointer. The engine's normal generation still does not enable
+this overlay, and runtime context integration remains required. Real-mode and 16-bit images,
+FXSAVE/SSE state, and unmasked exception delivery are not implemented here.
+
+The opt-in generation/compiler contract and SAHF flag bridge are described in
+[generation integration](x87-generation.md). Remaining comparison-to-EFLAGS and
+math forms still require migration before a complete game generation can pass.
 
 ## Reproducing the checks
 
@@ -85,6 +126,47 @@ ARM64 executes the same decoded form. The control suite additionally checks
 memory comparisons and sign operations, excluding undefined sign-op condition
 bits and starting the native FPU in an explicit known state.
 
+`tests/test_x87_special.py` checks the constant family, raw ten-byte transport,
+`FXAM`, `FFREE`, `FNINIT`, `WAIT` and `FNOP` against native x87 and emitted ARM64.
+It includes 56 raw patterns, precision/rounding controls, sticky flags and failure
+checks that require unchanged state and destination bytes. FXAM's C1 is compared
+even for empty registers, following the
+[Intel instruction reference](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf).
+It accepts the same build and output arguments as the other suites.
+
+`tests/test_x87_environment.py` compares the environment API directly with
+native `FRSTOR`, `FLDENV`, `FNSTENV` and `FNSAVE`, then executes the same API
+under ARM64 emulation. It covers 8,192 cases over all TOP positions, partial
+occupancy, normal/special raw values, pointer metadata and physical-register
+preservation after reset. A separate native check covers all 64 exception-mask
+combinations during environment save. These are API checks, not translated
+instruction or engine-boot checks. Run with `--build`, `--arm-build`,
+`--python-deps` and a fresh `--output`.
+
+`tests/test_x87_environment_translation.py` runs those native image vectors
+through decoded x86 instructions and emitted ARM64, under four explicit FOP/FDP
+profiles: 32,768 image comparisons. It separately checks 32 ARM64 metadata
+sequences and 28 structural control/reset cases. The native helper verifies FIP
+for ordinary/prefixed loads, FNOP, preserving controls and FNINIT directly.
+Those FIP observations use actual native labels; the legacy opcode policy and
+FDP feature variants are architectural checks, not host-feature equivalence.
+
+The SDK decoder reports full-state operands as four bytes and keeps a 28-byte
+environment width even with an operand-size prefix. This overlay inspects the
+encoded prefixes and uses explicit 28/108-byte sizes. It rejects 16-bit images,
+16-bit addressing and FS/GS operands rather than silently losing segment state.
+It currently models selectors without the newer deprecated-FCS/FDS feature.
+The chosen CPU contract must respect that limit. No guest profile is selected
+or changed by these tests. The architectural rules follow
+[Intel's x87 state description](https://cdrdv2-public.intel.com/843827/253665-sdm-vol-1-dec-24.pdf).
+
+Two development oracle runs observed pointer metadata cleared unexpectedly;
+a diagnostic repeat matched the software result. Their failure logs remain
+preserved. The helper now keeps each instruction sequence in one volatile asm
+block and prints repeat diagnostics on a mismatch, but never accepts a retry
+inside a failed run. A later complete run passed. The cause of the intermittent
+host observation is unresolved; an engine or hardware result is not inferred.
+
 The native oracle currently requires an x86-64 Windows host and GCC-compatible
 inline assembly. It uses binary pipes, not text-mode standard streams.
 
@@ -95,12 +177,13 @@ This is a compilation check, separate from the bare ARM64 emulation run.
 ## Remaining boundaries
 
 This is not yet a complete x87 implementation or an engine-boot result.
-Arithmetic on extended-denormal operands, noncanonical encodings, extended
-signaling-NaN loads, C1, architectural tag/environment instructions, stack
-fault delivery, unmasked exceptions and transcendental instructions remain
-outside the implemented stack contract. Such unsupported stack inputs are
-rejected rather than approximated. Unmasked controls are rejected without
-modifying the stack; no guest exception delivery is claimed.
+Arithmetic on extended-denormal operands, noncanonical encodings and register
+signaling NaNs remains restricted. Numeric rounding C1, engine-integrated architectural
+environment instructions, stack-fault delivery, unmasked arithmetic exceptions
+and transcendental instructions remain outside the implemented contract.
+Unsupported numeric inputs are rejected rather than approximated. Arithmetic
+with unmasked controls is rejected without modifying the stack; the pending-state
+check used by WAIT does not itself deliver a guest exception.
 
 FCOMI integer-EFLAGS integration and transcendental operations are still missing.
 Control/status support above is a subset, not a full environment implementation.
@@ -108,6 +191,6 @@ Control/status support above is a subset, not a full environment implementation.
 The low-level arithmetic API returns raised flags independently of masking;
 it does not publish a guest instruction's result or deliver an exception.
 Only the restricted masked stack contract is exercised by emitted sequences.
-The existing game's runtime still uses its original state representation and
+The default game build still uses its original state representation and
 temporary ten-byte guard until a matching, fully audited generation is ready.
 No Switch hardware result or NRO delivery follows from these tests.
