@@ -34,6 +34,10 @@ C1 differences in these cases, reported as
 Payloads and exception bits match; full x87 flag identity is not claimed. The
 trigonometric model has its separately documented numerical/C1 limitations.
 
+An [isolated arithmetic C1 correction](x87-c1-candidate.md) now passes native
+and ARM64 differential checks, including a private stack-source experiment.
+It has not been integrated into the production core or the ES-profile build.
+
 Changing a generation profile requires a fresh generation and matched CPU
 compilation. The preceding partial CPU build was interrupted and marked
 incomplete before changing these frozen code-generation inputs. The new paired
