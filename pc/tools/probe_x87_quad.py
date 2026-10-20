@@ -9,12 +9,36 @@ from decimal import Decimal,localcontext
 import hashlib
 import json
 from pathlib import Path
+import random
 import struct
 import subprocess
 import sys
 
 
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def reduction_table():
+    """32 base-2^24 limbs of 2/pi, calculated twice with guard precision.
+
+    Machin's identity uses integer fixed-point arctangent series only. No
+    library table or binary64 constants are copied into the research probe.
+    """
+    def calculate(guard):
+        bits=32*24;unit=1<<(bits+guard)
+        def atan_inverse(q):
+            power=unit//q;total=0;index=0
+            while power:
+                term=power//(2*index+1)
+                total+=term if not index%2 else -term
+                power//=q*q;index+=1
+            return total
+        pi=16*atan_inverse(5)-4*atan_inverse(239)
+        value=(2*unit*unit//pi)>>guard
+        return [(value>>(24*(31-i)))&0xffffff for i in range(32)]
+    result=calculate(96)
+    if result!=calculate(192):raise ValueError('Unstable reduction table')
+    return result
 
 
 def rounded_ext80(data):
@@ -47,7 +71,10 @@ def probe(a):
     if a.output.exists():raise ValueError('Fresh output required')
     out=a.output.resolve();out.mkdir(parents=True);pc=Path(__file__).resolve().parents[1]
     source=pc/'tests/x87_quad_probe.c';oracle=pc/'tests/x87_quad_oracle.c'
-    frozen={str(p):sha(p) for p in (Path(__file__).resolve(),source,oracle,a.cc.resolve(),Path(a.host_cc[0]).resolve())}
+    adapter=pc/'tests/x87_quad_reducer_probe.c'
+    inputs=(Path(__file__).resolve(),source,oracle,a.cc.resolve(),Path(a.host_cc[0]).resolve())
+    if a.repair_reducer_abi:inputs=(*inputs,adapter)
+    frozen={str(p):sha(p) for p in inputs}
     def run(command,log):
         r=subprocess.run([str(x) for x in command],capture_output=True,text=True);(out/log).write_text(r.stdout+r.stderr)
         if r.returncode:raise RuntimeError(r.stderr[-3000:] or str(r.returncode))
@@ -59,7 +86,13 @@ def probe(a):
         libraries.append(dict(path=str(path),sha256=sha(path)))
     layout=out/'layout.ld';layout.write_text('ENTRY(probe)\nSECTIONS { . = 0x100000; .text : { *(.text.entry) *(.text*) } .rodata : { *(.rodata*) } .data : { *(.data*) } .bss : { *(.bss*) *(COMMON) } }\n')
     elf=out/'probe.elf';binary=out/'probe.bin';exe=out/'oracle.exe'
-    run([a.cc,'-std=c11','-O2','-ffreestanding','-fno-stack-protector','-nostdlib',source,'-Wl,--gc-sections','-Wl,-T,'+str(layout),'-lm','-lgcc','-o',elf],'target-compiler.log')
+    extra=[];generated={}
+    if a.repair_reducer_abi:
+        table=out/'probe_two_over_pi.h'
+        table.write_text('static const int32_t probe_two_over_pi[32]={'+','.join(hex(x) for x in reduction_table())+'};\n')
+        generated[str(table)]=sha(table)
+        extra=[adapter,'-I'+str(out),'-Wl,--wrap=__kernel_rem_pio2']
+    run([a.cc,'-std=c11','-O2','-ffreestanding','-fno-stack-protector','-nostdlib',source,*extra,'-Wl,--gc-sections','-Wl,-T,'+str(layout),'-lm','-lgcc','-o',elf],'target-compiler.log')
     run([a.cc.resolve().with_name('aarch64-none-elf-objcopy.exe'),'-O','binary',elf,binary],'objcopy.log')
     run([*a.host_cc,'-O2',oracle,'-o',exe],'host-compiler.log')
     def raw(sig,exp):return struct.pack('<QH',sig,exp)
@@ -73,19 +106,42 @@ def probe(a):
     cases.extend((3,dyadic(y),dyadic(x)) for y,x in ((1,1),(1,-1),(-1,1),(-1,-1),(0,1),(1,0)))
     cases.extend((4,dyadic(x),dyadic(y)) for x,y in ((1,2),(2,3),(3,2),(10,-3)))
     cases.extend((5,dyadic(n,s),dyadic(1)) for n,s in ((-1,0),(0,0),(1,0),(1,1),(-1,1),(1,100)))
+    if a.sweep:
+        rng=random.Random(0x87360)
+        for unused in range(a.sweep):
+            # Include both signs, non-binary64 payloads, tiny values and the
+            # large-argument reducer path. All trig operands remain < 2^63.
+            sig=rng.randrange(1<<63,1<<64);exp=rng.randrange(-100,63)
+            angle=raw(sig,(0x8000 if rng.randrange(2) else 0)|(exp+0x3fff))
+            cases.extend((op,angle,dyadic(1)) for op in range(3))
+            def operand(positive=False):
+                sign=0 if positive or not rng.randrange(2) else 0x8000
+                return raw(rng.randrange(1<<63,1<<64),sign|(rng.randrange(-100,101)+0x3fff))
+            cases.append((3,operand(),operand()))
+            cases.append((4,operand(True),operand()))
+            cases.append((5,dyadic(rng.randrange(-(1<<52),1<<52),52),dyadic(1)))
     records=[x+y+bytes([op,0,0,0]) for op,x,y in cases];data=b''.join(records);(out/'inputs.bin').write_bytes(data)
     native=subprocess.run([str(exe)],input=data,capture_output=True);(out/'native.log').write_bytes(native.stderr)
     if native.returncode or len(native.stdout)!=12*len(records):raise RuntimeError('Native oracle failed')
     (out/'native-results.bin').write_bytes(native.stdout)
     sys.path.insert(0,str(a.python_deps.resolve()))
-    from unicorn import Uc,UcError,UC_ARCH_ARM64,UC_MODE_ARM,UC_HOOK_MEM_INVALID
+    from unicorn import Uc,UcError,UC_ARCH_ARM64,UC_MODE_ARM,UC_HOOK_MEM_INVALID,UC_HOOK_CODE
     import unicorn.arm64_const as ar
     arm=Uc(UC_ARCH_ARM64,UC_MODE_ARM);arm.mem_map(0x100000,0x200000);arm.mem_write(0x100000,binary.read_bytes());arm.mem_map(0x800000,0x10000)
-    faults=[]
+    faults=[];reducer_calls=[]
+    symbols=run([a.cc.resolve().with_name('aarch64-none-elf-nm.exe'),elf],'symbols.log')
+    reducer=int(next(line.split()[0] for line in symbols.splitlines() if line.endswith(' T __kernel_rem_pio2')),16)
+    current_case=-1
+    def reducer_entry(uc,address,size,user):
+        reducer_calls.append(dict(case=current_case,pc=address,lr=uc.reg_read(ar.UC_ARM64_REG_LR),
+            args=[uc.reg_read(getattr(ar,'UC_ARM64_REG_X'+str(i))) for i in range(6)]))
+    arm.hook_add(UC_HOOK_CODE,reducer_entry,begin=reducer,end=reducer)
     def memory_fault(uc,kind,address,size,value,user):
         faults.append(dict(address=address,pc=uc.reg_read(ar.UC_ARM64_REG_PC),access=kind,size=size));return False
     arm.hook_add(UC_HOOK_MEM_INVALID,memory_fault);results=[]
     for index,record in enumerate(records):
+        current_case=index
+        for i in range(29):arm.reg_write(getattr(ar,'UC_ARM64_REG_X'+str(i)),0)
         arm.mem_write(0x800100,record);arm.mem_write(0x800200,b'\xa5'*24)
         arm.reg_write(ar.UC_ARM64_REG_X0,0x800100);arm.reg_write(ar.UC_ARM64_REG_X1,0x800200);arm.reg_write(ar.UC_ARM64_REG_SP,0x80f000);arm.reg_write(ar.UC_ARM64_REG_LR,0x2ff000);arm.reg_write(ar.UC_ARM64_REG_FPCR,0)
         case=dict(op=record[20],input=record[:20].hex())
@@ -102,6 +158,7 @@ def probe(a):
         results.append(dict(**case,native=expected.hex(),quad_rounded=target.hex(),ulp_distance=abs(k1-k2) if k1 is not None and k2 is not None else None,
             absolute_error_decimal=absolute,errno=struct.unpack('<I',payload[16:20])[0],fpsr=struct.unpack('<I',payload[20:24])[0]))
     for path,digest in frozen.items():assert sha(Path(path))==digest
+    for path,digest in generated.items():assert sha(Path(path))==digest
     for library in libraries:assert sha(Path(library['path']))==library['sha256']
     names=('sin','cos','tan','atan2','y_log2_x','2_pow_x_minus_1');summary={}
     for op,name in enumerate(names):
@@ -109,7 +166,9 @@ def probe(a):
         summary[name]=dict(cases=len(rows),runtime_faults=len(rows)-len(valid),exact_payloads=sum(r['ulp_distance']==0 for r in valid),max_ulp=max((r['ulp_distance'] for r in valid if r['ulp_distance'] is not None),default=None))
     errors=sum('error' in r for r in results)
     result=dict(status='RESEARCH_WITH_RUNTIME_FAULTS' if errors else 'RESEARCH_ONLY_NOT_A_TRANSLATION',native_cases=len(records),runtime_faults=errors,
-        source_sha256=frozen,libraries=libraries,target_elf_sha256=sha(elf),summary=summary,results=results,translation_enabled=False,switch_hardware_tested=False,
+        source_sha256=frozen,generated_sha256=generated,libraries=libraries,target_elf_sha256=sha(elf),summary=summary,results=results,
+        reducer_calls=reducer_calls,bounded_reducer_adapter=a.repair_reducer_abi,sweep_per_operation=a.sweep,
+        translation_enabled=False,switch_hardware_tested=False,
         limits=['Nearest rounding only','Raw payload comparisons do not validate domains, x87 flags or stack changes','Different x87 argument reduction may produce different payloads even for accurate mathematical functions'])
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(dict(status=result['status'],summary=summary),indent=2))
     return 2 if errors else 0
@@ -119,4 +178,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('cc','python-deps','output'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--host-cc',nargs='+',required=True)
+    parser.add_argument('--repair-reducer-abi',action='store_true',help='Research only: supply a bounded generated 2/pi table to the installed helper')
+    parser.add_argument('--sweep',type=int,default=0,choices=range(0,10001),metavar='0..10000',help='Add seeded synthetic normal-operand cases per operation')
     raise SystemExit(probe(parser.parse_args()))

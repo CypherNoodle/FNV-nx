@@ -37,3 +37,41 @@ pi during range reduction; Intel discusses that limitation in its
 [x87 architecture description](https://cdrdv2-public.intel.com/843827/253665-sdm-vol-1-dec-24.pdf).
 Library availability alone cannot justify enabling the remaining instructions.
 Their current explicit unsupported paths remain active while this work proceeds.
+
+## Bounded reduction ABI experiment
+
+The installed ARM64 disassembly confirms that the ld128 trig callers set
+X0..X4 before calling `__kernel_rem_pio2`, while that helper consumes X5 as
+the reduction-table pointer. The upstream
+[ld128 reduction header](https://github.com/devkitPro/newlib/blob/master/newlib/libm/ld128/e_rem_pio2l.h)
+also shows a five-argument call. This is evidence about the inspected library
+and isolated ELF, not a claim that every SDK release has the same problem.
+
+`--repair-reducer-abi` links `tests/x87_quad_reducer_probe.c` through GNU ld's
+`--wrap`. The adapter supplies a 32-limb 2/pi table calculated independently
+with integer Machin-series arithmetic at two guard precisions. It accepts only
+the bounded argument/exponent contract exercised by this probe and traps on
+other calls. It does not modify the installed SDK, game runtime, or translator.
+The tool records the helper's six incoming arguments and return address,
+hashes the generated table, and resets integer registers between input cases.
+
+The original 52 cases reproduce six invalid accesses without the adapter;
+the adapted run completes all 52. A seeded sweep of 256 additional inputs per
+operation completes 1,588 cases without target faults. With nearest rounding:
+
+| Operation | Cases | Exact ext80 payloads | Largest payload distance |
+| --- | ---: | ---: | ---: |
+| atan2 | 262 | 259 | 1 ULP |
+| log2(x) times y | 260 | 256 | 1 ULP |
+| 2^x minus 1 | 262 | 256 | 1 ULP |
+
+The trigonometric sweep also completes, but differs substantially from native
+x87 for some inputs; the adapter fixes memory safety, not numerical equivalence.
+These are selected normal operands, not exhaustive coverage of signed zeros,
+NaNs, infinities, subnormals, rounding controls, precision flags or stack effects.
+All 42 pending instruction sites remain unsupported. No performance or hardware
+claim follows from this experiment.
+
+```powershell
+python pc/tools/probe_x87_quad.py --cc C:/devkitPro/devkitA64/bin/aarch64-none-elf-gcc.exe --python-deps /path/to/python-deps --output /private/fresh-reducer-sweep --repair-reducer-abi --sweep 256 --host-cc /path/to/zig.exe cc
+```
