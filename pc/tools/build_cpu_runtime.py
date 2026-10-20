@@ -51,6 +51,47 @@ def validate_selection_proof(audit, selection, report, report_sha256):
     return structure_only
 
 
+def x87_build_inputs(report, profile_path, core_path, compiler):
+    """Fail closed before compiling an opt-in extended generation.
+
+    Returns exact flags, frozen dependencies and separately compiled core
+    objects. Legacy generations cannot consume an extended core implicitly.
+    """
+    info=report.get('x87_extended_overlay')
+    if not info:
+        if profile_path or core_path:raise ValueError('Legacy generation cannot select an extended x87 core')
+        return list(SWITCH_FLAGS),{},[],None
+    if not profile_path or not core_path:raise ValueError('Extended x87 generation requires its explicit profile and Switch core proof')
+    if info.get('legacy_runtime_references'):raise ValueError('Extended generation still uses legacy FP globals; migrate those paths before compiling')
+    from aot_x87_codegen import load_profile
+    if load_profile(profile_path)!=info['profile'] or sha(profile_path)!=info['profile_sha256'] or info.get('cpu_compile_define')!='FNV_CPU_EXTENDED_X87=1':
+        raise ValueError('Extended generation/profile mismatch')
+    frozen={Path(path).resolve():digest for path,digest in info['source_sha256'].items()}
+    for path,digest in frozen.items():
+        if sha(path)!=digest:raise ValueError('Changed extended generation input: '+str(path))
+    core=json.loads(core_path.read_text())
+    if (core.get('status')!='COMPILED' or core.get('switch_abi') is not True or
+        core.get('flags',[])[:len(SWITCH_FLAGS)]!=SWITCH_FLAGS or
+        len(core.get('compiler',[]))!=1 or Path(core['compiler'][0]).resolve()!=compiler.resolve()):
+        raise ValueError('Require matching actual Switch ABI x87 core compilation')
+    sources={Path(o['source']).name for o in core.get('objects',[])}
+    if not {'x87_stack.c','x87_extended.c','extF80_add.c','softfloat_state.c'}<=sources:
+        raise ValueError('Incomplete extended core object inventory')
+    for path,digest in core['source_sha256'].items():
+        q=Path(path).resolve()
+        if sha(q)!=digest:raise ValueError('Changed x87 core source: '+str(q))
+        if q in frozen and frozen[q]!=digest:raise ValueError('Generation/core source disagreement')
+        frozen[q]=digest
+    objects=[]
+    for item in core['objects']:
+        q=Path(item['object']).resolve()
+        if q in objects or sha(q)!=item['sha256']:raise ValueError('Changed or duplicate x87 core object')
+        objects.append(q);frozen[q]=item['sha256']
+    frozen[profile_path.resolve()]=sha(profile_path);frozen[core_path.resolve()]=sha(core_path)
+    helper=Path(__file__).with_name('aot_x87_codegen.py').resolve();frozen[helper]=sha(helper)
+    return [*SWITCH_FLAGS,'-DFNV_CPU_EXTENDED_X87=1'],frozen,objects,sha(core_path)
+
+
 def build(a):
     if not 1 <= a.jobs <= 8:
         raise ValueError('Use 1..8 compile jobs')
@@ -66,6 +107,8 @@ def build(a):
     decoder.detail = True
     selection = verify_derivation(analysis, decoder)
     report = json.loads(paths['report'].read_text())
+    compile_flags,x87_dependencies,x87_objects,x87_proof=x87_build_inputs(report,getattr(a,'x87_profile',None),getattr(a,'x87_core_validation',None),a.cc)
+    if x87_objects and a.reuse_generated_validation:raise ValueError('Extended CPU ABI requires a fresh build; legacy object reuse is disabled')
     audit = json.loads(a.audit_validation.read_text())
     if not selection or not report['full_selection'] or report['gaps']['failed_functions']:
         raise ValueError('Require a complete, successfully generated derived selection')
@@ -78,7 +121,7 @@ def build(a):
     sdk_hash = sdk_identity(sdk)
     if sdk_hash != report['sdk_sha256']:
         raise ValueError('SDK identity changed')
-    frozen = {}
+    frozen = dict(x87_dependencies)
     if structure_only:frozen.update({Path(name):digest for name,digest in audit['source_sha256'].items()})
     for name, digest in report['output_files'].items():
         path = paths['generated'] / name
@@ -161,7 +204,7 @@ def build(a):
         if src.name in reused:
             shutil.copyfile(reused[src.name],obj)
             return dict(source=src.name,exit_code=0,object_bytes=obj.stat().st_size,object_sha256=sha(obj),reused=True)
-        flags = SWITCH_FLAGS + (['-Wall', '-Wextra', '-Werror'] if src.parent == pc / 'native' else [])
+        flags = compile_flags + (['-Wall', '-Wextra', '-Werror'] if src.parent == pc / 'native' else [])
         # The PE data loader must not receive the SDK's register-name macros.
         forced = [] if src.name == 'pe_image.c' else ['-include', pc / 'native/fnv_sdk_runtime.h']
         command = [a.cc.resolve(), *flags, *forced]
@@ -178,13 +221,13 @@ def build(a):
         compiled = list(pool.map(compile_one, sources))
     result = dict(status='COMPILE_FAILURE', compiled=compiled, compile_units=len(compiled),
                   reused_generated_objects=len(reused),
-                  compiler_flags=SWITCH_FLAGS, source_sha256={str(p): h for p, h in frozen.items()},
+                  compiler_flags=compile_flags, x87_core_validation_sha256=x87_proof, source_sha256={str(p): h for p, h in frozen.items()},
                   sdk_sha256=sdk_hash, generation_report_sha256=sha(paths['report']),
                   native_engine_started=False, full_game_linked=False, cold_boot_supported=False)
     if all(item['exit_code'] == 0 for item in compiled):
         partial = output / 'fnv-cpu-relocatable.o'
         arguments = ['-r', '-o', partial.as_posix()] + [
-            (output / (src.stem + '.o')).as_posix() for src in sources]
+            (output / (src.stem + '.o')).as_posix() for src in sources]+[obj.as_posix() for obj in x87_objects]
         if any('"' in s or '\n' in s for s in arguments):
             raise ValueError('Unsupported response-file path')
         response = output / 'link.rsp'
@@ -223,6 +266,7 @@ def recheck(a):
     output = a.output.resolve()
     prior_path = output / 'validation.json'
     prior = json.loads(prior_path.read_text())
+    if prior.get('x87_core_validation_sha256'):raise ValueError('Extended x87 requires a fresh matched build; recheck mode is not enabled')
     if prior['status'] not in ('PASS', 'ABI_SYMBOL_FAILURE') or not a.previous_validator:
         raise ValueError('Require a completed build and its archived validator')
     tool = Path(__file__).resolve()
@@ -289,6 +333,8 @@ if __name__ == '__main__':
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--reuse-generated-validation',type=Path,
                         help='Reuse identical C units with identical headers/compiler across audited generations; rebuild changed units and native CPU/PE')
+    parser.add_argument('--x87-profile',type=Path,help='Exact experimental profile recorded by extended generation')
+    parser.add_argument('--x87-core-validation',type=Path,help='Current SoftFloat/x87 Switch-ABI COMPILED proof')
     parser.add_argument('--recheck', action='store_true', help='Verify identical existing objects after a validator-only change')
     parser.add_argument('--previous-validator', type=Path, help='Exact archived script recorded by the original build')
     arguments = parser.parse_args()

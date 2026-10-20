@@ -48,13 +48,23 @@ def verified_scan_wrapper(analysis, scan, current_wrapper):
     raise ValueError('Scan wrapper identity unavailable; preserve its exact source or rerun a fresh scan')
 
 
-def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False, frame_restore=False, seh_helpers=None, eh3_helpers=None):
+def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_name=None, simd_bits=False, mul_flags=False, frame_restore=False, seh_helpers=None, eh3_helpers=None, x87_profile=None):
     analysis=analysis.resolve(); sdk=sdk.resolve()
     paths = generation_paths(analysis, generation_name)
     if max_functions is not None and max_functions <= 0:
         raise ValueError('--max-functions must be positive')
-    if (simd_bits or mul_flags or frame_restore) and (generation_name is None or stage == 'scan'):
+    if (simd_bits or mul_flags or frame_restore or x87_profile is not None) and (generation_name is None or stage == 'scan'):
         raise ValueError('Codegen overlays require a separate named generation')
+    x87_identity=None
+    if x87_profile is not None:
+        if not frame_restore:raise ValueError('Extended x87 requires the mandatory frame overlay')
+        from aot_x87_codegen import load_profile
+        x87_config=load_profile(x87_profile)
+        pc=Path(__file__).resolve().parents[1]
+        dependencies=[Path(__file__).resolve(),pc/'tools/aot_x87_codegen.py',pc/'tools/aot_x87_extended.py',pc/'tools/aot_sahf_flags.py',
+                      *[pc/'native'/name for name in ('x87_stack.c','x87_stack.h','x87_extended.c','x87_extended.h','cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h')]]
+        x87_identity={'profile':x87_config,'profile_sha256':sha(x87_profile),'cpu_compile_define':'FNV_CPU_EXTENDED_X87=1',
+                      'source_sha256':{str(path):sha(path) for path in dependencies}}
     helper_audit=None
     eh3_audit=None
     if eh3_helpers is not None:
@@ -101,6 +111,12 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
             invocation=[sys.executable,"-u","-m",*args]
             if args[0]=='tools.disasm':
                 invocation=[sys.executable,"-u",str(index_wrapper),'--sdk',str(sdk),*args[1:]]
+            elif args[0]=='tools.recomp' and x87_identity:
+                invocation=[sys.executable,'-u',str(Path(__file__).with_name('aot_x87_codegen.py')),'--sdk',str(sdk),'--analysis',str(analysis),'--x87-profile',str(x87_profile.resolve())]
+                if eh3_audit:invocation+=['--eh3-helpers',str(eh3_helpers.resolve())]
+                if simd_bits:invocation+=['--simd-bits']
+                if mul_flags:invocation+=['--mul-flags']
+                invocation+=args[1:]
             elif args[0]=='tools.recomp' and eh3_audit:
                 invocation=[sys.executable,'-u',str(eh3_overlay),'--sdk',str(sdk),'--analysis',str(analysis),'--eh3-helpers',str(eh3_helpers.resolve())]
                 if simd_bits:invocation+=['--simd-bits']
@@ -167,6 +183,27 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
             raise ValueError('Unexpected generated header; helpers not injected')
         includes = (['fnv_simd_bits.h'] if simd_bits else [])+(['fnv_mul_flags.h'] if mul_flags else [])
         header.write_text(code.replace(marker, marker+''.join('\n#include "'+name+'"' for name in includes)), encoding='utf-8')
+    if x87_identity:
+        header=generated/'recomp_funcs.h'
+        code=header.read_text(encoding='utf-8')
+        header.write_text('#ifndef FNV_CPU_EXTENDED_X87\n#error Extended x87 CPU ABI required by this generation\n#endif\n'+code,encoding='utf-8',newline='\n')
+        if sha(x87_profile)!=x87_identity['profile_sha256'] or any(sha(Path(path))!=digest for path,digest in x87_identity['source_sha256'].items()):
+            raise ValueError('Extended x87 input changed during generation')
+        # Ignore unused SDK prelude macro definitions, but count actual old
+        # global references. Any such path still requires migration.
+        legacy={}
+        for source in generated.glob('*.c'):
+            text=re.sub(r'/\*.*?\*/|//[^\n]*','',source.read_text(),flags=re.S)
+            kept=[];continuation=False
+            for line in text.splitlines():
+                if continuation or line.lstrip().startswith('#'):
+                    continuation=line.rstrip().endswith('\\')
+                    continue
+                kept.append(line)
+            text='\n'.join(kept)
+            matches=re.findall(r'\bg_fp_(?:stack|top|cmp|control_word|cc)\b',text)
+            if matches:legacy[source.name]=len(matches)
+        x87_identity['legacy_runtime_references']=legacy
     if sdk_identity(sdk) != fingerprint:
         raise ValueError('SDK source changed during generation')
     if frame_identity and sha(frame_overlay)!=frame_identity['source_sha256']:
@@ -190,13 +227,14 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     gaps=generation_gaps(summary,generated)
     incomplete=any(gaps[k] for k in ("failed_functions","unresolved_call_targets","unsupported_instructions"))
     incomplete |= any(gaps["code_markers"].values())
+    if x87_identity:incomplete |= bool(x87_identity['legacy_runtime_references'])
     report=dict(status="GENERATED_WITH_GAPS" if incomplete else "GENERATED_UNVALIDATED",
         input_profile_sha256=sha(analysis/"input-profile.json"),sdk_sha256=fingerprint,index_wrapper_sha256=index_sha,
         generation_name=generation_name, scan_wrapper_verified_from=verified_wrapper.name,
         scan_identity_sha256=scan_sha,code_data_filter=code_data_filter,
         codegen_overlay=overlay_identity,multiply_overlay=multiply_identity,frame_restore_overlay=frame_identity,
         normal_frame_helpers=helper_audit,
-        eh3_frame_overlay=eh3_identity,
+        eh3_frame_overlay=eh3_identity,x87_extended_overlay=x87_identity,
         functions_detected=len(json.loads((analysis/"disasm/functions.json").read_text())),
         functions_requested=summary.get("total"),functions_generated=summary.get("translated"),
         max_functions=max_functions,full_selection=max_functions is None,gaps=gaps,
@@ -223,5 +261,6 @@ if __name__=="__main__":
     p.add_argument('--frame-restore', action='store_true', help='Publish restored EBP after POP EBP / LEAVE')
     p.add_argument('--seh-helpers',type=Path,help='Identity-checked normal-frame helper audit, not exception support')
     p.add_argument('--eh3-helpers',type=Path,help='Whole-body-audited additional normal EH3 frame pair')
+    p.add_argument('--x87-profile',type=Path,help='Explicit experimental extended-x87 guest profile; separate generation only')
     a=p.parse_args()
-    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags,a.frame_restore,a.seh_helpers,a.eh3_helpers)
+    run(a.analysis,a.sdk,a.python_deps,a.stage,a.max_functions,a.generation_name,a.simd_bits,a.mul_flags,a.frame_restore,a.seh_helpers,a.eh3_helpers,a.x87_profile)

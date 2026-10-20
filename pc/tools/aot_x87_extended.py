@@ -32,6 +32,15 @@ def emit(instruction):
         else:call=f'fnv_x87_stack_store_integer(&fnv_x87_state,{address},{ops[0].mem_size},{int(m!="fist")},{int(m=="fisttp")})'
     elif m in ('fld1','fldz') and not ops:
         call=f'fnv_x87_stack_constant(&fnv_x87_state,{int(m=="fld1")})'
+    elif m in ('fldpi','fldl2e','fldl2t','fldlg2','fldln2') and not ops:
+        kind={'fldpi':'PI','fldl2e':'LOG2E','fldl2t':'LOG2TEN','fldlg2':'LOG10TWO','fldln2':'LN2'}[m]
+        call=f'fnv_x87_stack_math_constant(&fnv_x87_state,FNV_X87_{kind})'
+    elif m in ('wait','fwait','fnop') and not ops:
+        call='fnv_x87_stack_wait(&fnv_x87_state)'
+    elif m=='fxam' and not ops:
+        call='fnv_x87_stack_examine(&fnv_x87_state)'
+    elif m=='ffree' and len(ops)==1 and register_index(ops[0]) is not None:
+        call=f'fnv_x87_stack_free(&fnv_x87_state,{register_index(ops[0])})'
     elif m=='fxch' and (not ops or (len(ops)==1 and register_index(ops[0]) is not None)):
         call=f'fnv_x87_stack_exchange(&fnv_x87_state,{register_index(ops[0]) if ops else 1})'
     elif m=='fxch' and len(ops)==2 and register_index(ops[0])==0 and register_index(ops[1]) is not None:
@@ -61,7 +70,7 @@ def emit(instruction):
     elif m=='fnclex' and not ops:
         return ['fnv_x87_stack_clear_exceptions(&fnv_x87_state);']
     elif m=='fninit' and not ops:
-        return ['fnv_x87_stack_init(&fnv_x87_state);']
+        return ['fnv_x87_stack_reset(&fnv_x87_state);']
     elif m in ('fadd','fmul','fsub','fsubr','fdiv','fdivr','faddp','fmulp','fsubp','fsubrp','fdivp','fdivrp',
                'fiadd','fimul','fisub','fisubr','fidiv','fidivr'):
         integer=m.startswith('fi');base=m[2:] if integer else m[1:]
@@ -95,4 +104,70 @@ def install():
                 instruction,instruction.mnemonic,' (experimental extended stack form not implemented)')
         return original(self,instruction)
     lift._fnv_x87_extended=True
+    Lifter.lift_instruction=lift
+
+
+def install_environment(*, code_selector, data_selector, stack_selector,
+                        opcode_compatibility, data_pointer_on_exception_only):
+    """Opt-in protected-mode environment tracking, after install().
+
+    Selectors and architectural FOP/FDP policy must be chosen explicitly from
+    the guest CPU contract. No host CPUID passthrough or guessed Windows GDT.
+    Requires per-context `fnv_x87_environment_state` in addition to stack state.
+    The masked staging core never delivers an unmasked exception; FOP/FDP
+    exception-only policies therefore retain those fields on numeric success.
+    """
+    for value in (code_selector,data_selector,stack_selector):
+        if type(value) is not int or not 0<=value<=0xffff:
+            raise ValueError('Explicit 16-bit guest selectors required')
+    if type(opcode_compatibility) is not bool or type(data_pointer_on_exception_only) is not bool:
+        raise ValueError('Explicit guest FOP/FDP policies required')
+    from tools.recomp.lifter import Lifter, _fmt_mem
+    original=Lifter.lift_instruction
+    if not getattr(original,'_fnv_x87_extended',False):
+        raise ValueError('Install extended stack overlay first, exactly once')
+    if getattr(original,'_fnv_x87_environment',False):
+        raise ValueError('Environment overlay already installed')
+    control={'fnclex','fldcw','fnstcw','fnstsw','fnstenv','fldenv','fnsave','frstor','wait','fwait','fninit'}
+    def lift(self,instruction):
+        m=instruction.mnemonic
+        if not (m.startswith('f') or m=='wait'):return original(self,instruction)
+        raw=bytes.fromhex(instruction.bytes_hex)
+        prefix=[];index=0
+        while index<len(raw) and raw[index] in (0x26,0x2e,0x36,0x3e,0x64,0x65,0x66,0x67,0xf0,0xf2,0xf3):
+            prefix.append(raw[index]);index+=1
+        mem=[o for o in instruction.operands if o.type=='mem']
+        # FS/GS bases and 16-bit addressing require a separate audited contract.
+        if 0x67 in prefix or any(p in prefix for p in (0xf0,0xf2,0xf3)) or any(o.mem_seg not in (None,'cs','ds','ss') for o in mem):
+            return self._unimplemented(instruction,m,' (unsupported x87 environment addressing)')
+        if m in ('fnstenv','fldenv','fnsave','frstor'):
+            # Capstone reports the same env width with 66, and incorrectly
+            # reports full-state operands as four bytes. Inspect the actual
+            # operand-size prefix rather than trusting those width fields.
+            if len(mem)!=1 or len(instruction.operands)!=1 or 0x66 in prefix:
+                return self._unimplemented(instruction,m,' (only 32-bit protected x87 images supported)')
+            full=int(m in ('fnsave','frstor'));size=108 if full else 28
+            op='save32' if m in ('fnstenv','fnsave') else 'restore32'
+            address=f'(unsigned char *)(g_xbox_mem_offset+(uint32_t)({_fmt_mem(mem[0])}))'
+            return [f'if (fnv_x87_stack_{op}(&fnv_x87_state,&fnv_x87_environment_state,{address},{size},{full}) != FNV_X87_STACK_OK) {{ RECOMP_UNIMPL("extended x87 environment unsupported", 0x{instruction.address:08X}u); }}']
+        code=emit(instruction)
+        if code is None:return original(self,instruction)
+        if m=='fninit':return code+['fnv_x87_environment_state=(struct fnv_x87_environment){0};']
+        if m in control:return code
+        if not 0<=instruction.address<=0xffffffff or index+1>=len(raw) or not 0xd8<=raw[index]<=0xdf:
+            return self._unimplemented(instruction,m,' (invalid x87 opcode metadata)')
+        updates=[f'fnv_x87_environment_state.instruction_pointer=0x{instruction.address:08X}u;',
+                 f'fnv_x87_environment_state.code_selector=0x{code_selector:04X}u;']
+        if opcode_compatibility:
+            opcode=((raw[index]&7)<<8)|raw[index+1]
+            updates.append(f'fnv_x87_environment_state.opcode=0x{opcode:03X}u;')
+        if mem and not data_pointer_on_exception_only:
+            operand=mem[0];segment=operand.mem_seg or ('ss' if operand.mem_base in ('esp','ebp') else 'ds')
+            selector={'cs':code_selector,'ss':stack_selector,'ds':data_selector}[segment]
+            updates.extend([f'fnv_x87_environment_state.data_pointer=(uint32_t)({_fmt_mem(operand)});',
+                            f'fnv_x87_environment_state.data_selector=0x{selector:04X}u;'])
+        return code+updates
+    lift._fnv_x87_extended=True
+    lift._fnv_x87_environment=True
+    lift._fnv_x87_environment_profile=(code_selector,data_selector,stack_selector,opcode_compatibility,data_pointer_on_exception_only)
     Lifter.lift_instruction=lift
