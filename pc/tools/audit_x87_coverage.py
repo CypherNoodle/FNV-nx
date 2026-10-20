@@ -1,7 +1,8 @@
 """Private static x87 coverage census of an identity-checked analysis selection.
 
-Does not register entries, enable overlays, launch the game, or prove runtime
-reachability. Detailed instruction addresses must remain private.
+Does not register entries, launch the game, or prove runtime reachability.
+An explicit profile installs its production overlays only in this audit
+process. Detailed instruction addresses must remain private.
 """
 import argparse
 from collections import Counter,defaultdict
@@ -20,7 +21,7 @@ def audit(a):
     sys.path[:0]=[str(a.python_deps.resolve()),str(sdk),str(pc/'tools')]
     from capstone import Cs,CS_ARCH_X86,CS_MODE_32
     from tools.recomp.disasm import Disassembler
-    from aot_x87_extended import emit
+    from aot_x87_extended import emit,configure_transcendentals
     from run_aot_analysis import sdk_identity,verified_scan_wrapper
     from audit_aot_gaps import address,sections_from_container
     from aot_code_data import read_va,verify_derivation
@@ -36,7 +37,20 @@ def audit(a):
         if sha(analysis/'disasm'/name)!=digest:raise ValueError('Changed analysis selection')
     selection=verify_derivation(analysis,decoder) if scan.get('code_data_filter') else None
     function_path=analysis/'disasm/functions.json';functions=json.loads(function_path.read_text());raw=image.read_bytes();sections=sections_from_container(raw,profile)
-    paths=[Path(__file__).resolve(),pc/'tools/aot_x87_extended.py',pc/'tools/aot_sahf_flags.py',pc/'tools/audit_aot_gaps.py',pc/'tools/aot_code_data.py',pc/'tools/run_aot_analysis.py',wrapper,profile_path,scan_path,function_path,image]
+    model=None;profile_lifter=None
+    if a.x87_profile:
+        from aot_x87_codegen import load_profile
+        contract=load_profile(a.x87_profile);model=contract.get('transcendental_model')
+    configure_transcendentals(model) # Never inherit a previously selected model silently.
+    if a.x87_profile:
+        from aot_x87_extended import install,install_environment
+        from tools.recomp.lifter import Lifter
+        install();install_environment(**{k:contract[k] for k in
+            ('code_selector','data_selector','stack_selector','opcode_compatibility','data_pointer_on_exception_only')},
+            extra_selector=contract.get('extra_selector'))
+        profile_lifter=Lifter()
+    paths=[Path(__file__).resolve(),pc/'tools/aot_x87_extended.py',pc/'tools/aot_sahf_flags.py',pc/'tools/audit_aot_gaps.py',pc/'tools/aot_code_data.py',pc/'tools/run_aot_analysis.py',pc/'tools/x87_models.py',pc/'tools/aot_x87_codegen.py',wrapper,profile_path,scan_path,function_path,image]
+    if a.x87_profile:paths.append(a.x87_profile.resolve())
     frozen={str(p):sha(p) for p in paths}
     a.output.mkdir(parents=True);counts=Counter();unsupported=Counter();details=[];seen={};conflicts=[];failures=[];branches=[];owners=defaultdict(set)
     env={'fnstenv','fldenv','fnsave','frstor'};nonx87_float={'femms'}
@@ -62,6 +76,16 @@ def audit(a):
                 continue
             seen[ins.address]=ins.bytes_hex;m=ins.mnemonic;counts[m]+=1
             if m=='sahf':category='sahf_bridge_subset_available'
+            elif profile_lifter is not None:
+                # A supported numeric emitter is insufficient: the actual
+                # production overlay may reject its segment/addressing mode.
+                profile_lifter.unimplemented.clear()
+                try:code=profile_lifter.lift_instruction(ins)
+                except (ValueError,KeyError,IndexError,AttributeError) as error:
+                    failures.append(dict(address=ins.address,function=start,reason=type(error).__name__));category='emitter_error'
+                else:
+                    category=('unsupported_profile_form' if profile_lifter.unimplemented else
+                              'environment32_opt_in' if m in env else 'supported_staging_form')
             elif m in env:
                 # Capstone's width is wrong for full-state and 66 env forms.
                 encoded=bytes.fromhex(ins.bytes_hex);prefix=[]
@@ -86,7 +110,8 @@ def audit(a):
         unique_relevant_instructions=len(details),mnemonics=dict(counts.most_common()),categories=dict(categories),
         unsupported_mnemonics=dict(unsupported.most_common()),sahf_followed_by_condition_sites=len({b['address'] for b in branches}),
         decode_conflicts=conflicts,analysis_failures=failures,source_sha256=frozen,sdk_sha256=sdk_hash,code_data_selection=selection,
-        input_code_source=profile.get('code_source'),runtime_reachability_proven=False,engine_generation_migrated=False,
+        input_code_source=profile.get('code_source'),transcendental_model=model,runtime_reachability_proven=False,engine_generation_migrated=False,
+        coverage_layer='production-profile' if profile_lifter is not None else 'numeric-staging-only',
         limits=['Static selected ranges may include overlapping entries and code/data ambiguity','Supported opcode forms do not imply all operand/state inputs are supported','Not a cold EXE startup, build, frame or performance result'])
     (a.output/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     (a.output/'instructions.json').write_text(json.dumps(details,indent=2)+'\n')
@@ -97,4 +122,5 @@ def audit(a):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('analysis','sdk','python-deps','output'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--x87-profile',type=Path)
     audit(p.parse_args())

@@ -61,8 +61,14 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
         from aot_x87_codegen import load_profile
         x87_config=load_profile(x87_profile)
         pc=Path(__file__).resolve().parents[1]
-        dependencies=[Path(__file__).resolve(),pc/'tools/aot_x87_codegen.py',pc/'tools/aot_x87_extended.py',pc/'tools/aot_sahf_flags.py',
+        dependencies=[Path(__file__).resolve(),pc/'tools/aot_x87_codegen.py',pc/'tools/aot_x87_extended.py',pc/'tools/aot_sahf_flags.py',pc/'tools/x87_models.py',
                       *[pc/'native'/name for name in ('x87_stack.c','x87_stack.h','x87_extended.c','x87_extended.h','cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h')]]
+        if x87_config.get('transcendental_model'):
+            dependencies.extend(pc/'native'/name for name in ('x87_transcendental_candidate.c','x87_transcendental_candidate.h','x87_quad_bits.h'))
+            from x87_models import TRIG_MODEL
+            if x87_config['transcendental_model']==TRIG_MODEL:
+                dependencies.extend(pc/'native'/name for name in ('x87_trig_candidate.c','x87_trig_candidate.h'))
+                dependencies.append(pc/'tools/x87_pi_table.py')
         x87_identity={'profile':x87_config,'profile_sha256':sha(x87_profile),'cpu_compile_define':'FNV_CPU_EXTENDED_X87=1',
                       'source_sha256':{str(path):sha(path) for path in dependencies}}
     helper_audit=None
@@ -186,7 +192,14 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     if x87_identity:
         header=generated/'recomp_funcs.h'
         code=header.read_text(encoding='utf-8')
-        header.write_text('#ifndef FNV_CPU_EXTENDED_X87\n#error Extended x87 CPU ABI required by this generation\n#endif\n'+code,encoding='utf-8',newline='\n')
+        guard='#ifndef FNV_CPU_EXTENDED_X87\n#error Extended x87 CPU ABI required by this generation\n#endif\n'
+        if x87_config.get('transcendental_model'):
+            guard+='#ifndef FNV_CPU_X87_QUAD_MATH\n#error Explicit bounded mathematical quad backend required\n#endif\n'
+            from x87_models import TRIG_MODEL
+            guard+=('#ifndef FNV_CPU_X87_QUAD_TRIG\n#error Explicit true-pi trig backend required\n#endif\n' if x87_config['transcendental_model']==TRIG_MODEL else '#ifdef FNV_CPU_X87_QUAD_TRIG\n#error Non-trig quad profile cannot select trig implicitly\n#endif\n')
+        else:
+            guard+='#if defined(FNV_CPU_X87_QUAD_MATH) || defined(FNV_CPU_X87_QUAD_TRIG)\n#error Strict x87 profile cannot select quad math implicitly\n#endif\n'
+        header.write_text(guard+code,encoding='utf-8',newline='\n')
         if sha(x87_profile)!=x87_identity['profile_sha256'] or any(sha(Path(path))!=digest for path,digest in x87_identity['source_sha256'].items()):
             raise ValueError('Extended x87 input changed during generation')
         # Ignore unused SDK prelude macro definitions, but count actual old

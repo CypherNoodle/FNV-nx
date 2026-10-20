@@ -13,6 +13,7 @@ import subprocess
 import sys
 from aot_code_data import verify_derivation
 from run_aot_analysis import generation_paths, sdk_identity, sha
+from x87_models import MODELS,TRIG_MODEL,model_flags,model_symbols
 
 SWITCH_FLAGS = [
     '-std=gnu11', '-O1', '-fno-strict-aliasing', '-ffp-contract=off',
@@ -75,6 +76,11 @@ def x87_build_inputs(report, profile_path, core_path, compiler):
         len(core.get('compiler',[]))!=1 or Path(core['compiler'][0]).resolve()!=compiler.resolve()):
         raise ValueError('Require matching actual Switch ABI x87 core compilation')
     sources={Path(o['source']).name for o in core.get('objects',[])}
+    model=info['profile'].get('transcendental_model')
+    if core.get('transcendental_model')!=model:raise ValueError('Generation/core numerical model mismatch')
+    if model and (model not in MODELS or 'x87_transcendental_candidate.c' not in sources or not all(f in core['flags'] for f in model_flags(model))):
+        raise ValueError('Incomplete quad backend or required floating-point flags')
+    if model==TRIG_MODEL and 'x87_trig_candidate.c' not in sources:raise ValueError('Missing trig backend')
     if not {'x87_stack.c','x87_extended.c','extF80_add.c','softfloat_state.c'}<=sources:
         raise ValueError('Incomplete extended core object inventory')
     for path,digest in core['source_sha256'].items():
@@ -89,7 +95,14 @@ def x87_build_inputs(report, profile_path, core_path, compiler):
         objects.append(q);frozen[q]=item['sha256']
     frozen[profile_path.resolve()]=sha(profile_path);frozen[core_path.resolve()]=sha(core_path)
     helper=Path(__file__).with_name('aot_x87_codegen.py').resolve();frozen[helper]=sha(helper)
-    return [*SWITCH_FLAGS,'-DFNV_CPU_EXTENDED_X87=1'],frozen,objects,sha(core_path)
+    models=Path(__file__).with_name('x87_models.py').resolve();frozen[models]=sha(models)
+    return [*SWITCH_FLAGS,'-DFNV_CPU_EXTENDED_X87=1',*model_flags(model)],frozen,objects,sha(core_path)
+
+
+def platform_symbols(report):
+    info=report.get('x87_extended_overlay') or {}
+    model=info.get('profile',{}).get('transcendental_model')
+    return PLATFORM_SYMBOLS|model_symbols(model)
 
 
 def build(a):
@@ -236,7 +249,7 @@ def build(a):
         symbols = run([a.nm.resolve(), '--undefined-only', '--format=posix', '--no-demangle', partial],
                       output / 'undefined-symbols.log')
         undefined = [line.split()[0] for line in symbols.splitlines() if line.strip()]
-        unexpected = sorted(set(undefined) - PLATFORM_SYMBOLS)
+        unexpected = sorted(set(undefined) - platform_symbols(report))
         # Inspect both runtime and generated code. All other units are compiled
         # with the identical explicit TLS flags, not reused generic ARM64 objects.
         tls_samples = {}
@@ -305,7 +318,7 @@ def recheck(a):
     undefined = [line.split()[0] for line in symbols.splitlines() if line.strip()]
     if undefined != prior['partial_link']['undefined_symbols']:
         raise ValueError('Symbol inventory changed')
-    unexpected = sorted(set(undefined) - PLATFORM_SYMBOLS)
+    unexpected = sorted(set(undefined) - platform_symbols(json.loads(paths['report'].read_text())))
     samples = {}
     for name in prior['tls_samples']:
         assembly = run([a.objdump.resolve(), '-dr', output / (name + '.o')], output / (name + '-recheck.asm'))

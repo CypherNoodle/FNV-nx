@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+from x87_models import MODELS,TRIG_MODEL,model_flags
 
 
 def sha(p):
@@ -37,11 +38,21 @@ def build(a):
     if not selected.issubset({p.stem for p in sources}):raise ValueError('Incomplete arithmetic selection')
     sources.append(pc/'native/x87_extended.c')
     sources.append(pc/'native/x87_stack.c')
+    model=getattr(a,'transcendental_model',None)
+    if model:sources.append(pc/'native/x87_transcendental_candidate.c')
+    if model==TRIG_MODEL:sources.append(pc/'native/x87_trig_candidate.c')
     platform=root/'build/Linux-x86_64-GCC/platform.h'
     (out/'platform.h').write_bytes(platform.read_bytes())
     dependencies=[Path(__file__).resolve(),Path(a.cc[0]).resolve(),pc/'native/x87_extended.h',pc/'native/x87_stack.h',platform,root/'COPYING.txt',
                   root/'build/Linux-x86_64-GCC/Makefile',*sources,
                   *sorted((root/'source/include').glob('*.h')),*sorted((root/'source/8086').glob('*.h'))]
+    dependencies.append(Path(__file__).with_name('x87_models.py').resolve())
+    if model:dependencies.extend(pc/'native'/n for n in ('x87_transcendental_candidate.h','x87_quad_bits.h'))
+    if model==TRIG_MODEL:
+        from x87_pi_table import two_over_pi_words
+        header=out/'x87_two_over_pi.h'
+        header.write_text('static const uint64_t x87_two_over_pi[4]={'+','.join('UINT64_C('+hex(x)+')' for x in two_over_pi_words())+'};\n')
+        dependencies.extend([pc/'native/x87_trig_candidate.h',Path(__file__).with_name('x87_pi_table.py').resolve(),header])
     frozen={str(p):sha(p) for p in dependencies}
     base_flags=['-std=c11','-O2','-ffunction-sections','-fdata-sections','-fno-strict-aliasing']
     if a.switch_abi:
@@ -49,7 +60,7 @@ def build(a):
         base_flags=list(SWITCH_FLAGS)
         for name in ('build_cpu_runtime.py','aot_code_data.py','run_aot_analysis.py'):
             dependency=Path(__file__).with_name(name).resolve();frozen[str(dependency)]=sha(dependency)
-    flags=[*base_flags,
+    flags=[*base_flags,*model_flags(model),
            '-DSOFTFLOAT_FAST_INT64','-DINLINE_LEVEL=5','-DSOFTFLOAT_FAST_DIV64TO32','-DSOFTFLOAT_FAST_DIV32TO16',
            '-Werror=implicit-function-declaration','-I'+str(out),'-I'+str(root/'source/8086'),
            '-I'+str(root/'source/include'),'-I'+str(pc/'native')]
@@ -63,7 +74,7 @@ def build(a):
         compiled=list(pool.map(compile_one,sources))
     assert all(sha(Path(p))==h for p,h in frozen.items())
     result=dict(status='COMPILED',objects=compiled,source_sha256=frozen,flags=flags,compiler=a.cc,
-                switch_abi=a.switch_abi,runtime_integrated=False,switch_hardware_tested=False)
+                switch_abi=a.switch_abi,transcendental_model=model,runtime_integrated=False,switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     (out/'objects.rsp').write_text('\n'.join('"'+i['object'].replace('\\','/')+'"' for i in compiled)+'\n')
     print('COMPILED',len(compiled),'extended-core objects; not linked into game runtime')
@@ -74,4 +85,5 @@ if __name__=='__main__':
     for name in ('softfloat','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True)
     p.add_argument('--switch-abi',action='store_true')
+    p.add_argument('--transcendental-model',choices=MODELS)
     build(p.parse_args())

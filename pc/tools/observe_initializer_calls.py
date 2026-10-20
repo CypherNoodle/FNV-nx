@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 from run_aot_analysis import sdk_identity,sha
+from initializer_trace import table_entries,check_trace
 
 
 def observe(a):
@@ -72,14 +73,19 @@ def observe(a):
     executed=run(args,'host.log');host=json.loads(executed.stdout.strip().splitlines()[-1])
     before=[list(map(lambda s:int(s,16),m)) for m in re.findall(r'FNV_INIT_BEFORE '+' '.join(['([0-9A-F]+)']*7),executed.stderr)]
     after=[list(map(lambda s:int(s,16),m)) for m in re.findall(r'FNV_INIT_AFTER '+' '.join(['([0-9A-F]+)']*6),executed.stderr)]
+    tables=proof.get('initializer_tables',[])
+    if not tables:raise ValueError('Initializer observation requires its audited table')
+    entries=table_entries(a.exe.resolve(),tables[-1])
+    trace=check_trace(tables[-1],entries,before,after)
     changes=[dict(index=i,before=b,after=e) for i,(b,e) in enumerate(zip(before,after)) if
              b[0]!=e[0] or b[1]!=e[1] or b[3]!=e[2] or b[4]!=e[3] or b[5]+4!=e[4] or b[6]!=e[5]]
     for name,h in proof['source_sha256'].items():
         if sha(Path(name))!=h:raise ValueError('Probe dependency changed during observation')
     result=dict(status='OBSERVED',site=a.site,calls_before=len(before),calls_after=len(after),first=before[:2],last=before[-2:],
                 caller_state_changes=changes,host=host,baseline_host_identical=host==proof['host'],
-                source_sha256={str(p):sha(p) for p in (Path(__file__).resolve(),a.validation.resolve(),script,Path(a.cc[0]).resolve())},
+                source_sha256={str(p):sha(p) for p in (Path(__file__).resolve(),Path(__file__).with_name('initializer_trace.py').resolve(),a.validation.resolve(),script,Path(a.cc[0]).resolve())},
                 original_inputs_modified=False,native_engine_started=False,switch_hardware_tested=False)
+    result['initializer_trace']=dict(before=before,after=after,validation=trace)
     stable=('faulted','result','fault_address','fault_kind','text','last_indirect_site','trace_index','call_count','trace','live_heaps','heap_blocks','process_cleanup_result')
     result['baseline_control_flow_identical']=all(host.get(k)==proof['host'].get(k) for k in stable)
     result['cursor_monotonic']=bool(before) and all(a[0]<b[0] and (b[0]-a[0])%4==0 for a,b in zip(before,before[1:]))

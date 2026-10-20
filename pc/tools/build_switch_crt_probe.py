@@ -16,6 +16,20 @@ import sys
 from audit_install import pe_info
 from audit_startup import audit
 from run_aot_analysis import generation_paths,sdk_identity,sha
+from initializer_trace import table_entries,check_trace
+
+
+def crt_x87_inputs(cpu,report,profile_path,core_path,compiler):
+    """Carry the CPU build's exact optional x87 ABI and objects into packaging."""
+    from build_cpu_runtime import x87_build_inputs
+    flags,frozen,objects,digest=x87_build_inputs(report,profile_path,core_path,compiler)
+    if digest!=cpu.get('x87_core_validation_sha256'):
+        raise ValueError('CRT packaging x87 core differs from the complete CPU build')
+    if flags!=cpu['compiler_flags']:
+        raise ValueError('CRT packaging flags differ from the complete CPU ABI')
+    helper=Path(__file__).with_name('build_cpu_runtime.py').resolve()
+    frozen[helper]=sha(helper)
+    return frozen,objects,digest
 
 
 def build(a):
@@ -25,7 +39,11 @@ def build(a):
     if desktop.get('extra_entries') or desktop.get('generation_matches_all_bodies') is False:
         raise ValueError('Supplementary host entries are not validated by the complete Switch CPU generation')
     observed=json.loads(a.initializer_validation.read_text())
-    expected=desktop['initializer_tables'][-1]['unique_roots']
+    table=desktop['initializer_tables'][-1];expected=table['nonzero']
+    trace=observed.get('initializer_trace',{})
+    checked=check_trace(table,table_entries(a.exe.resolve(),table),trace.get('before'),trace.get('after'))
+    if not checked['complete'] or trace.get('validation')!=checked:
+        raise ValueError('Initializer slot/target trace is incomplete or mismatched')
     if (observed.get('status')!='OBSERVED' or not observed.get('baseline_control_flow_identical') or
         observed.get('caller_state_changes')!=[] or not observed.get('cursor_monotonic') or
         observed.get('calls_before')!=expected or observed.get('calls_after')!=expected or
@@ -42,9 +60,14 @@ def build(a):
         raise ValueError('SDK/capture identity mismatch')
     paths=generation_paths(analysis,a.generation_name)
     if sha(paths['report'])!=cpu['generation_report_sha256']:raise ValueError('Wrong generation')
+    extra_dependencies,x87_objects,x87_digest=crt_x87_inputs(cpu,json.loads(paths['report'].read_text()),
+        getattr(a,'x87_profile',None),getattr(a,'x87_core_validation',None),a.cc)
     frozen={Path(p):h for proof in (cpu,desktop,observed) for p,h in proof['source_sha256'].items()}
+    for p,h in extra_dependencies.items():
+        if p in frozen and frozen[p]!=h:raise ValueError('CPU/CRT x87 source disagreement')
+        frozen[p]=h
     frozen[a.initializer_validation.resolve()]=sha(a.initializer_validation.resolve())
-    for p in [Path(__file__).resolve(),pc/'switch/crt_probe.c',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
+    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'switch/crt_probe.c',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
               *[a.cc.resolve(),a.ld.resolve(),a.nm.resolve(),a.objdump.resolve(),a.readelf.resolve(),a.elf2nro.resolve(),a.nacptool.resolve(),a.build_romfs.resolve(),a.icon.resolve()],
               a.devkitpro.resolve()/'libnx/switch.specs',a.devkitpro.resolve()/'libnx/switch.ld',a.devkitpro.resolve()/'libnx/lib/libnx.a',
               *[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
@@ -54,6 +77,8 @@ def build(a):
         p=a.cpu_validation.resolve().parent/(Path(item['source']).stem+'.o')
         if item['exit_code'] or sha(p)!=item['object_sha256']:raise ValueError('Changed complete-build object')
         objects.append(p);frozen[p]=sha(p)
+    if set(objects).intersection(x87_objects):raise ValueError('Duplicate CPU/x87 link input')
+    objects.extend(x87_objects)
     if any(sha(p)!=h for p,h in frozen.items()):raise ValueError('Proof inputs changed')
     out.mkdir(parents=True);env=os.environ.copy();env['DEVKITPRO']=a.devkitpro.resolve().as_posix()
     def run(cmd,name):
@@ -132,6 +157,7 @@ def build(a):
     if any(sha(p)!=h for p,h in frozen.items()) or audit(a.exe.resolve(),analysis)!=identity:raise ValueError('Build inputs changed')
     result=dict(status='PASS',build='pc-crt-hw01',nro_sha256=sha(nro),nro_bytes=len(raw),elf_sha256=sha(elf),
                 source_sha256={str(p):h for p,h in frozen.items()},cpu_compile_units=cpu['compile_units'],
+                x87_core_validation_sha256=x87_digest,x87_core_objects_linked=len(x87_objects),
                 stopped_link_sha256=sha(stopped),wrapper_entry=entry,deliberate_stop=stop,desktop_indirect_calls=desktop['host']['call_count'],
                 generated_game_code_embedded=True,captured_game_text_embedded=True,engine_frame_enabled=False,
                 cold_boot_supported=False,switch_hardware_tested=False)
@@ -140,6 +166,8 @@ def build(a):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--x87-profile',type=Path,help='Exact optional profile from the complete CPU build')
+    p.add_argument('--x87-core-validation',type=Path,help='Matching Switch x87 core proof; its objects are linked too')
     for n in ('analysis','exe','sdk','python-deps','cpu-validation','desktop-validation','initializer-validation','devkitpro','cc','ld','nm','objdump','readelf','elf2nro','nacptool','build-romfs','icon','output'):
         p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--generation-name',required=True);build(p.parse_args())

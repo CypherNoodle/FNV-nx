@@ -223,6 +223,17 @@ La generacion amplia para analisis usa el pipeline x86 de SH3:
 La captura y el EXE Steam empaquetado son entradas diferentes; los resultados
 del analisis no se presentan como un arranque desde disco.
 
+La traduccion x87 conserva un perfil estricto y ofrece un
+[perfil trigonometrico opcional](docs/x87-trig-profile.md) con backend ARM64
+de precision extendida. El emisor numerico cubre las formas x87 del censo;
+la auditoria completa conserva un rechazo por direccionamiento ES. Tambien
+mantiene limites de operandos y diferencias numericas documentadas frente
+al x87 fisico. Las pruebas sinteticas no sustituyen la validacion del arranque
+ni una medida de rendimiento del motor en la consola. Un
+[perfil v3 opcional](docs/x87-es-profile.md) resuelve ese rechazo cuando ES
+es explicitamente el mismo selector que DS; las limitaciones de C1 siguen
+documentadas y no se declara identidad completa con x87.
+
 Primero se necesita un perfil verificable del ejecutable y una generacion
 AOT que cubra el arranque original, callbacks y entradas indirectas. Cada
 import requiere su ABI x86, retorno, efectos sobre memoria y comportamiento

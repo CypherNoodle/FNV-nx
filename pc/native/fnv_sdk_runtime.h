@@ -14,6 +14,12 @@ extern RECOMP_TLS volatile uint64_t fnv_cpu_icall_count;
 #define g_icall_count fnv_cpu_icall_count
 #ifdef FNV_CPU_EXTENDED_X87
 #include "x87_stack.h"
+#ifdef FNV_CPU_X87_QUAD_MATH
+#include "x87_transcendental_candidate.h"
+#ifdef FNV_CPU_X87_QUAD_TRIG
+#include "x87_trig_candidate.h"
+#endif
+#endif
 extern RECOMP_TLS struct fnv_x87_stack fnv_x87_state;
 extern RECOMP_TLS struct fnv_x87_environment fnv_x87_environment_state;
 /* The SDK's unused function-local FP macros may remain in a function prelude.

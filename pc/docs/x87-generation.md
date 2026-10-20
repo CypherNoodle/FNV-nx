@@ -71,3 +71,27 @@ Current pipeline checks use synthetic PEs; existing lower-level correctness and
 runtime checks remain separate. A fresh complete generation, remaining form/flag
 migration, startup verification and an audited guest CPU profile are still
 required. Original EXE cold entry validation and hardware execution are unchanged.
+
+## Optional bounded mathematical profile
+
+The strict v1 census remains at 42 unsupported sites. The explicit
+[v2 quad-math profile](x87-quad-profile.md) now emits FPATAN, FYL2X and F2XM1
+with a matching 100-object Switch backend, leaving 33 opcode-form gaps.
+The model is not native x87 bit-identity and retains operand/state bounds.
+No existing full private generation or NRO is migrated automatically.
+
+A second explicit [true-pi trigonometric profile](x87-trig-profile.md) adds
+FSIN, FCOS, FPTAN and FSINCOS with a matching 101-object Switch backend. Its
+numeric-emitter census has zero unsupported x87 opcode forms. The corrected
+production-profile census retains one ES-addressing rejection in an inline
+jump-table region; it remains trapped without a runtime-reachability claim. The strict
+profile still has 42 gaps and the first quad profile still has 33. This does
+not establish complete operand support, physical x87 bit-identity, full engine
+compilation or startup. Paired private full generations passed the retained-body
+structural comparison; full CPU compilation remains separate from that result.
+
+An explicit [v3 ES alias profile](x87-es-profile.md) additionally supports ES
+memory operands when the contract makes ES exactly equal to DS. Old profiles
+retain their addressing restrictions. The v3/trigonometric production census
+has no x87 form gaps, while the native test records a pre-existing arithmetic
+C1 limitation. Fresh whole-code generations and a new CPU build are required.

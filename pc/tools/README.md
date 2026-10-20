@@ -7,6 +7,16 @@ no forman parte del codigo fuente de las herramientas.
 
 ## Inventario
 
+La investigacion de `FPATAN`, `FYL2X` y `F2XM1` esta documentada en
+[`x87-transcendental-candidate.md`](../docs/x87-transcendental-candidate.md).
+`audit_x87_c1_liveness.py` analiza conservadoramente la vida de C1 sobre una
+seleccion privada verificada; sus resultados no activan instrucciones ni se
+publican con direcciones del juego. El perfil v1 permanece estricto; el perfil v2 admite explicitamente el modelo
+matematico acotado de ARM64, sin prometer identidad de C1 con el x87 fisico.
+`x87_transcendental_decimal.py` proporciona un segundo oraculo matematico
+acotado (210/310 digitos) para distinguir diferencias de aproximacion nativa
+de errores del candidato; no se enlaza al runtime del juego.
+
 | Componente | Funcion y reutilizacion |
 | --- | --- |
 | `aot_index.py` | Indice incremental y decode acotado para el analizador x86 del SDK externo. No depende de direcciones de FNV. |
@@ -277,3 +287,15 @@ El test POSIX test_host_directory_posix.py se puede compilar y ejecutar en Linux
 o compilar en Windows con --compile-only --target x86_64-linux-musl --cc zig cc
 y ejecutar en WSL con --run-only sobre el mismo output. Se verifican las mismas
 fuentes y binario en ambas fases, sin instalar otro compilador en el sistema.
+
+El perfil quad v2 y sus contratos de generacion/backend estan documentados en
+[`x87-quad-profile.md`](../docs/x87-quad-profile.md). `x87_models.py` centraliza
+la identidad del modelo, los flags obligatorios y las dependencias permitidas.
+
+El perfil [v3 ES](../docs/x87-es-profile.md) conserva un contrato explicito de
+segmentos planos. `test_x87_es_alias.py` compara el codigo ARM64 emitido con un
+oraculo x86 de 32 bits y registra por separado la limitacion aritmetica C1.
+`audit_x87_coverage.py --x87-profile` aplica la capa de produccion completa,
+incluidas las restricciones de direccionamiento, ademas del emisor numerico.
+`initializer_trace.py` comprueba cada slot no nulo y retorno de constructores;
+los callbacks repetidos no se reducen a una lista de destinos unicos.

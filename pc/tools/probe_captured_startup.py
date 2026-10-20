@@ -203,7 +203,9 @@ def probe(a):
         rejected_functions=rejected,unselected_direct_targets=len(missing),budget=a.budget,explicit_wrapper=explicit_wrapper,included_roots=a.include,explicit_stops=a.stop_at,
         generated_sha256=generated_files.get('generated.c'),generated_files_sha256=generated_files,compiled=compiled,
         executable_sha256=sha(out/'startup-test.exe'),
-        initializer_tables=[dict(start=t['start'],end=t['end'],unique_roots=t['unique_roots'],table_sha256=t['table_sha256']) for t in table_reports],
+        # Preserve the verified slot inventory and EXE identity. The return
+        # observer must validate original bytes, not just a unique-target count.
+        initializer_tables=table_reports,
         generation=generation_info,
         text_data=text_data,
         all_generated=a.all_generated,effective_budget=budget,

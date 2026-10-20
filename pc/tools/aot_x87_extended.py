@@ -4,6 +4,16 @@ Install AFTER aot_frame_restore in an isolated experiment. Requires
 x87_stack.h and a per-context `fnv_x87_state` variable. All other x87 forms
 fail explicitly: never mix this stack with the SDK's binary64-backed stack.
 """
+_transcendental_model=None
+_model_configured=False
+
+
+def configure_transcendentals(model):
+    from x87_models import MODELS
+    global _transcendental_model,_model_configured
+    if model not in (None,*MODELS):raise ValueError('Unknown x87 numerical model')
+    if _model_configured and model!=_transcendental_model:raise ValueError('Cannot mix x87 numerical profiles in one process')
+    _transcendental_model=model;_model_configured=True
 
 
 def emit(instruction):
@@ -22,6 +32,12 @@ def emit(instruction):
         address=f'(unsigned char *)(g_xbox_mem_offset + (uint32_t)({_fmt_mem(ops[0])}))'
         if m=='fld':call=f'fnv_x87_stack_load_binary(&fnv_x87_state,{address},{ops[0].mem_size})'
         else:call=f'fnv_x87_stack_store_binary(&fnv_x87_state,{address},{ops[0].mem_size},{int(m=="fstp")})'
+    elif m in ('f2xm1','fpatan','fyl2x') and not ops and _transcendental_model is not None:
+        op={'f2xm1':'F2XM1','fpatan':'FPATAN','fyl2x':'FYL2X'}[m]
+        call=f'fnv_x87_transcendental_candidate(&fnv_x87_state,FNV_X87_CANDIDATE_{op})'
+    elif m in ('fsin','fcos','fptan','fsincos') and not ops:
+        from x87_models import TRIG_MODEL
+        if _transcendental_model==TRIG_MODEL:call=f'fnv_x87_trig_candidate(&fnv_x87_state,FNV_X87_TRIG_{m.upper()})'
     elif m=='fsqrt' and not ops:
         call='fnv_x87_stack_sqrt(&fnv_x87_state)'
     elif m=='fscale' and not ops:
@@ -123,7 +139,7 @@ def install():
 
 
 def install_environment(*, code_selector, data_selector, stack_selector,
-                        opcode_compatibility, data_pointer_on_exception_only):
+                        opcode_compatibility, data_pointer_on_exception_only,extra_selector=None):
     """Opt-in protected-mode environment tracking, after install().
 
     Selectors and architectural FOP/FDP policy must be chosen explicitly from
@@ -137,6 +153,8 @@ def install_environment(*, code_selector, data_selector, stack_selector,
             raise ValueError('Explicit 16-bit guest selectors required')
     if type(opcode_compatibility) is not bool or type(data_pointer_on_exception_only) is not bool:
         raise ValueError('Explicit guest FOP/FDP policies required')
+    if extra_selector is not None and (type(extra_selector) is not int or extra_selector!=data_selector):
+        raise ValueError('The flat ES contract requires ES to alias the exact DS selector')
     from tools.recomp.lifter import Lifter, _fmt_mem
     original=Lifter.lift_instruction
     if not getattr(original,'_fnv_x87_extended',False):
@@ -153,7 +171,8 @@ def install_environment(*, code_selector, data_selector, stack_selector,
             prefix.append(raw[index]);index+=1
         mem=[o for o in instruction.operands if o.type=='mem']
         # FS/GS bases and 16-bit addressing require a separate audited contract.
-        if 0x67 in prefix or any(p in prefix for p in (0xf0,0xf2,0xf3)) or any(o.mem_seg not in (None,'cs','ds','ss') for o in mem):
+        segments=(None,'cs','ds','ss')+(('es',) if extra_selector is not None else ())
+        if 0x67 in prefix or any(p in prefix for p in (0xf0,0xf2,0xf3)) or any(o.mem_seg not in segments for o in mem):
             return self._unimplemented(instruction,m,' (unsupported x87 environment addressing)')
         if m in ('fnstenv','fldenv','fnsave','frstor'):
             # Capstone reports the same env width with 66, and incorrectly
@@ -178,11 +197,11 @@ def install_environment(*, code_selector, data_selector, stack_selector,
             updates.append(f'fnv_x87_environment_state.opcode=0x{opcode:03X}u;')
         if mem and not data_pointer_on_exception_only:
             operand=mem[0];segment=operand.mem_seg or ('ss' if operand.mem_base in ('esp','ebp') else 'ds')
-            selector={'cs':code_selector,'ss':stack_selector,'ds':data_selector}[segment]
+            selector={'cs':code_selector,'ss':stack_selector,'ds':data_selector,'es':extra_selector}[segment]
             updates.extend([f'fnv_x87_environment_state.data_pointer=(uint32_t)({_fmt_mem(operand)});',
                             f'fnv_x87_environment_state.data_selector=0x{selector:04X}u;'])
         return code+updates
     lift._fnv_x87_extended=True
     lift._fnv_x87_environment=True
-    lift._fnv_x87_environment_profile=(code_selector,data_selector,stack_selector,opcode_compatibility,data_pointer_on_exception_only)
+    lift._fnv_x87_environment_profile=(code_selector,data_selector,stack_selector,opcode_compatibility,data_pointer_on_exception_only,extra_selector)
     Lifter.lift_instruction=lift
