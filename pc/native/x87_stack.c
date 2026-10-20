@@ -236,8 +236,9 @@ enum fnv_x87_stack_result fnv_x87_stack_compare_flags(struct fnv_x87_stack *s,un
 }
 enum fnv_x87_stack_result fnv_x87_stack_control(struct fnv_x87_stack *s,const unsigned char bytes[2]) {
     if(!s || !bytes || s->top>7)return FNV_X87_STACK_INVALID;
-    uint16_t value=(uint16_t)(bytes[0]|(uint16_t)bytes[1]<<8);
-    if((value&0x7fu)!=0x7fu || (value&~0x1f7fu) || ((value>>8)&3u)==1 || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    /* FLDCW ignores reserved input bits; FNSTCW reads bit 6 as one. */
+    uint16_t value=(uint16_t)(((bytes[0]|(uint16_t)bytes[1]<<8)&0x1f3fu)|0x40u);
+    if((value&0x3fu)!=0x3fu || ((value>>8)&3u)==1 || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
     s->control=value;return FNV_X87_STACK_OK;
 }
 void fnv_x87_stack_clear_exceptions(struct fnv_x87_stack *s) {

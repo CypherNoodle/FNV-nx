@@ -26,7 +26,7 @@ PLATFORM_SYMBOLS = {
     '__aarch64_read_tp', '__getreent', 'abort', 'atan2', 'calloc', 'cos',
     'exp2', 'fclose', 'fmod', 'fopen', 'fprintf', 'fread', 'free', 'frexp',
     'fseek', 'ftell', 'ldexp', 'log', 'longjmp',
-    'memcpy', 'memset', 'remainder', 'setjmp', 'sin', 'snprintf', 'sqrt',
+    'memcmp', 'memcpy', 'memset', 'remainder', 'setjmp', 'sin', 'snprintf', 'sqrt',
     'sqrtf', 'strcmp', 'strstr', 'tan',
 }
 
@@ -279,7 +279,6 @@ def recheck(a):
     output = a.output.resolve()
     prior_path = output / 'validation.json'
     prior = json.loads(prior_path.read_text())
-    if prior.get('x87_core_validation_sha256'):raise ValueError('Extended x87 requires a fresh matched build; recheck mode is not enabled')
     if prior['status'] not in ('PASS', 'ABI_SYMBOL_FAILURE') or not a.previous_validator:
         raise ValueError('Require a completed build and its archived validator')
     tool = Path(__file__).resolve()
@@ -294,6 +293,26 @@ def recheck(a):
         if prior['source_sha256'].get(str(binary.resolve())) != sha(binary):
             raise ValueError('Tool is not the pinned build input: ' + str(binary))
     paths = generation_paths(a.analysis.resolve(), a.generation_name)
+    report = json.loads(paths['report'].read_text())
+    # The core builder also freezes this validator for its ABI flags. Its old
+    # digest is already checked against the archived validator above. Do not
+    # regenerate or relabel the core proof after this validator-only change.
+    info = report.get('x87_extended_overlay')
+    flags = list(SWITCH_FLAGS)
+    if info:
+        if not a.x87_profile or not a.x87_core_validation:
+            raise ValueError('Extended recheck requires its original profile and core proof')
+        for p in (a.x87_profile.resolve(), a.x87_core_validation.resolve()):
+            if prior['source_sha256'].get(str(p)) != sha(p):
+                raise ValueError('Recheck introduced or changed an arithmetic dependency')
+        if (sha(a.x87_profile) != info['profile_sha256'] or
+                sha(a.x87_core_validation) != prior.get('x87_core_validation_sha256')):
+            raise ValueError('Recheck must retain the identical arithmetic core')
+        flags += ['-DFNV_CPU_EXTENDED_X87=1', *model_flags(info['profile'].get('transcendental_model'))]
+    elif a.x87_profile or a.x87_core_validation or prior.get('x87_core_validation_sha256'):
+        raise ValueError('Legacy recheck cannot select an extended arithmetic core')
+    if flags != prior['compiler_flags']:
+        raise ValueError('Recheck must retain the identical CPU mode')
     if sha(paths['report']) != prior['generation_report_sha256'] or sdk_identity(a.sdk.resolve()) != prior['sdk_sha256']:
         raise ValueError('Generation/SDK identity mismatch')
     sys.path.insert(0, str(a.python_deps.resolve()))
