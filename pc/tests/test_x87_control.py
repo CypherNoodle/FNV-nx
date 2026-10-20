@@ -78,6 +78,7 @@ def test(a):
 #include "x87_stack.h"
 __attribute__((section(".text.entry"))) void probe(const unsigned char *request,unsigned char *out) {
 struct fnv_x87_stack fnv_x87_state;unsigned char guest[80]={0};uint32_t eax=0xa5a5feedu;
+fnv_x87_stack_init(&fnv_x87_state);
 for(unsigned i=0;i<10;i++){guest[i]=request[i];guest[16+i]=request[10+i];}
 guest[48]=request[20];guest[49]=request[21];
 ptrdiff_t g_xbox_mem_offset=(ptrdiff_t)guest-0x200000;

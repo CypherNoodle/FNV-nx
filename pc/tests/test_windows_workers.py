@@ -27,16 +27,19 @@ def programs(raw):
     assert all(len(code)<128 for code in result.values())
     return result
 
-if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__)
-    for name in ('sdk','python-deps','output'):p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--cc',nargs='+',required=True)
+def test_workers(a,extra_inputs=()):
     shared.NAMES=['CreateThread','ExitThread','GetExitCodeThread','WaitForSingleObject','CloseHandle',
                   'GetCurrentThreadId','GetThreadId','GetCurrentThread','ResumeThread','Sleep',
                   'SetLastError','GetLastError','TlsSetValue','TlsGetValue','CreateMutexA',
                   'WaitForMultipleObjects','TlsAlloc']
     shared.ARGS=[6,1,2,2,1,0,1,0,1,1,1,0,2,1,3,4,0]
-    shared.test(p.parse_args(),host_source='windows_workers_host.c',extra_inputs=(Path(__file__).resolve(),),
+    shared.test(a,host_source='windows_workers_host.c',extra_inputs=(Path(__file__).resolve(),*extra_inputs),
                 wrapper_stride=64,guest_programs=programs,
                 strict_modes=('--strict-flags','--strict-disabled','--strict-peer','--strict-start',
                               '--strict-bad-stack','--strict-peer-suspended','--strict-exit','--strict-static-tls'))
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser(description=__doc__)
+    for name in ('sdk','python-deps','output'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--cc',nargs='+',required=True)
+    test_workers(p.parse_args())

@@ -82,7 +82,9 @@ static int contexts(void) {
     if(fnv_x87_stack_store_pop(&state,memory)!=FNV_X87_STACK_EMPTY ||
        memcmp(memory,saved,10) || memcmp(&state,&before,sizeof(state)))return 1;
     unsigned char unnormal[10]={1,0,0,0,0,0,0,0,0xff,0x3f};
-    if(fnv_x87_stack_load(&state,unnormal)!=FNV_X87_STACK_UNSUPPORTED || memcmp(&state,&before,sizeof(state)))return 2;
+    if(fnv_x87_stack_load(&state,unnormal)!=FNV_X87_STACK_OK)return 2;
+    memcpy(&before,&state,sizeof(state));
+    if(fnv_x87_stack_sqrt(&state)!=FNV_X87_STACK_UNSUPPORTED || memcmp(&state,&before,sizeof(state)))return 2;
     state.control=0x037e;memcpy(&before,&state,sizeof(state));
     if(fnv_x87_stack_constant(&state,1)!=FNV_X87_STACK_UNSUPPORTED || memcmp(&state,&before,sizeof(state)))return 3;
     fnv_x87_stack_init(&state);memcpy(&before,&state,sizeof(state));
