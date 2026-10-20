@@ -13,6 +13,7 @@ import re
 import struct
 import subprocess
 import sys
+import shutil
 from audit_startup import audit
 from run_aot_analysis import sdk_identity,sha
 from audit_install import pe_info
@@ -35,6 +36,8 @@ def probe(a):
     if a.all_generated and (not a.generation_name or not a.split):raise ValueError('--all-generated requires a validated generation and split compilation')
     if (a.x87_host_core or a.stop_target_math) and (not a.generation_name or not a.split):
         raise ValueError('Extended host diagnostics require a verified generation and split compilation')
+    reuse_validation=getattr(a,'reuse_validation',None)
+    if reuse_validation and (not a.all_generated or not a.split):raise ValueError('Object reuse requires a complete split diagnostic')
     sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve())]
     from capstone import Cs,CS_ARCH_X86,CS_MODE_32,CS_GRP_JUMP,CS_GRP_RET
     from capstone.x86_const import X86_OP_IMM
@@ -190,12 +193,20 @@ def probe(a):
     flags=['-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-parentheses-equality','-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable','-fno-strict-aliasing','-ffp-contract=off']
     flags.extend(host_flags)
     includes=['-I'+str(p) for p in (out,pc/'native',sdk/'templates/runtime',sdk/'src/kernel')]
-    compiled=[]
+    compiled=[];reused={}
     if a.split:
         sources=[*generated,*native,pc/'tests/captured_startup_host.c']
         if a.stop_target_math:sources.append(pc/'tests/startup_math_stop_host.c')
+        if reuse_validation:
+            from startup_object_reuse import reusable
+            reused=reusable(reuse_validation,a.cc,flags,sources,generated_files,out,frozen,
+                            [pc/'native',sdk/'templates/runtime',sdk/'src/kernel'])
         def compile_one(path):
             obj=out/(path.stem+'.o')
+            if path.name in reused:
+                shutil.copyfile(reused[path.name],obj)
+                print('reused',path.name,flush=True)
+                return dict(source=path.name,object=obj.name,object_sha256=sha(obj),reused=True)
             command([*a.cc,*flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h','-c',path,'-o',obj],path.stem+'.log')
             print('compiled',path.name,flush=True)
             return dict(source=path.name,object=obj.name,object_sha256=sha(obj))
@@ -218,7 +229,7 @@ def probe(a):
         identity=identity,source_sha256=frozen,sdk_sha256=sdk_hash,selected_functions=len(selected),
         rejected_functions=rejected,unselected_direct_targets=len(missing),budget=a.budget,explicit_wrapper=explicit_wrapper,included_roots=a.include,explicit_stops=a.stop_at,
         generated_sha256=generated_files.get('generated.c'),generated_files_sha256=generated_files,compiled=compiled,
-        compiler_flags=flags,host_x87=host_policy,
+        compiler_flags=flags,host_x87=host_policy,reused_compiler_units=len(reused),
         host_x87_objects=[dict(object=str(p),sha256=sha(p)) for p in host_objects],
         executable_sha256=sha(out/'startup-test.exe'),
         # Preserve the verified slot inventory and EXE identity. The return
@@ -242,6 +253,7 @@ if __name__=='__main__':
     p.add_argument('--generation-validation',type=Path,help='Frozen complete code/data comparison proof for --generation-name')
     p.add_argument('--x87-host-core',type=Path,help='Verified strict native-host core for extended CRT diagnostics')
     p.add_argument('--stop-target-math',action='store_true',help='Stop explicitly if target-only ARM64 math is reached; never substitute host arithmetic')
+    p.add_argument('--reuse-validation',type=Path,help='Reuse only identical prior split diagnostic units, driver/flags and ABI headers; freshly select/link the arithmetic core')
     p.add_argument('--captured-text-data',action='store_true',help='Use audited captured text bytes also for inline data/tables in the private host image; never changes the original EXE or verifies cold boot')
     p.add_argument('--all-generated',action='store_true',help='Compile every known generated function, retaining explicit --stop-at traps; avoids one missing indirect target per subset run')
     p.add_argument('--entry-end',type=lambda s:int(s,0),help='Isolated explicit 10-byte call/tail-jump wrapper audit, not cold-entry proof')

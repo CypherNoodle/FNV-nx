@@ -182,7 +182,7 @@ def build(a):
     reused={}
     if a.reuse_generated_validation:
         prior_path=a.reuse_generated_validation.resolve();prior=json.loads(prior_path.read_text())
-        if (prior['status']!='PASS' or prior['compiler_flags']!=SWITCH_FLAGS or
+        if (prior['status']!='PASS' or prior['compiler_flags']!=compile_flags or
             prior['sdk_sha256']!=sdk_hash or
             prior['compile_units']!=len(sources) or len(prior['compiled'])!=len(sources)):
             raise ValueError('Incompatible prior generated-object validation')
@@ -200,7 +200,7 @@ def build(a):
             eligible={p.name for p in sources[:-2]}
         else:
             from generation_object_reuse import candidates
-            eligible,dependencies=candidates(prior_path,prior,report,paths,frozen,sources[:-2],a.cc)
+            eligible,dependencies=candidates(prior_path,prior,report,paths,frozen,sources[:-2],a.cc,a.x87_core_validation)
             frozen.update(dependencies)
             helper=pc/'tools/generation_object_reuse.py';frozen[helper]=sha(helper)
         old={item['source']:item for item in prior['compiled']}
