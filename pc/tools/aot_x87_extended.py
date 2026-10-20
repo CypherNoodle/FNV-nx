@@ -24,8 +24,14 @@ def emit(instruction):
         else:call=f'fnv_x87_stack_store_binary(&fnv_x87_state,{address},{ops[0].mem_size},{int(m=="fstp")})'
     elif m=='fsqrt' and not ops:
         call='fnv_x87_stack_sqrt(&fnv_x87_state)'
+    elif m=='fscale' and not ops:
+        call='fnv_x87_stack_scale(&fnv_x87_state)'
+    elif m in ('fprem','fprem1') and not ops:
+        call=f'fnv_x87_stack_remainder(&fnv_x87_state,{int(m=="fprem1")})'
     elif m=='frndint' and not ops:
         call='fnv_x87_stack_round_integer(&fnv_x87_state)'
+    elif m=='fbstp' and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size==10:
+        call=f'fnv_x87_stack_store_bcd(&fnv_x87_state,(unsigned char *)(g_xbox_mem_offset+(uint32_t)({_fmt_mem(ops[0])})))'
     elif m in ('fild','fist','fistp','fisttp') and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size in (2,4,8):
         address=f'(unsigned char *)(g_xbox_mem_offset + (uint32_t)({_fmt_mem(ops[0])}))'
         if m=='fild':call=f'fnv_x87_stack_load_integer(&fnv_x87_state,{address},{ops[0].mem_size})'
@@ -52,8 +58,17 @@ def emit(instruction):
         else:call=f'fnv_x87_stack_store_register(&fnv_x87_state,{index},{int(m=="fstp")})'
     elif m in ('fcompp','fucompp') and not ops:
         call=f'fnv_x87_stack_compare(&fnv_x87_state,1,{int(m=="fucompp")},2)'
+    elif m in ('fcomi','fcomip','fucomi','fucomip','fcompi','fucompi'):
+        index=None
+        if len(ops)==1:index=register_index(ops[0])
+        elif len(ops)==2 and register_index(ops[0])==0:index=register_index(ops[1])
+        if index is not None:
+            pop=m in ('fcomip','fucomip','fcompi','fucompi')
+            call=f'fnv_x87_stack_compare_flags(&fnv_x87_state,{index},{int(m.startswith("fu"))},{int(pop)},&_fnv_x87_flags)'
     elif m in ('fcom','fcomp') and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size in (4,8):
         call=f'fnv_x87_stack_compare_memory(&fnv_x87_state,(const unsigned char *)(g_xbox_mem_offset+(uint32_t)({_fmt_mem(ops[0])})),{ops[0].mem_size},{int(m=="fcomp")})'
+    elif m in ('ficom','ficomp') and len(ops)==1 and ops[0].type=='mem' and ops[0].mem_size in (2,4):
+        call=f'fnv_x87_stack_compare_integer(&fnv_x87_state,(const unsigned char *)(g_xbox_mem_offset+(uint32_t)({_fmt_mem(ops[0])})),{ops[0].mem_size},{int(m=="ficomp")})'
     elif m=='ftst' and not ops:
         call='fnv_x87_stack_test_zero(&fnv_x87_state)'
     elif m in ('fchs','fabs') and not ops:

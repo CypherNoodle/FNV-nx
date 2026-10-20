@@ -38,7 +38,8 @@ def test(a):
     for va,info in functions.items():source+=translator.translate_function(va,info)+'\n'
     source+='recomp_func_t recomp_lookup(uint32_t va){switch(va){'+''.join(f'case 0x{va:08X}:return sub_{va:08X};' for va in functions)+'default:return NULL;}}\n'
     generated=out/'generated.c';generated.write_text(source)
-    host=out/'host.c';host.write_text(r'''#include "cpu_runtime.h"
+    host=out/'host.c';host.write_text(r'''#undef NDEBUG
+#include "cpu_runtime.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

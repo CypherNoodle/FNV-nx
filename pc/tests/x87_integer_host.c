@@ -20,11 +20,12 @@ static void oracle(const unsigned char *a,const unsigned char *integer,uint16_t 
     case 8:STORE(8,"fisttpll %0");break;
     case 9:STORE(10,"frndint; fstpt %0");break;
     case 10:STORE(2,"fists %0; .byte 0xdd,0xd8");break;
+    case 12:STORE(10,"fbstp %0");break;
     default:STORE(4,"fistl %0; .byte 0xdd,0xd8");break;
     }
 #undef LOAD
 #undef STORE
-    __asm__ volatile("fnstsw %0" : "=m"(status));status&=0x3f;
+    __asm__ volatile("fnstsw %0" : "=m"(status));status&=mode==12 ? 0x23f : 0x3f;
     out[10]=(unsigned char)status;out[11]=(unsigned char)(status>>8);
     __asm__ volatile("fnclex; fldcw %0" : : "m"(old));
 }
@@ -32,7 +33,7 @@ int main(void) {
     if(_setmode(_fileno(stdin),_O_BINARY)<0 || _setmode(_fileno(stdout),_O_BINARY)<0)return 1;
     unsigned char request[24];unsigned count=0;
     for(;;) {
-        size_t n=fread(request,1,24,stdin);if(!n)break;if(n!=24 || request[22]>11)return 2;
+        size_t n=fread(request,1,24,stdin);if(!n)break;if(n!=24 || request[22]>12)return 2;
         uint16_t cw=(uint16_t)(request[20]|request[21]<<8);unsigned mode=request[22];
         unsigned char expected[12],actual[16]={0};oracle(request,request+10,cw,mode,expected);
         struct fnv_x87_stack state;fnv_x87_stack_init(&state);state.control=cw;
@@ -41,7 +42,9 @@ int main(void) {
             if(fnv_x87_stack_load_integer(&state,request+10,width)!=FNV_X87_STACK_OK || fnv_x87_stack_store_pop(&state,actual)!=FNV_X87_STACK_OK)return 3;
         } else {
             if(fnv_x87_stack_load(&state,request)!=FNV_X87_STACK_OK)return 4;
-            if(mode==9) {
+            if(mode==12) {
+                if(fnv_x87_stack_store_bcd(&state,actual)!=FNV_X87_STACK_OK)return 11;
+            } else if(mode==9) {
                 if(fnv_x87_stack_round_integer(&state)!=FNV_X87_STACK_OK || fnv_x87_stack_store_pop(&state,actual)!=FNV_X87_STACK_OK)return 5;
             } else {
                 if(mode>=10)width=mode==10 ? 2 : 4;
@@ -50,6 +53,7 @@ int main(void) {
             }
         }
         actual[10]=(unsigned char)(state.status&0x3f);
+        actual[11]=mode==12 ? (unsigned char)((state.status&0x200)>>8) : 0;
         if(memcmp(actual,expected,12) || state.top || state.occupied) {
             fprintf(stderr,"Mismatch %u mode %u cw %04X status %04X/%04X\n",count,mode,cw,state.status,expected[10]);return 8;
         }

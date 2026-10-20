@@ -55,6 +55,102 @@ enum fnv_x87_stack_result fnv_x87_stack_binary_pop(struct fnv_x87_stack *s,enum 
 enum fnv_x87_stack_result fnv_x87_stack_sqrt(struct fnv_x87_stack *s) {
     return calculate(s,FNV_X87_SQRT,0);
 }
+enum fnv_x87_stack_result fnv_x87_stack_scale(struct fnv_x87_stack *s) {
+    if(!s || s->top>7)return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned source=(s->top+1u)&7u;
+    if(!(s->occupied&(1u<<s->top)) || !(s->occupied&(1u<<source)))return FNV_X87_STACK_EMPTY;
+    struct fnv_x87_extended a=s->registers[s->top],b=s->registers[source],result=a;
+    if(!canonical(a) || !canonical(b))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned ae=a.sign_exponent&0x7fff,be=b.sign_exponent&0x7fff;
+    unsigned sign=a.sign_exponent&0x8000,negative=b.sign_exponent>>15,flags=0,up=0;
+    if((ae==0x7fff && (a.significand&UINT64_C(0x7fffffffffffffff))) ||
+       (be==0x7fff && (b.significand&UINT64_C(0x7fffffffffffffff)))) {
+        uint16_t raised;
+        if(!fnv_x87_calculate(FNV_X87_MUL,(uint16_t)((s->control&~0x300u)|0x300u),a,b,&result,&raised))return FNV_X87_STACK_INVALID;
+        flags=raised;
+    } else if(be==0x7fff) {
+        if((!ae && !negative) || (ae==0x7fff && negative)) {
+            result=(struct fnv_x87_extended){UINT64_C(0xc000000000000000),0xffff};flags=1;
+        } else result=(struct fnv_x87_extended){negative ? 0 : UINT64_C(0x8000000000000000),(uint16_t)(sign|(negative ? 0 : 0x7fff))};
+    } else if(ae && ae!=0x7fff) {
+        int shift=0,exponent=(int)be-0x3fff;
+        if(exponent>=0)shift=exponent>=16 ? 65536 : (int)(b.significand>>(63-exponent));
+        int destination=(int)ae+(negative ? -shift : shift);
+        unsigned rc=(s->control>>10)&3u;
+        if(destination>=0x7fff) {
+            unsigned infinite=rc==0 || (rc==1 && sign) || (rc==2 && !sign);
+            result=(struct fnv_x87_extended){infinite ? UINT64_C(0x8000000000000000) : UINT64_MAX,(uint16_t)(sign|(infinite ? 0x7fff : 0x7ffe))};
+            flags=8|32;up=infinite;
+        } else if(destination<=0) {
+            unsigned count=(unsigned)(1-destination);
+            uint64_t significand=count<64 ? a.significand>>count : 0;
+            uint64_t lost=count<64 ? a.significand&((UINT64_C(1)<<count)-1) : a.significand;
+            if(lost) {
+                if(rc==0 && count<=64) {
+                    uint64_t half=UINT64_C(1)<<(count-1);
+                    up=lost>half || (lost==half && (significand&1));
+                } else if(rc==1)up=!!sign;
+                else if(rc==2)up=!sign;
+                significand+=up;flags=16|32;
+            }
+            result=(struct fnv_x87_extended){significand,(uint16_t)(sign|(significand>>63))};
+        } else result.sign_exponent=(uint16_t)(sign|(unsigned)destination);
+    }
+    s->registers[s->top]=result;s->status=(uint16_t)((s->status&~0x200u)|flags|(up<<9));
+    return FNV_X87_STACK_OK;
+}
+enum fnv_x87_stack_result fnv_x87_stack_remainder(struct fnv_x87_stack *s,int nearest) {
+    if(!s || s->top>7 || (nearest!=0 && nearest!=1))return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned source=(s->top+1u)&7u;
+    if(!(s->occupied&(1u<<s->top)) || !(s->occupied&(1u<<source)))return FNV_X87_STACK_EMPTY;
+    struct fnv_x87_extended a=s->registers[s->top],b=s->registers[source],result=a;
+    if(!canonical(a) || !canonical(b))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned ae=a.sign_exponent&0x7fff,be=b.sign_exponent&0x7fff,flags=0,cc=0;
+    if((ae==0x7fff && (a.significand&UINT64_C(0x7fffffffffffffff))) ||
+       (be==0x7fff && (b.significand&UINT64_C(0x7fffffffffffffff)))) {
+        uint16_t raised;
+        if(!fnv_x87_calculate(FNV_X87_MUL,(uint16_t)((s->control&~0x300u)|0x300u),a,b,&result,&raised))return FNV_X87_STACK_INVALID;
+        flags=raised;
+    } else if(ae==0x7fff || !be) {
+        result=(struct fnv_x87_extended){UINT64_C(0xc000000000000000),0xffff};flags=1;
+    } else if(ae && be!=0x7fff) {
+        int difference=(int)ae-(int)be,exponent=(int)be;
+        uint64_t remainder=a.significand,quotient=0;unsigned sign=a.sign_exponent&0x8000;
+        unsigned partial=difference>=64;
+        if(difference<0) {
+            exponent=(int)ae;
+            if(nearest && difference==-1 && a.significand>b.significand) {
+                quotient=1;remainder=b.significand-(a.significand-b.significand);sign^=0x8000;
+            }
+        } else {
+            /* A partial chunk removes at least 32 exponent bits and leaves
+             * all removed quotient terms divisible by 2^32. No 128-bit
+             * division helper or floating-point projection is needed. */
+            unsigned bits=partial ? 32u+((unsigned)difference&31u) : (unsigned)difference;
+            if(partial)exponent=(int)ae-(int)bits;
+            quotient=remainder>=b.significand;
+            if(quotient)remainder-=b.significand;
+            for(unsigned i=0;i<bits;i++) {
+                unsigned carry=(unsigned)(remainder>>63);remainder<<=1;quotient<<=1;
+                if(carry || remainder>=b.significand){remainder-=b.significand;quotient|=1;}
+            }
+            if(nearest && !partial && (remainder>b.significand-remainder ||
+               (remainder==b.significand-remainder && (quotient&1)))) {
+                remainder=b.significand-remainder;quotient++;sign^=0x8000;
+            }
+        }
+        if(!remainder)result=(struct fnv_x87_extended){0,a.sign_exponent&0x8000};
+        else {
+            while(!(remainder>>63) && exponent>1){remainder<<=1;exponent--;}
+            result=(struct fnv_x87_extended){remainder,(uint16_t)(sign|((remainder>>63) ? (unsigned)exponent : 0))};
+        }
+        cc=partial ? 0x400u : (unsigned)(((quotient&4)<<6)|((quotient&2)<<13)|((quotient&1)<<9));
+    }
+    s->registers[s->top]=result;s->status=(uint16_t)((s->status&~0x4700u)|flags|cc);
+    return FNV_X87_STACK_OK;
+}
 enum fnv_x87_stack_result fnv_x87_stack_load_binary(struct fnv_x87_stack *s,const unsigned char *bytes,unsigned width) {
     if(!s || !bytes || s->top>7 || (width!=4 && width!=8))return FNV_X87_STACK_INVALID;
     if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
@@ -125,6 +221,19 @@ enum fnv_x87_stack_result fnv_x87_stack_compare(struct fnv_x87_stack *s,unsigned
     for(unsigned i=0;i<pops;i++){s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);}
     top_status(s);return FNV_X87_STACK_OK;
 }
+enum fnv_x87_stack_result fnv_x87_stack_compare_flags(struct fnv_x87_stack *s,unsigned index,int quiet,int pop,uint32_t *flags) {
+    if(!s || !flags || s->top>7 || index>7 || (quiet!=0 && quiet!=1) || (pop!=0 && pop!=1))return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    unsigned source=(s->top+index)&7u;
+    if(!(s->occupied&(1u<<source)) || !(s->occupied&(1u<<s->top)))return FNV_X87_STACK_EMPTY;
+    if(!canonical(s->registers[source]) || !canonical(s->registers[s->top]))return FNV_X87_STACK_UNSUPPORTED;
+    int order;uint16_t raised;
+    if(!fnv_x87_compare(s->registers[s->top],s->registers[source],quiet,&order,&raised))return FNV_X87_STACK_INVALID;
+    uint32_t value=order==2 ? 0x45u : order<0 ? 1u : order==0 ? 0x40u : 0;
+    s->status|=raised;
+    if(pop){s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);}
+    top_status(s);*flags=value;return FNV_X87_STACK_OK;
+}
 enum fnv_x87_stack_result fnv_x87_stack_control(struct fnv_x87_stack *s,const unsigned char bytes[2]) {
     if(!s || !bytes || s->top>7)return FNV_X87_STACK_INVALID;
     uint16_t value=(uint16_t)(bytes[0]|(uint16_t)bytes[1]<<8);
@@ -152,6 +261,33 @@ enum fnv_x87_stack_result fnv_x87_stack_store_integer(struct fnv_x87_stack *s,un
     s->status|=flags;
     if(pop){s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);}
     top_status(s);return FNV_X87_STACK_OK;
+}
+enum fnv_x87_stack_result fnv_x87_stack_store_bcd(struct fnv_x87_stack *s,unsigned char bytes[10]) {
+    if(!s || !bytes || s->top>7)return FNV_X87_STACK_INVALID;
+    if((s->control&0x3fu)!=0x3fu || (s->status&0x80u))return FNV_X87_STACK_UNSUPPORTED;
+    if(!(s->occupied&(1u<<s->top)))return FNV_X87_STACK_EMPTY;
+    struct fnv_x87_extended value=s->registers[s->top];
+    if(!canonical(value))return FNV_X87_STACK_UNSUPPORTED;
+    uint64_t bits;uint16_t flags;unsigned up=0;
+    if(!fnv_x87_to_integer(8,s->control,value,0,&bits,&flags))return FNV_X87_STACK_INVALID;
+    uint64_t magnitude=(bits>>63) ? UINT64_C(0)-bits : bits;
+    unsigned char result[10]={0};
+    if((flags&1u) || magnitude>UINT64_C(999999999999999999)) {
+        result[7]=0xc0;result[8]=result[9]=0xff;flags=1;
+    } else {
+        if(flags&32u) {
+            struct fnv_x87_extended rounded;int order;uint16_t ignored;
+            if(!fnv_x87_from_integer(8,magnitude,&rounded))return FNV_X87_STACK_INVALID;
+            struct fnv_x87_extended absolute=value;absolute.sign_exponent&=0x7fff;
+            if(!fnv_x87_compare(rounded,absolute,1,&order,&ignored))return FNV_X87_STACK_INVALID;
+            up=order>0;
+        }
+        for(unsigned i=0;i<9;i++){unsigned low=(unsigned)(magnitude%10);magnitude/=10;result[i]=(unsigned char)(low|((magnitude%10)<<4));magnitude/=10;}
+        result[9]=(value.sign_exponent&0x8000) ? 0x80 : 0;
+    }
+    for(unsigned i=0;i<10;i++)bytes[i]=result[i];
+    s->occupied&=(uint8_t)~(1u<<s->top);s->top=(uint8_t)((s->top+1u)&7u);
+    s->status=(uint16_t)((s->status&~0x200u)|flags|(up<<9));top_status(s);return FNV_X87_STACK_OK;
 }
 enum fnv_x87_stack_result fnv_x87_stack_round_integer(struct fnv_x87_stack *s) {
     if(!s || s->top>7)return FNV_X87_STACK_INVALID;
@@ -220,6 +356,13 @@ enum fnv_x87_stack_result fnv_x87_stack_compare_memory(struct fnv_x87_stack *s,c
     struct fnv_x87_extended value;uint16_t flags;
     if(!fnv_x87_from_binary(width,bits,&value,&flags))return FNV_X87_STACK_INVALID;
     return compare_value(s,value,flags,pop);
+}
+enum fnv_x87_stack_result fnv_x87_stack_compare_integer(struct fnv_x87_stack *s,const unsigned char *bytes,unsigned width,int pop) {
+    if(!s || !bytes || (width!=2 && width!=4) || (pop!=0 && pop!=1))return FNV_X87_STACK_INVALID;
+    uint64_t bits=0;for(unsigned i=0;i<width;i++)bits|=(uint64_t)bytes[i]<<(i*8);
+    struct fnv_x87_extended value;
+    if(!fnv_x87_from_integer(width,bits,&value))return FNV_X87_STACK_INVALID;
+    return compare_value(s,value,0,pop);
 }
 enum fnv_x87_stack_result fnv_x87_stack_test_zero(struct fnv_x87_stack *s) {
     return compare_value(s,(struct fnv_x87_extended){0,0},0,0);

@@ -1,4 +1,5 @@
 /* Original synthetic CPU ABI tests: no game inputs. */
+#undef NDEBUG
 #ifdef _WIN32
 #include <windows.h>
 #else

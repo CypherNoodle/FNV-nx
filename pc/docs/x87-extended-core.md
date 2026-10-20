@@ -38,6 +38,59 @@ supports binary32/64 and signed integer16/32 operands. Memory comparisons,
 signaling NaN's identity during payload selection and handles NaN-before-DE
 exception priority instead of treating the operand as a separate `FLD`.
 
+Signed 16/32-bit integer-memory comparisons (`FICOM`/`FICOMP`) convert the
+integer directly to the extended representation, update the x87 C0/C2/C3
+status bits, and optionally pop ST(0). The translator rejects other operand
+widths explicitly. `tests/x87_integer_compare_host.c` covers signed ordering,
+equality, status bits, TOP/occupancy, and invalid-width atomicity. This fixture
+has now executed on the native host. `tests/test_x87_integer_compare.py` also
+compares 4,992 native opcode executions with both the core and emitted ARM64
+running under Unicorn. It covers signed boundaries, values beyond binary32
+precision, infinities, quiet NaNs, all defined precision controls and rounding
+modes. All four 16/32-bit pop/non-pop encodings pass. The Switch-ABI core also
+compiles; these checks do not measure performance on the console.
+
+`FSCALE` adjusts the exponent with integer operations, preserves the full
+significand for normal results, and implements directed/tie-even underflow,
+overflow, infinity/zero cases and C1. The ordinary finite path does not enter
+SoftFloat's global lock. `FPREM`/`FPREM1` likewise reduce integer significands,
+preserve ST(1), and publish C2 plus the low three quotient bits. Partial chunks
+use `32 + (exponent_difference % 32)` bits, within Intel's permitted 32..63
+range. Intermediate partial remainders are implementation-dependent; tests
+compare the completed result, quotient bits and first-step C2, rather than
+requiring identical intermediate chunks from every processor.
+
+`FBSTP` rounds to a signed 18-digit packed BCD value, retains negative zero,
+and writes the masked-invalid BCD indefinite value on decimal overflow or
+invalid conversion. The pop, IE/PE and C1 behavior are checked against native
+x87. Source denormals, signaling NaNs, unsupported encodings and unmasked
+exception delivery retain the existing explicit unsupported contract.
+
+The scaling/remainder implementations follow the operations and status bits in
+[Intel's instruction reference](https://cdrdv2-public.intel.com/812383/253666-sdm-vol-2a.pdf).
+Their tests are `test_x87_scale.py` and `test_x87_remainder.py`, with 6,432 and
+4,512 native/translated ARM64 cases respectively. `test_x87_integer.py` now
+includes 996 BCD cases in its 12,948-case integer conversion suite. All use
+explicit precision and rounding controls. Test scripts accept the same native
+and bare-ARM64 core proofs, SDK and Python dependency paths described below.
+
+`FCOMI`/`FUCOMI` and their pop variants now publish a separate local flag
+snapshot. CF/PF/ZF represent below/equal/unordered; OF/SF/AF are zero. The
+opt-in flag bridge supplies all sixteen conditional predicates and carry to
+ADC/SBB, including Jcc and CMOVcc consumers. It does not depend on the SDK's
+binary64 comparison scalar. The stack API preserves the x87 condition bits;
+native tests explicitly seed C1 both ways and preserve it across the compare,
+matching the tested host and this [QEMU native-hardware report](https://patchew.org/QEMU/20260911105811.16854-1-scherer.simon89%40gmail.com/).
+
+`test_x87_compare_flags.py` checks 7,680 native/core/emitted-ARM64 cases across
+32 register encodings, 122,880 SETcc results, and 38,400 complete translated
+caller executions. The full generated caller set also compiles with Switch
+ABI flags. Full EFLAGS across calls and LAHF/PUSHF remain outside this snapshot
+contract. Synthetic native assertion-based harnesses explicitly undefine
+`NDEBUG`: Zig's optimized C mode otherwise removes their assertions and calls
+embedded inside them. SAHF and CPU-context checks were repeated with active
+assertions after correcting those harnesses.
+
 `tools/aot_x87_extended.py` is an **opt-in experiment**. Install it after the
 mandatory frame overlay and provide `x87_stack.h` plus a context named
 `fnv_x87_state`. It emits calls for the implemented memory and arithmetic forms.
@@ -83,8 +136,8 @@ this overlay, and runtime context integration remains required. Real-mode and 16
 FXSAVE/SSE state, and unmasked exception delivery are not implemented here.
 
 The opt-in generation/compiler contract and SAHF flag bridge are described in
-[generation integration](x87-generation.md). Remaining comparison-to-EFLAGS and
-math forms still require migration before a complete game generation can pass.
+[generation integration](x87-generation.md). Remaining transcendental math
+forms still require migration before a complete game generation can pass.
 
 ## Reproducing the checks
 
@@ -178,14 +231,15 @@ This is a compilation check, separate from the bare ARM64 emulation run.
 
 This is not yet a complete x87 implementation or an engine-boot result.
 Arithmetic on extended-denormal operands, noncanonical encodings and register
-signaling NaNs remains restricted. Numeric rounding C1, engine-integrated architectural
+signaling NaNs remains restricted. Rounding C1 for the remaining arithmetic forms, engine-integrated architectural
 environment instructions, stack-fault delivery, unmasked arithmetic exceptions
 and transcendental instructions remain outside the implemented contract.
 Unsupported numeric inputs are rejected rather than approximated. Arithmetic
 with unmasked controls is rejected without modifying the stack; the pending-state
 check used by WAIT does not itself deliver a guest exception.
 
-FCOMI integer-EFLAGS integration and transcendental operations are still missing.
+Transcendental operations are still missing; the quad-libm research is recorded
+in [the research notes](x87-quad-research.md).
 Control/status support above is a subset, not a full environment implementation.
 
 The low-level arithmetic API returns raised flags independently of masking;

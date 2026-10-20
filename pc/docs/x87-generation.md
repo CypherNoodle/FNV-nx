@@ -35,6 +35,11 @@ path: consumers that require it issue an explicit stop, recorded as a codegen
 gap. Full EFLAGS across calls and AF reconstruction through the SDK's LAHF path
 remain outside this work. No floating comparison scalar is substituted for AH.
 
+The bridge also handles FCOMI/FUCOMI and their pop variants using an independent
+CF/PF/ZF snapshot, with cleared OF/SF/AF. All sixteen predicates and ADC/SBB
+carry consumers are checked against native instructions. The existing SAHF
+stop for consumers of its untracked preserved OF is retained.
+
 `test_sahf_flags.py` compares every AH value with native SAHF: 2,560 SETcc
 results and 256 each for Jcc, CMOVcc, ADC and SBB. It also checks explicit OF
 failure and compiles the generated functions for Switch. `test_x87_codegen_contract.py`
@@ -51,11 +56,12 @@ entries or assuming runtime reachability. Its lighter Capstone census matched
 every relevant address, mnemonic and operand width from the earlier full SDK
 decode. Detailed reports and addresses must stay private.
 
-The current captured-code census spans 85,808 selected ranges. It found 64
+The current captured-code census spans 85,808 selected ranges. It found 42
 unsupported x87 instructions and 30 SAHF sites. All 16 conditional consumers
 identified after SAHF use conditions covered by the new bridge. Remaining forms
-include trigonometric functions, remainder/scale, integer comparisons, FCOMI
-and packed BCD. A supported opcode category does not establish support for all
+include trigonometric/logarithmic functions. These are instruction
+sites, not 42 distinct opcode types. FSCALE, FPREM/FPREM1, FBSTP and FCOMI cover 19
+sites from the preceding census of 61. A supported opcode category does not establish support for all
 raw operands, rounding C1, stack faults or guest exception delivery.
 
 The first complete captured-code generation attempt was interrupted during SDK

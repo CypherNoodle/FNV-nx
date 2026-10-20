@@ -18,6 +18,8 @@ enum fnv_x87_stack_result fnv_x87_stack_load(struct fnv_x87_stack *state,const u
 enum fnv_x87_stack_result fnv_x87_stack_store_pop(struct fnv_x87_stack *state,unsigned char bytes[10]);
 enum fnv_x87_stack_result fnv_x87_stack_binary_pop(struct fnv_x87_stack *state,enum fnv_x87_operation operation);
 enum fnv_x87_stack_result fnv_x87_stack_sqrt(struct fnv_x87_stack *state);
+enum fnv_x87_stack_result fnv_x87_stack_scale(struct fnv_x87_stack *state);
+enum fnv_x87_stack_result fnv_x87_stack_remainder(struct fnv_x87_stack *state,int nearest);
 enum fnv_x87_stack_result fnv_x87_stack_load_binary(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width);
 enum fnv_x87_stack_result fnv_x87_stack_store_binary(struct fnv_x87_stack *state,unsigned char *bytes,unsigned width,int pop);
 enum fnv_x87_stack_result fnv_x87_stack_duplicate(struct fnv_x87_stack *state,unsigned index);
@@ -25,14 +27,17 @@ enum fnv_x87_stack_result fnv_x87_stack_exchange(struct fnv_x87_stack *state,uns
 enum fnv_x87_stack_result fnv_x87_stack_store_register(struct fnv_x87_stack *state,unsigned index,int pop);
 enum fnv_x87_stack_result fnv_x87_stack_constant(struct fnv_x87_stack *state,int one);
 enum fnv_x87_stack_result fnv_x87_stack_compare(struct fnv_x87_stack *state,unsigned index,int quiet,unsigned pops);
+enum fnv_x87_stack_result fnv_x87_stack_compare_flags(struct fnv_x87_stack *state,unsigned index,int quiet,int pop,uint32_t *flags);
 enum fnv_x87_stack_result fnv_x87_stack_control(struct fnv_x87_stack *state,const unsigned char bytes[2]);
 void fnv_x87_stack_clear_exceptions(struct fnv_x87_stack *state);
 enum fnv_x87_stack_result fnv_x87_stack_load_integer(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width);
 enum fnv_x87_stack_result fnv_x87_stack_store_integer(struct fnv_x87_stack *state,unsigned char *bytes,unsigned width,int pop,int truncate);
+enum fnv_x87_stack_result fnv_x87_stack_store_bcd(struct fnv_x87_stack *state,unsigned char bytes[10]);
 enum fnv_x87_stack_result fnv_x87_stack_round_integer(struct fnv_x87_stack *state);
 enum fnv_x87_stack_result fnv_x87_stack_binary_register(struct fnv_x87_stack *state,enum fnv_x87_operation operation,unsigned destination,unsigned source,int pop,int reverse);
 enum fnv_x87_stack_result fnv_x87_stack_binary_memory(struct fnv_x87_stack *state,enum fnv_x87_operation operation,const unsigned char *bytes,unsigned width,int integer,int reverse);
 enum fnv_x87_stack_result fnv_x87_stack_compare_memory(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width,int pop);
+enum fnv_x87_stack_result fnv_x87_stack_compare_integer(struct fnv_x87_stack *state,const unsigned char *bytes,unsigned width,int pop);
 enum fnv_x87_stack_result fnv_x87_stack_test_zero(struct fnv_x87_stack *state);
 enum fnv_x87_stack_result fnv_x87_stack_sign(struct fnv_x87_stack *state,int absolute);
 enum fnv_x87_constant { FNV_X87_ZERO,FNV_X87_ONE,FNV_X87_PI,FNV_X87_LOG2E,FNV_X87_LOG2TEN,FNV_X87_LOG10TWO,FNV_X87_LN2 };

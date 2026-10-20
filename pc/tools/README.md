@@ -249,6 +249,12 @@ CRLF de forma explicita; valida primero todos los inputs y rechaza rutas fuera
 del repo, binarios y CR sueltos. Excluye third_party/local/dist. Ejecutarlo antes
 de congelar hashes, no despues. test_line_endings.py comprueba esos contratos.
 
+probe_x87_quad.py compara resultados x87 nativos con libm de AArch64 y
+long double de 113 bits usando entradas sinteticas. Registra payloads, errores
+numericos, hashes y fallos del emulador; requiere una carpeta de salida nueva.
+Es investigacion previa a las instrucciones trascendentales, sin habilitarlas
+en el traductor. Ver [resultados y limites](../docs/x87-quad-research.md).
+
 fetch_minimp3.py descarga/verifica headers CC0 externos fijados para el decoder
 MP3 nativo; no toca Steam ni genera carpetas SD. test_mp3_stream.py verifica
 conversion de frecuencia y streaming/rewind/cola sobre pistas privadas;

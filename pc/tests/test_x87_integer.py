@@ -1,4 +1,4 @@
-"""Differential FILD/FIST/FISTP/FISTTP/FRNDINT versus native x87."""
+"""Differential FILD/FIST/FISTP/FISTTP/FRNDINT/FBSTP versus native x87."""
 import argparse
 import hashlib
 import json
@@ -37,6 +37,7 @@ def test(a):
         (65535,1),(-65537,1),(4294967295,1),(-4294967297,1),((1<<64)-1,1),
         ((1<<63)+1,0),(-(1<<63),0),(-(1<<63)-1,0))]
     values.extend([struct.pack('<QH',1<<63,0x7fff),struct.pack('<QH',0xc000000000001234,0x7fff)])
+    values.extend(dyadic(n,s) for n,s in ((10**18-1,0),(-(10**18-1),0),(10**18,0),(-10**18,0),(2*10**18-1,1),(-(2*10**18-1),1)))
     integers=[0,1,-1,32767,32768,-32768,-32769,(1<<31)-1,1<<31,-(1<<31),
               (1<<53)+1,(1<<63)-1,-(1<<63)]
     rng=random.Random(0x87f157)
@@ -47,7 +48,7 @@ def test(a):
     for pc_bits in (0,2,3):
         for rc in range(4):
             cw=0x7f|(pc_bits<<8)|(rc<<10)
-            for mode in range(12):
+            for mode in range(13):
                 for index,value in enumerate(values):
                     integer=integers[index%len(integers)]
                     records.append(value+struct.pack('<QH',integer&((1<<64)-1),0)+struct.pack('<HBB',cw,mode,0))
@@ -67,15 +68,15 @@ def test(a):
     import unicorn.arm64_const as ar
     frame();extended();decoder=Cs(CS_ARCH_X86,CS_MODE_32);decoder.detail=True;disassembler=Disassembler()
     bodies=[];instructions=0
-    for mode in range(12):
+    for mode in range(13):
         if mode<3:
             raw=(b'\xdf\x05',b'\xdb\x05',b'\xdf\x2d')[mode]+b'\x10\x00\x20\x00'+b'\xdb\x3d\x20\x00\x20\x00'
         else:
             prefix=b'\xdb\x2d\x00\x00\x20\x00'
             if mode==9:raw=prefix+b'\xd9\xfc\xdb\x3d\x20\x00\x20\x00'
             else:
-                opcode={3:b'\xdf\x1d',4:b'\xdb\x1d',5:b'\xdf\x3d',6:b'\xdf\x0d',7:b'\xdb\x0d',8:b'\xdd\x0d',10:b'\xdf\x15',11:b'\xdb\x15'}[mode]
-                raw=prefix+opcode+b'\x20\x00\x20\x00'+(b'\xdd\xd8' if mode>=10 else b'')
+                opcode={3:b'\xdf\x1d',4:b'\xdb\x1d',5:b'\xdf\x3d',6:b'\xdf\x0d',7:b'\xdb\x0d',8:b'\xdd\x0d',10:b'\xdf\x15',11:b'\xdb\x15',12:b'\xdf\x35'}[mode]
+                raw=prefix+opcode+b'\x20\x00\x20\x00'+(b'\xdd\xd8' if mode in (10,11) else b'')
         lifter=Lifter();lines=[]
         for decoded in decoder.disasm(raw,0x400000+mode*32):
             lines+=lifter.lift_instruction(disassembler._decode_instruction(decoded));instructions+=1
@@ -92,7 +93,7 @@ ptrdiff_t g_xbox_mem_offset=(ptrdiff_t)guest-0x200000;
 switch(request[22]) {
 '''+ '\n'.join(bodies)+'''
 }
-for(unsigned i=0;i<10;i++)out[i]=guest[32+i];out[10]=(unsigned char)(fnv_x87_state.status&0x3f);out[11]=0;
+for(unsigned i=0;i<10;i++)out[i]=guest[32+i];out[10]=(unsigned char)(fnv_x87_state.status&0x3f);out[11]=request[22]==12 ? (unsigned char)((fnv_x87_state.status&0x200)>>8) : 0;
 if(fnv_x87_state.top || fnv_x87_state.occupied)out[0]=254;
 }
 ''')
@@ -114,9 +115,10 @@ if(fnv_x87_state.top || fnv_x87_state.occupied)out[0]=254;
     verify(native);verify(arm_proof)
     paths=[Path(__file__).resolve(),source,a.build.resolve(),a.arm_build.resolve(),pc/'tools/aot_x87_extended.py',pc/'tools/aot_frame_restore.py']
     result=dict(status='PASS',native_cases=len(records),arm64_translated_cases=len(records),translated_instruction_instances=instructions,
+                bcd_cases=12*len(values),bcd_c1_checked=True,
                 source_sha256={str(p):sha(p) for p in paths},sdk_sha256=sdk_identity(a.sdk.resolve()),
                 arm64_binary_sha256=sha(binary),runtime_integrated=False,switch_hardware_tested=False,
-                limits=['Masked canonical operands; no C1, extended-denormal source operands or exception delivery'])
+                limits=['Masked canonical operands; C1 checked for FBSTP only; extended-denormal source operands and exception delivery excluded'])
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
 
 
