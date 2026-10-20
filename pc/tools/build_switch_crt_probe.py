@@ -60,6 +60,8 @@ def build(a):
         raise ValueError('SDK/capture identity mismatch')
     paths=generation_paths(analysis,a.generation_name)
     if sha(paths['report'])!=cpu['generation_report_sha256']:raise ValueError('Wrong generation')
+    from startup_host_x87 import validate_policy
+    validate_policy(desktop,json.loads(paths['report'].read_text()))
     extra_dependencies,x87_objects,x87_digest=crt_x87_inputs(cpu,json.loads(paths['report'].read_text()),
         getattr(a,'x87_profile',None),getattr(a,'x87_core_validation',None),a.cc)
     frozen={Path(p):h for proof in (cpu,desktop,observed) for p,h in proof['source_sha256'].items()}
@@ -67,7 +69,7 @@ def build(a):
         if p in frozen and frozen[p]!=h:raise ValueError('CPU/CRT x87 source disagreement')
         frozen[p]=h
     frozen[a.initializer_validation.resolve()]=sha(a.initializer_validation.resolve())
-    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'switch/crt_probe.c',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
+    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'tools/startup_host_x87.py',pc/'switch/crt_probe.c',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
               *[a.cc.resolve(),a.ld.resolve(),a.nm.resolve(),a.objdump.resolve(),a.readelf.resolve(),a.elf2nro.resolve(),a.nacptool.resolve(),a.build_romfs.resolve(),a.icon.resolve()],
               a.devkitpro.resolve()/'libnx/switch.specs',a.devkitpro.resolve()/'libnx/switch.ld',a.devkitpro.resolve()/'libnx/lib/libnx.a',
               *[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:

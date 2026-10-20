@@ -28,9 +28,15 @@ def observe(a):
         p=base/item['object']
         if sha(p)!=item['object_sha256']:raise ValueError('Changed compiled object')
         objects.append(p)
+    for item in proof.get('host_x87_objects',[]):
+        p=Path(item['object']).resolve()
+        if p in objects or sha(p)!=item['sha256']:raise ValueError('Changed/duplicate host arithmetic object')
+        objects.append(p)
     script=pc/'tools/probe_captured_startup.py';tree=ast.parse(script.read_text())
     flags=[ast.literal_eval(n.value) for n in ast.walk(tree) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='flags' for t in n.targets)]
     if len(flags)!=1 or not isinstance(flags[0],list):raise ValueError('Cannot recover exact probe flags')
+    if proof.get('host_x87') and not proof.get('compiler_flags'):raise ValueError('Extended host probe must record exact compiler flags')
+    exact_flags=proof.get('compiler_flags',flags[0])
     pattern=re.compile(r'FNV_STARTUP_ICALL\([^;\n]*?,\s*0x0*'+f'{a.site:X}'+r'u\)',re.I)
     candidates=[]
     for name in proof['generated_files_sha256']:
@@ -63,7 +69,7 @@ def observe(a):
     replacements={}
     for filename,contents in changed_units.items():
         source=out/filename;source.write_text(contents);obj=out/Path(filename).with_suffix('.o').name
-        run([*a.cc,*flags[0],*includes,'-include',pc/'native/fnv_sdk_runtime.h','-c',source,'-o',obj],source.stem+'-compiler.log')
+        run([*a.cc,*exact_flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h','-c',source,'-o',obj],source.stem+'-compiler.log')
         replacements[base/obj.name]=obj
     linked=[replacements.get(p,p) for p in objects]
     rsp=out/'link.rsp';rsp.write_text('\n'.join('"'+p.as_posix()+'"' for p in linked)+'\n')

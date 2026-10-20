@@ -53,3 +53,27 @@ of a synthetic SDK-generated unit. A control link without the core reproduces
 the missing backend symbols. This validates only object selection and linking:
 it neither bypasses initializer observation nor proves a final NRO or engine
 startup.
+
+## Host observation of an extended generation
+
+The captured startup tool accepts `--x87-host-core` for a source-matched,
+compiled native-host strict arithmetic core. It enables the extended CPU ABI
+in every generated/native unit and records the exact compiler flags and all
+99 core objects. The initializer observer reuses that same object inventory
+and those flags, including when rebuilding an instrumented unit.
+
+For a target quad/trigonometric profile, `--stop-target-math` is additionally
+required. The diagnostic-only functions in `tests/startup_math_stop_host.c`
+raise a CPU fault if a target-specific mathematical operation is reached.
+They do not compute a host approximation or belong in a production runtime.
+Reaching the deliberate engine boundary would show that this bounded host
+path did not enter those functions; stopping there instead identifies the
+next diagnostic boundary. Neither result executes the ARM64 math model on PC.
+
+Packaging verifies that the recorded host policy matches the target profile,
+compiler mode and frozen object inventory, in addition to its complete CPU
+and initializer-traversal gates. `test_startup_host_x87.py` exercises 36
+configuration/policy rejections and two real CPU-dispatch faults, checks that
+neither mathematical function returns silently, and preserves the x87 state
+in the fault snapshots. These are synthetic tests, not a completed captured
+CRT run or hardware result.
