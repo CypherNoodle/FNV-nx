@@ -1,7 +1,7 @@
 # Acceso a archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, WriteFile, GetFileSize/Ex y SetFilePointer/Ex.
-El catalogo base contiene 94 exports, incluyendo
+El catalogo base contiene 95 exports, incluyendo
 [atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.

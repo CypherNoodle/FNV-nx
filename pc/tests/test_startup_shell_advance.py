@@ -33,6 +33,20 @@ class RefreshGuards(unittest.TestCase):
         with self.assertRaises(ValueError):
             permitted_changes(frozen, self.pc)
 
+    def test_user32_provider_is_audited_platform_change(self):
+        header=self.pc / 'native/windows_user32.h'
+        source=self.pc / 'native/windows_user32.c'
+        header.write_text('old header');source.write_text('old source')
+        frozen={str(header):sha(header),str(source):sha(source)}
+        header.write_text('new header');source.write_text('new source')
+        self.assertEqual(permitted_changes(frozen,self.pc),{header,source})
+        self.game.write_text('#include "windows_user32.h"\n')
+        with self.assertRaises(ValueError):
+            dependency_guard(self.game,self.forced,{header},{header})
+        proof=dict(status='PASS',source_sha256={str(source):sha(source)})
+        with self.assertRaises(ValueError):
+            require_current_proof(proof,[source,header])
+
     def test_direct_header_dependency_rejected(self):
         self.game.write_text('#include "windows_thread.h"\n')
         with self.assertRaises(ValueError):

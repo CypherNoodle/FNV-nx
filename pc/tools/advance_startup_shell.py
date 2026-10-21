@@ -15,7 +15,8 @@ from x87_target_evaluator import sha, unchanged
 
 CHANGES = ('tests/captured_startup_host.c', 'native/windows_thread.c',
            'native/windows_thread.h', 'native/host_file.h',
-           'native/windows_files.inc', 'native/windows_directory.inc')
+           'native/windows_files.inc', 'native/windows_directory.inc',
+           'native/windows_user32.c', 'native/windows_user32.h')
 PROVIDER = ('native/windows_shell.h', 'native/windows_shell.inc')
 PLATFORM = ('cpu_runtime.c', 'pe_image.c', 'pe_tls.c', 'windows_thread.c',
             'windows_modules.c', 'guest_memory.c', 'memory_horizon.c',
@@ -94,7 +95,9 @@ def refresh(a):
     require_current_proof(profile_proof, [*provider, *common])
     kernel_proof = json.loads(a.kernel_test.read_text())
     require_current_proof(kernel_proof, common)
-    for path in (baseline, a.profile_test.resolve(), a.kernel_test.resolve(), Path(__file__).resolve(), a.exe.resolve()):
+    user32_proof = json.loads(a.user32_test.read_text())
+    require_current_proof(user32_proof, [native / 'windows_user32.c', native / 'windows_user32.h', *common])
+    for path in (baseline, a.profile_test.resolve(), a.kernel_test.resolve(), a.user32_test.resolve(), Path(__file__).resolve(), a.exe.resolve()):
         frozen[str(path)] = sha(path)
     for name, digest in old['generated_files_sha256'].items():
         if Path(name).name != name:
@@ -183,6 +186,6 @@ def refresh(a):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('baseline', 'exe', 'sdk', 'output', 'profile-test', 'kernel-test', 'file-root'):
+    for name in ('baseline', 'exe', 'sdk', 'output', 'profile-test', 'kernel-test', 'user32-test', 'file-root'):
         parser.add_argument('--' + name, type=Path, required=True)
     refresh(parser.parse_args())
