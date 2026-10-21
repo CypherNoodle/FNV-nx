@@ -64,9 +64,13 @@ observed argument tuple and returns `C:\Users\FNV\AppData\Local`. This guest
 profile is virtualized beneath the port root as `UserData/FNV/AppData/Local`;
 it never exposes the host PC's profile directories. Directory creation is
 confined to that path beneath `file_root` (on Switch, `sdmc:/switch/FNV-nx`).
-The current guest file provider is still read-only, so this path setup does not
-enable INI writes or saves. No engine frame, cold EXE launch, full profile API
-coverage, save support, or HW result is claimed.
+The guest file provider now permits synchronous CreateFile/WriteFile only below
+the virtual `C:\Users\FNV\` profile, mapped inside `UserData/FNV` under the port
+root. Writes to relative game paths such as `Data\...` remain rejected. A
+synthetic translated x86 test covers file creation/truncation, byte writes,
+write-access enforcement and this path boundary. `WritePrivateProfileString`,
+directory mutation through Win32, and actual game save support remain pending.
+No engine frame, cold EXE launch, or Switch hardware result is claimed.
 
 References: [Microsoft GetPrivateProfileInt](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofileint),
 [Microsoft profile string syntax](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofilestring),
