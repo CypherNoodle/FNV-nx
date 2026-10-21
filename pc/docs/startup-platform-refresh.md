@@ -52,3 +52,20 @@ inputs; the proof itself is frozen in the new diagnostic. A changed USER32
 header participates in the same forbidden dependency closure as other platform
 headers. The rebuilt adapter creates/destroys its virtual desktop alongside
 SYSTEM_INFO. This extends the native platform, never the generated game code.
+
+
+The desktop harness now registers an unhandled-host-exception reporter. It logs
+Windows exception code, image-relative PC, access type/address, native registers,
+guest registers and the last indirect-call trace. A guest-stack preview uses
+ReadProcessMemory and is printed only when all48bytes are readable. It returns
+EXCEPTION_CONTINUE_SEARCH; access violations are never converted to successful
+guest execution. This is a Windows x64 diagnostic, not the Switch crash handler.
+
+The expanded exact-target experiment verified1080math answers before a repeatable
+host access violation0xC0000005. Matching the native instruction bytes against
+the unchanged linked object localized it to generated sub_00A5B270, a guest hash
+loop reading with an implausibly large length. The calling path includes
+sub_00A5B690/sub_00A5B5A0. Source of that invalid length is not established;
+no function is skipped and no success stub or instruction patch is introduced.
+All cache records are re-evaluated against the exact ARM64 model before reuse.
+This diagnosis is not an engine frame or evidence of hardware performance.

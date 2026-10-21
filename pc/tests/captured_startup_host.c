@@ -33,6 +33,29 @@ static SRWLOCK fault_lock=SRWLOCK_INIT;
 static struct fnv_cpu_fault first_fault;
 static unsigned first_fault_live,first_fault_site,first_fault_thread;
 static unsigned first_math_kind=UINT32_MAX,first_math_operation=UINT32_MAX;
+/* Desktop diagnostic only: report unhandled host faults, then let Windows
+ * terminate normally. Never convert native access violations to guest success. */
+static LONG WINAPI report_host_exception(EXCEPTION_POINTERS *exception){
+    uintptr_t image=(uintptr_t)GetModuleHandleA(NULL);
+    EXCEPTION_RECORD *record=exception->ExceptionRecord;
+    CONTEXT *c=exception->ContextRecord;
+    fprintf(stderr,"FNV_HOST_EXCEPTION code=0x%08lx pc=0x%llx image_offset=0x%llx guest_site=0x%08x thread=%lu\n",
+        (unsigned long)record->ExceptionCode,(unsigned long long)c->Rip,
+        (unsigned long long)(c->Rip-image),fnv_probe_site,(unsigned long)GetCurrentThreadId());
+    if(record->NumberParameters>=2)fprintf(stderr,"access=%llu address=0x%llx\n",
+        (unsigned long long)record->ExceptionInformation[0],(unsigned long long)record->ExceptionInformation[1]);
+    fprintf(stderr,"host rsp=0x%llx rax=0x%llx rcx=0x%llx rdx=0x%llx r8=0x%llx r9=0x%llx\n",
+        (unsigned long long)c->Rsp,(unsigned long long)c->Rax,(unsigned long long)c->Rcx,
+        (unsigned long long)c->Rdx,(unsigned long long)c->R8,(unsigned long long)c->R9);
+    fprintf(stderr,"guest eax=%08x ecx=%08x edx=%08x ebx=%08x esp=%08x ebp=%08x esi=%08x edi=%08x\n",
+        g_eax,g_ecx,g_edx,g_ebx,g_esp,g_ebp,g_esi,g_edi);
+    fprintf(stderr,"guest trace:");for(unsigned i=0;i<16;i++)fprintf(stderr," %08x",fnv_cpu_icall_trace[(fnv_cpu_icall_trace_idx-1-i)%ICALL_TRACE_SIZE]);
+    fprintf(stderr,"\n");unsigned char stack[48];SIZE_T got=0;
+    void *source=fnv_cpu_try_memory(g_esp,sizeof(stack));
+    if(source && ReadProcessMemory(GetCurrentProcess(),source,stack,sizeof(stack),&got) && got==sizeof(stack)){
+        fprintf(stderr,"guest stack:");for(unsigned i=0;i<sizeof(stack);i++)fprintf(stderr,"%02x",stack[i]);fprintf(stderr,"\n");}
+    fflush(stderr);return EXCEPTION_CONTINUE_SEARCH;
+}
 static void capture_fault(void *context,const struct fnv_cpu_fault *fault){
     (void)context;if(fault->kind==FNV_CPU_PEER_FAULT)return;
     AcquireSRWLockExclusive(&fault_lock);
@@ -114,6 +137,7 @@ static void import_call_arguments(const struct fnv_cpu_fault *fault){
     printf("]}");
 }
 int main(int argc,char **argv){
+    SetUnhandledExceptionFilter(report_host_exception);
     assert(argc==8+FNV_STARTUP_CAPTURED_TEXT);
     arena_bytes=number(argv[argc-5]);uint32_t vm_bytes=number(argv[argc-4]),commit_limit=number(argv[argc-3]);
     uint32_t worker_capacity=number(argv[argc-1]);assert(worker_capacity==0 || worker_capacity==4);
