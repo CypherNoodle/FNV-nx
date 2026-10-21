@@ -328,6 +328,7 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","CreateFileW",0,0,api_file_create_w},
     {"kernel32.dll","ReadFile",0,0,api_file_read},
     {"kernel32.dll","WriteFile",0,0,api_file_write},
+    {"kernel32.dll","FlushFileBuffers",0,0,api_file_flush},
     {"kernel32.dll","GetFileSize",0,0,api_file_size},
     {"kernel32.dll","GetFileSizeEx",0,0,api_file_size_ex},
     {"kernel32.dll","SetFilePointer",0,0,api_file_seek},
