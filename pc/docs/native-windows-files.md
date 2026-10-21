@@ -1,7 +1,7 @@
 # Acceso a archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, WriteFile, GetFileSize/Ex y SetFilePointer/Ex.
-El catalogo base contiene 90 exports, incluyendo
+El catalogo base contiene 91 exports, incluyendo
 [atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
@@ -31,7 +31,9 @@ streams alternativos, SECURITY_ATTRIBUTES, templates, OVERLAPPED, IOCP ni cancel
 WriteFile es sincrono, exige un handle con permiso de escritura y rechaza OVERLAPPED.
 Las escrituras relativas a `Data` u otras rutas del juego fallan cerradas; no hay
 todavia DeleteFile, renombrado, creacion Win32 de directorios, archivos mapeados,
-WritePrivateProfileString ni FlushFileBuffers. GetFileAttributes y FindFirst/FindNext/FindClose ahora tienen un
+WritePrivateProfileString ni SetEndOfFile. FlushFileBuffers sincroniza un handle
+con permiso de escritura mediante fflush y el commit/fsync del host. GetFileAttributes
+y FindFirst/FindNext/FindClose ahora tienen un
 [proveedor de inventarios](native-windows-directory.md), con sus limites explicitos. Tampoco hay
 guardados ni archivos mapeados a memoria en este bloque.
 
@@ -109,10 +111,10 @@ Contratos: [ReadFile](https://learn.microsoft.com/en-us/windows/win32/api/fileap
 [GetFileSizeEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfilesizeex),
 [CreateFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
 
-La prueba sintetica del perfil cubre CREATE_ALWAYS+WriteFile sobre
+La prueba sintetica del perfil cubre CREATE_ALWAYS+WriteFile+FlushFileBuffers sobre
 `C:\Users\FNV\AppData\Local`, vuelve a leer los bytes desde el host y comprueba
-que una escritura a `Data\...` se rechaza. No acredita todavia un guardado real
-de FNV ni la escritura de INI.
+que una escritura a `Data\...` se rechaza y que FlushFileBuffers requiere permiso
+de escritura. No acredita todavia un guardado real de FNV ni la escritura de INI.
 
 La revision del proveedor confirma que CloseHandle enruta D a archivos, C a
 busquedas (rechazadas por ese API), y E al kernel; los tests cubren tipos,
