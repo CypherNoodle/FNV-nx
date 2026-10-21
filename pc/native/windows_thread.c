@@ -332,6 +332,7 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","SetEndOfFile",0,0,api_file_set_eof},
     {"kernel32.dll","CreateDirectoryA",0,0,api_file_create_directory_a},
     {"kernel32.dll","DeleteFileA",0,0,api_file_delete_a},
+    {"kernel32.dll","CopyFileA",0,0,api_file_copy_a},
     {"kernel32.dll","GetFileSize",0,0,api_file_size},
     {"kernel32.dll","GetFileSizeEx",0,0,api_file_size_ex},
     {"kernel32.dll","SetFilePointer",0,0,api_file_seek},
