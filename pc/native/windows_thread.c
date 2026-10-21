@@ -222,6 +222,7 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_workers.inc"
 #include "windows_time.inc"
 #include "windows_files.inc"
+#include "windows_shell.inc"
 #include "windows_profiles.inc"
 #include "windows_directory.inc"
 #include "windows_parameters.inc"
@@ -479,3 +480,4 @@ enum fnv_cpu_result fnv_windows_thread_detach(void) {
     }
     unlock(p);return result;
 }
+
