@@ -6,7 +6,7 @@ runtime traps. Bodies, references and reports contain game code: keep private.
 import json
 from pathlib import Path
 import re
-from aot_code_data import verify_derivation
+from aot_table_selection import verify_derivation
 from build_cpu_runtime import validate_selection_proof
 from run_aot_analysis import generation_paths,sha
 from verify_aot_code_data import mask_noncode,dispatch

@@ -17,6 +17,11 @@ def test(a):
     decoder=Cs(CS_ARCH_X86,CS_MODE_32);decoder.detail=True
     source=json.loads(a.validation.read_text());sdk_hash=sdk_identity(a.sdk.resolve())
     a.output.mkdir(parents=True);checks=0
+    functions,references,symbols,inputs,info=read_generation(
+        a.analysis.resolve(),a.generation_name,a.validation.resolve(),decoder,sdk_hash)
+    assert functions and set(functions)==set(references)==set(symbols)
+    assert info['functions_available']==len(functions) and inputs
+    positive_functions=len(functions)
     variants=[('report-hash','variant_report_sha256','0'*64),
               ('body-change','retained_function_bodies_identical',False),
               ('selection','selection',None),('status','status','GENERATED_WITH_GAPS'),
@@ -39,8 +44,9 @@ def test(a):
     else:raise AssertionError('Accepted changed dependency')
     pc=Path(__file__).resolve().parents[1]
     paths=[Path(__file__).resolve(),pc/'tools/generated_subset.py',pc/'tools/build_cpu_runtime.py',
-           pc/'tools/verify_aot_code_data.py',pc/'tools/aot_code_data.py',a.validation.resolve()]
-    result=dict(status='PASS',negative_checks=checks,generated_sources_modified=False,
+           pc/'tools/verify_aot_code_data.py',pc/'tools/aot_code_data.py',
+           pc/'tools/aot_table_selection.py',pc/'tools/audit_orphan_jump_tables.py',a.validation.resolve()]
+    result=dict(status='PASS',negative_checks=checks,accepted_functions=positive_functions,generated_sources_modified=False,
                 generated_code_executed=False,sdk_sha256=sdk_hash,source_sha256={str(p):sha(p) for p in paths})
     (a.output/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print('PASS',checks,'incompatible generation proofs rejected')
 

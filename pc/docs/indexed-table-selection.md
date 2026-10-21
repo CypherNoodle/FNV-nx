@@ -36,3 +36,10 @@ guarded-table exclusion and a separate indexed table. It checks preservation of
 the parent and retained records and rejects altered or rehashed evidence,
 modified parent data and malformed declarations. Detailed derived files remain
 private under `local/`; none of these checks establishes engine execution.
+
+Private startup subsets use the same compositional verifier through
+`generated_subset.py`; they must not fall back to the original verifier when
+an `indexed_table_filter` declaration is present. The subset proof test first
+loads a valid complete generation and checks its body/reference/dispatch sets,
+then rejects changed report hashes, body proofs, selections, SDK identity and
+frozen source inputs. A passing compilation or subset proof is not engine boot.
