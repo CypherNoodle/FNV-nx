@@ -1,7 +1,7 @@
 # Acceso a archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, WriteFile, GetFileSize/Ex y SetFilePointer/Ex.
-El catalogo base contiene 93 exports, incluyendo
+El catalogo base contiene 94 exports, incluyendo
 [atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
@@ -30,13 +30,21 @@ No hay busqueda de archivos, rutas absolutas guest, unidades Windows, dispositiv
 streams alternativos, SECURITY_ATTRIBUTES, templates, OVERLAPPED, IOCP ni cancelacion.
 WriteFile es sincrono, exige un handle con permiso de escritura y rechaza OVERLAPPED.
 Las escrituras relativas a `Data` u otras rutas del juego fallan cerradas; no hay
-todavia DeleteFile, renombrado, archivos mapeados,
+todavia renombrado, archivos mapeados,
 WritePrivateProfileString. CreateDirectoryA solo crea subdirectorios del perfil virtual. SetEndOfFile trunca en la posicion actual solo con
 un handle de escritura. FlushFileBuffers sincroniza un handle con permiso de
 escritura mediante fflush y el commit/fsync del host. GetFileAttributes
 y FindFirst/FindNext/FindClose ahora tienen un
 [proveedor de inventarios](native-windows-directory.md), con sus limites explicitos. Tampoco hay
 guardados ni archivos mapeados a memoria en este bloque.
+
+DeleteFileA consulta la existencia real: archivo ausente devuelve 2, padre
+ausente 3, directorio o archivo de juego existente 5. El borrado efectivo se
+limita a archivos regulares del perfil virtual sin handles abiertos. Un handle
+sin FILE_SHARE_DELETE bloquea con 32. El borrado diferido cuando un handle
+comparte FILE_SHARE_DELETE permanece sin implementar y devuelve 50 sin borrar.
+Una reserva de clave bloquea aperturas nuevas durante el unlink; el lock de
+tabla se libera antes del IO. No se devuelve exito si el archivo no se borro.
 
 ## Cursores, handles y locks
 
