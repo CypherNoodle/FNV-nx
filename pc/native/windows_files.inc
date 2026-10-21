@@ -199,6 +199,48 @@ static void file_create(int wide){
     fnv_cpu_return_u32(handle,28);
 }
 static void api_file_create_a(void){file_create(0);}static void api_file_create_w(void){file_create(1);}
+/* The observed boot path requests an exclusive configuration copy. Overwrite
+ * and special source attributes remain explicitly unsupported, never truncated.
+ * Reservations cover the whole copy without holding the file-table lock on IO. */
+static void api_file_copy_a(void){
+    uint32_t source=fnv_cpu_argument_u32(0),target=fnv_cpu_argument_u32(1),exclusive=fnv_cpu_argument_u32(2);
+    struct fnv_windows_process *p=file_process();uint32_t error=0,value=0;int profile=0;
+    char src[512],src_key[512],dst[512],dst_key[512],src_full[1538],dst_full[1538];
+    struct file_slot *src_slot=NULL,*dst_slot=NULL;FILE *input=NULL,*output=NULL;unsigned char *buffer=NULL;int created=0;
+    error=(uint32_t)file_path_with_profile(p,source,0,src,src_key,NULL);
+    if(!error)error=(uint32_t)file_path_with_profile(p,target,0,dst,dst_key,&profile);
+    if(!error && !profile)error=50;
+    if(!error && !strcmp(src_key,dst_key))error=5;
+    if(!error && !exclusive)error=50;
+    if(!error){size_t n=strlen(p->file_root);
+        memcpy(src_full,p->file_root,n);src_full[n]='/';memcpy(src_full+n+1,src,strlen(src)+1);
+        memcpy(dst_full,p->file_root,n);dst_full[n]='/';memcpy(dst_full+n+1,dst,strlen(dst)+1);
+        src_slot=file_reserve_open(p,0x80000000u,1,src_key,&error);
+    }
+    if(!error){struct fnv_host_entry entry;error=fnv_host_metadata(src_full,&entry);
+        if(!error && (entry.attributes&16u))error=5;
+        if(!error && (entry.attributes&~(32u|128u)))error=50;
+    }
+    if(!error){errno=0;input=fnv_host_file_open(src_full,0);if(!input)error=fnv_host_file_error(errno);}
+    uint64_t remaining=0;
+    if(!error && !fnv_host_file_size(input,&remaining))error=50;
+    if(!error){buffer=malloc(65536);if(!buffer)error=8;}
+    if(!error)dst_slot=file_reserve_open(p,0x40000000u,0,dst_key,&error);
+    if(!error){errno=0;output=fnv_host_file_open(dst_full,1);
+        if(!output)error=fnv_host_file_error(errno);else created=1;}
+    while(!error && remaining){size_t count=remaining>65536?65536:(size_t)remaining;
+        errno=0;size_t got=fread(buffer,1,count,input);if(got!=count){error=fnv_host_file_error(errno);break;}
+        errno=0;if(fwrite(buffer,1,count,output)!=count){error=fnv_host_file_error(errno);break;}remaining-=count;
+    }
+    if(output){errno=0;if(!error && !fnv_host_file_sync(output))error=fnv_host_file_error(errno);
+        errno=0;if(fclose(output) && !error)error=fnv_host_file_error(errno);}
+    if(input){errno=0;if(fclose(input) && !error)error=fnv_host_file_error(errno);}
+    /* Only an exclusively created destination can be removed on failure. */
+    if(error && created && !fnv_host_file_remove(dst_full))error=1117;
+    free(buffer);if(dst_slot)file_cancel_open(p,dst_slot);if(src_slot)file_cancel_open(p,src_slot);
+    if(error)fnv_windows_set_last_error(error);else value=1;
+    fnv_cpu_return_u32(value,12);
+}
 static void api_file_delete_a(void){
     uint32_t at=fnv_cpu_argument_u32(0),value=0,error=0;int profile=0;
     struct fnv_windows_process *p=file_process();char path[512],key[512],full[1538];
