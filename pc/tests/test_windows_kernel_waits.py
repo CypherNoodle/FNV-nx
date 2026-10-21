@@ -15,4 +15,5 @@ if __name__ == '__main__':
     shared.ARGS = [4, 1, 1, 2, 1, 4, 0, 1, 4, 3, 3, 1, 4, 4, 3]
     shared.test(p.parse_args(), host_source='windows_kernel_waits_host.c',
                 extra_inputs=(Path(__file__).resolve(), Path(__file__).with_name('windows_events_host.c')),
-                strict_modes=('--strict-name', '--strict-security', '--strict-disabled', '--strict-peer'))
+                strict_modes=('--strict-name', '--strict-security', '--strict-disabled', '--strict-peer'),
+                linker_options=('-Wl,--stack,8388608',))
