@@ -133,3 +133,20 @@ captura su valor inmediatamente. Si el backend falla sin informar errno,
 se usa ERROR_IO_DEVICE (1117), no un error obsoleto de una operacion anterior.
 Las lecturas usan `rb` para assets; el subconjunto de escritura queda confinado
 al perfil virtual y no habilita rutas de assets.
+
+
+CopyFileA dispone de una ruta acotada para la inicializacion del perfil: copia
+un archivo regular de atributos normales/archive a un destino nuevo dentro de
+UserData/FNV, con bFailIfExists distinto de cero. Usa bloques de 64 KiB,
+reservas de comparticion para origen y destino, creacion exclusiva, flush y
+limpieza del archivo recien creado si falla la lectura/escritura/cierre.
+No mantiene files_guard durante E/S. Un destino existente se conserva (80),
+y las escrituras a assets se rechazan (50). La sobrescritura (flag cero) y
+atributos especiales del origen siguen sin implementarse (50); no se simula
+exito. Esta primera ruta copia el contenido, no las fechas originales ni ACL.
+
+La prueba del perfil incluye 131089 bytes comparados con CopyFileA de Windows,
+colisiones comparadas con Windows, un archivo vacio, origen ausente, conflicto
+de comparticion, destino de assets rechazado y error explicito de sobrescritura.
+Se ejecuta mediante once wrappers x86 traducidos. No demuestra todavia un
+arranque del motor ni la ejecucion de esta copia en Switch.
