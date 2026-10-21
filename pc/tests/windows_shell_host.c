@@ -126,7 +126,8 @@ int main(int argc,char **argv){
     /* Close errors propagate while the consumed guest handle stays invalid. */
     handle=execute(1,write_open,7,&fault);assert(handle!=UINT32_MAX);write_args[0]=handle;
     assert(execute(2,write_args,5,&fault));fnv_test_file_sync_failure=1;
-    assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==112);fnv_test_file_sync_failure=0;
+    assert(!execute(3,&handle,1,&fault) && read32(t.teb_address+0x34)==112);fnv_test_file_sync_failure=0;
+    assert(execute(8,&handle,1,&fault)); /* Close flushes, but does not request durable media sync. */
     assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==6);
     handle=execute(1,write_open,7,&fault);assert(handle!=UINT32_MAX);fnv_test_file_close_failure=1;
     assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==1117);fnv_test_file_close_failure=0;
@@ -203,6 +204,9 @@ int main(int argc,char **argv){
     write_open[0]=BASE+0x90000;uint32_t denied=execute(1,write_open,7,&fault);assert(denied==UINT32_MAX && read32(t.teb_address+0x34)==50);
     static const char escape_path[]="C:\\Users\\FNV\\..\\escape.bin";memcpy(arena+BASE+0x90000-BASE,escape_path,sizeof(escape_path));
     open_args[0]=BASE+0x90000;assert(execute(1,open_args,7,&fault)==UINT32_MAX && read32(t.teb_address+0x34)==5);
+    struct fnv_windows_file_stats file_stats;assert(fnv_windows_file_stats(process,&file_stats)==FNV_CPU_OK);
+    assert(file_stats.writes==5 && file_stats.write_bytes==20016 && file_stats.syncs==4 && file_stats.sync_errors==1);
+    assert(file_stats.closes && file_stats.close_errors==1);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"documents_profile\":true,\"alternating_read_write\":true,\"close_sync_errors\":true,\"close_waits_for_pinned_write\":true,\"exclusive_profile_copy\":true,\"profile_delete\":true,\"readonly_game_delete_denied\":true,\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
+    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"documents_profile\":true,\"alternating_read_write\":true,\"close_flushes_without_durable_sync\":true,\"explicit_flush_error_propagates\":true,\"close_waits_for_pinned_write\":true,\"exclusive_profile_copy\":true,\"profile_delete\":true,\"readonly_game_delete_denied\":true,\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"file_io_stats\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
 }

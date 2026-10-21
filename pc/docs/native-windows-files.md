@@ -87,8 +87,14 @@ a una liberacion concurrente del propio guest.
 ## Medicion y verificacion
 
 `fnv_windows_file_stats` expone handles vivos, slots retirados, aperturas,
-lecturas, bytes, errores backend, tiempo dentro de fread y tiempo para adquirir
-tabla+lock de IO. Los tiempos usan el reloj host; no el QPC guest inyectable.
+lecturas y escrituras, bytes, errores backend, tiempo dentro de fread/fwrite,
+espera por lock, llamadas a `FlushFileBuffers`, syncs, cierres y sus duraciones.
+Los tiempos usan el reloj host; no el QPC guest inyectable. `CloseHandle` deja
+que `fclose` vacie el buffer y propague su error, pero no fuerza `fsync`/`_commit`;
+la persistencia explicita se conserva en `FlushFileBuffers`. Asi se evita pedir
+una sincronizacion de medio por cada cierre de archivo pequeño, sin descartar
+errores del vaciado normal. Los contadores permiten medir el coste real de
+escritura, sync y cierre en hardware.
 El tiempo de fread puede incluir cache de stdio/OS: no mide por si solo latencia
 fisica de SD ni demuestra impacto en FPS. Los fallos anteriores a fread no se
 cuentan como errores backend de lectura.

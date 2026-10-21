@@ -15,6 +15,15 @@ anything. These exports use stdcall, preserve guest LastError and validate VM
 access before touching guest memory. Unsupported cases are explicit faults,
 not claims to reproduce every Windows error or registry ACL.
 
+The original PC EXE imports six `ADVAPI32.dll` functions: `RegCreateKeyExA`,
+`RegCloseKey`, `RegQueryValueExA`, `RegOpenKeyExA`, `RegSetValueExA` and
+`GetUserNameA`. This provider implements only `RegOpenKeyExA` and
+`RegCloseKey`. Queries against a returned predefined root are therefore still
+unsupported, as are value writes and key creation. Returning the predefined
+root for an empty subkey matches the open-key contract; it does not imply that
+the root has values or a host registry backing. Keep the query path explicit
+until its arguments, result types and game call site are observed and tested.
+
 Microsoft documents the [open-key contract](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regopenkeyexa)
 and [close-key API](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regclosekey).
 The virtual roots have no host backing handles or predefined-handle cache.

@@ -97,6 +97,8 @@ enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *,struct
 struct fnv_windows_file_stats {
     uint32_t live_handles,retired_slots;
     uint64_t opens,reads,read_bytes,read_ns,io_wait_ns,read_errors;
+    uint64_t writes,write_bytes,write_ns,write_errors;
+    uint64_t syncs,sync_ns,sync_errors,closes,close_ns,close_errors;
     uint32_t live_searches;
     uint64_t searches,find_next_calls,attribute_queries;
     uint64_t skipped_non_ascii,skipped_special;

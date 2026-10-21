@@ -1,5 +1,20 @@
 # Steam callback registration boundary
 
+## Import coverage from the original PC EXE
+
+The original `FalloutNV.exe` import table contains 11 `steam_api.dll` names:
+`SteamFriends`, `SteamAPI_Init`, `SteamAPI_UnregisterCallback`,
+`SteamAPI_Shutdown`, `SteamUser`, `SteamAPI_RunCallbacks`,
+`SteamAPI_RegisterCallback`, `SteamUserStats`, `SteamApps`,
+`SteamAPI_IsSteamRunning` and `SteamUtils`. This provider exports only
+`SteamAPI_RegisterCallback`, `SteamAPI_UnregisterCallback` and `SteamAPI_Init`.
+The other eight names are not implemented, including the five interface
+accessors and `SteamAPI_Shutdown`/`SteamAPI_RunCallbacks`/`SteamAPI_IsSteamRunning`.
+An import-table entry alone does not show that the guest calls it on startup;
+runtime reachability still needs to be observed. Do not fill these gaps with
+fake success or pretend to provide Steam interfaces. The supported `Init`
+failure path returns false because this port has no Steam client.
+
 The captured PC startup reaches `SteamAPI_RegisterCallback` before any
 demonstrated engine frame. The native provider implements registration and
 unregistration and the unavailable-client result of `SteamAPI_Init`. It does not implement a Steam client, successful initialization,
@@ -48,7 +63,12 @@ both the static import and dynamic module catalogs. The platform refresh tool
 requires a current synthetic proof, rebuilds the provider separately and rejects
 a baseline that already links a provider of the same name. Existing game objects
 remain frozen; a corrected generated unit needs its own replacement provenance.
-The Switch CRT adapter has not yet been wired to this provider.
+The private Switch CRT probe now links this provider into its native import
+catalog and static IAT bindings, and tears it down after the guest thread and
+module registry detach. Its builder requires a current passing synthetic proof
+whose source hashes match the provider and host test. This only puts the same
+bounded failure-path behavior on the Switch probe; it does not emulate Steam
+or make `SteamAPI_Init` succeed.
 
 The private captured-startup experiment rebuilt all 12 platform units and
 reused 459 frozen objects, then explicitly replaced the independently audited
