@@ -19,6 +19,7 @@ def validate_observation(host,name):
 def require_switch_profile(desktop):
     # Older bounded observations predate the explicit selector. New profiles
     # cannot be used as evidence for the fixed 64 MiB Switch CRT probe.
+    if desktop.get('host',{}).get('worker_stats',{}).get('capacity',0):raise ValueError('Host worker layout differs from the fixed Switch CRT probe')
     name=desktop.get('memory_profile','bounded64')
     if name!='bounded64':raise ValueError('Host memory profile differs from the fixed Switch CRT probe')
     if 'memory_profile' in desktop:validate_observation(desktop['host'],name)

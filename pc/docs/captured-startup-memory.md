@@ -29,3 +29,9 @@ an enlarged desktop profile, even if that host observation reaches the desired
 boundary. Increasing the console budget requires its own implementation and
 validation. These desktop experiments establish neither cold EXE startup nor
 an engine frame, audio, performance or hardware execution.
+
+`--workers` is an independent desktop diagnostic option. The selected memory
+budget is still genuinely backed; worker resources occupy a dedicated fixed
+region within that arena. The observer records worker capacity, and the fixed
+Switch CRT packager rejects desktop observations that enabled workers. A larger
+desktop budget or successful host-thread test does not validate a console layout.

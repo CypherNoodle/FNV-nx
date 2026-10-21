@@ -5,6 +5,8 @@
  * docs/native-windows-thread.md. No Wine source or DLLs are incorporated. */
 #include "fnv_sdk_runtime.h"
 #include "windows_thread.h"
+#include "windows_system.h"
+#include "windows_profiles.h"
 #include "pe_tls.h"
 #include "guest_memory.h"
 #include "host_mutex.h"
@@ -34,9 +36,13 @@ struct critical_section {
     fnv_host_condition condition;
 };
 enum {KERNEL_EVENT=1,KERNEL_SEMAPHORE,KERNEL_MUTEX,KERNEL_THREAD};
+struct kernel_state {
+    uint32_t refs,manual,signaled,kind,maximum,owner,recursion,abandoned;
+    char name[268];
+};
 struct kernel_object {
-    uint32_t generation,live,manual,signaled,waiters,free_next,kind;
-    uint32_t maximum,owner,recursion,abandoned;
+    uint32_t generation,live,waiters,free_next;
+    struct kernel_state *state;
     fnv_host_condition condition;
 };
 struct kernel_wait {
@@ -132,6 +138,9 @@ static unsigned char *slot(struct windows_thread *t,uint32_t index) {
 }
 struct fnv_guest_memory *fnv_windows_current_memory(void) { return thread()->process->config.memory; }
 uint32_t fnv_windows_current_address_space_bytes(void) { return thread()->process->config.cpu.memory_bytes; }
+void fnv_windows_current_address_bounds(uint32_t *base,uint32_t *bytes){
+    const struct fnv_cpu_config *c=&thread()->process->config.cpu;*base=c->guest_base;*bytes=c->memory_bytes;
+}
 void fnv_windows_set_last_error(uint32_t value) { write32(thread()->teb+TEB_ERROR,value); }
 static int pool_overlap(struct fnv_windows_process *p,uint32_t address,uint32_t bytes) {
     unsigned char *backing;uint32_t base,size;
@@ -213,6 +222,7 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_workers.inc"
 #include "windows_time.inc"
 #include "windows_files.inc"
+#include "windows_profiles.inc"
 #include "windows_directory.inc"
 #include "windows_parameters.inc"
 #include "windows_environment.inc"
@@ -269,16 +279,16 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","InterlockedDecrement",0,0,api_atomic_decrement},
     {"kernel32.dll","InterlockedExchangeAdd",0,0,api_atomic_add},
     {"kernel32.dll","CreateEventA",0,0,api_event_create},
-    {"kernel32.dll","CreateEventW",0,0,api_event_create},
+    {"kernel32.dll","CreateEventW",0,0,api_event_create_w},
     {"kernel32.dll","SetEvent",0,0,api_event_set},
     {"kernel32.dll","ResetEvent",0,0,api_event_reset},
     {"kernel32.dll","WaitForSingleObject",0,0,api_wait_single},
     {"kernel32.dll","CloseHandle",0,0,api_close_handle},
     {"kernel32.dll","CreateSemaphoreA",0,0,api_semaphore_create},
-    {"kernel32.dll","CreateSemaphoreW",0,0,api_semaphore_create},
+    {"kernel32.dll","CreateSemaphoreW",0,0,api_semaphore_create_w},
     {"kernel32.dll","ReleaseSemaphore",0,0,api_semaphore_release},
     {"kernel32.dll","CreateMutexA",0,0,api_mutex_create},
-    {"kernel32.dll","CreateMutexW",0,0,api_mutex_create},
+    {"kernel32.dll","CreateMutexW",0,0,api_mutex_create_w},
     {"kernel32.dll","ReleaseMutex",0,0,api_mutex_release},
     {"kernel32.dll","WaitForMultipleObjects",0,0,api_wait_multiple},
     {"kernel32.dll","Sleep",0,0,api_sleep},

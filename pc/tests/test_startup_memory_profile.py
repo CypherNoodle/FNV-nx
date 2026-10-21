@@ -29,5 +29,6 @@ for name in ('bounded64','extended808'):
     c['arena_bytes']=0;assert configuration(name)['arena_bytes']>0
 reject(lambda:configuration('imaginary'))
 reject(lambda:require_switch_profile(dict(memory_profile='imaginary')))
+reject(lambda:require_switch_profile(dict(host=dict(worker_stats=dict(capacity=4)))))
 require_switch_profile({});checks+=1
 print('PASS',checks,'memory profile/accounting and Switch packaging checks')
