@@ -7,8 +7,8 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('sdk','python-deps','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True)
-    shared.NAMES=['SHGetFolderPathA','CreateFileA','ReadFile','CloseHandle']
-    shared.ARGS=[5,7,5,1];shared.DLLS=['SHELL32.dll','KERNEL32.dll','KERNEL32.dll','KERNEL32.dll']
+    shared.NAMES=['SHGetFolderPathA','CreateFileA','WriteFile','ReadFile','CloseHandle']
+    shared.ARGS=[5,7,5,5,1];shared.DLLS=['SHELL32.dll','KERNEL32.dll','KERNEL32.dll','KERNEL32.dll','KERNEL32.dll']
     shared.test(p.parse_args(),host_source='windows_shell_host.c',
         extra_inputs=(Path(__file__).resolve(),Path(__file__).resolve().parents[1]/'native/windows_shell.h',
                       Path(__file__).resolve().parents[1]/'native/windows_shell.inc'),
