@@ -71,10 +71,18 @@ def build(a):
         if p in frozen and frozen[p]!=h:raise ValueError('CPU/CRT x87 source disagreement')
         frozen[p]=h
     frozen[a.initializer_validation.resolve()]=sha(a.initializer_validation.resolve())
-    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'tools/startup_host_x87.py',pc/'tools/startup_memory_profile.py',pc/'switch/crt_probe.c',pc/'native/windows_user32.h',pc/'native/windows_system.h',pc/'native/windows_profiles.h',pc/'native/windows_profiles.inc',pc/'native/windows_shell.h',pc/'native/windows_shell.inc',pc/'native/windows_files.inc',pc/'native/host_file.h',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
+    steam_validation=json.loads(a.steam_validation.read_text())
+    if steam_validation.get('status')!='PASS' or steam_validation.get('switch_hardware_tested') is not False:
+        raise ValueError('Require the current synthetic Steam callback/failure-path proof')
+    for path in (pc/'tests/test_steam_callbacks.py',pc/'tests/steam_callbacks_host.c',pc/'native/steam_callbacks.c',pc/'native/steam_callbacks.h'):
+        if steam_validation.get('source_sha256',{}).get(str(path.resolve()))!=sha(path):
+            raise ValueError('Steam provider source changed after its synthetic proof')
+        frozen[path.resolve()]=sha(path)
+    frozen[a.steam_validation.resolve()]=sha(a.steam_validation.resolve())
+    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'tools/startup_host_x87.py',pc/'tools/startup_memory_profile.py',pc/'switch/crt_probe.c',pc/'native/steam_callbacks.c',pc/'native/steam_callbacks.h',pc/'native/windows_user32.h',pc/'native/windows_system.h',pc/'native/windows_profiles.h',pc/'native/windows_profiles.inc',pc/'native/windows_shell.h',pc/'native/windows_shell.inc',pc/'native/windows_files.inc',pc/'native/host_file.h',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
               *[a.cc.resolve(),a.ld.resolve(),a.nm.resolve(),a.objdump.resolve(),a.readelf.resolve(),a.elf2nro.resolve(),a.nacptool.resolve(),a.build_romfs.resolve(),a.icon.resolve()],
               a.devkitpro.resolve()/'libnx/switch.specs',a.devkitpro.resolve()/'libnx/switch.ld',a.devkitpro.resolve()/'libnx/lib/libnx.a',
-              *[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','windows_user32.c','windows_system.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
+              *[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','windows_user32.c','windows_system.c','steam_callbacks.c','guest_memory.c','memory_horizon.c','memory_horizon.h','windows_memory.c')]]:
         frozen[p]=sha(p)
     objects=[]
     for item in cpu['compiled']:
@@ -135,7 +143,7 @@ def build(a):
     frozen[blob]=sha(blob);shutil.copyfile(blob,rom/blob.name)
     flags=cpu['compiler_flags'];includes=['-I'+str(p) for p in (out,pc/'native',sdk/'templates/runtime',sdk/'src/kernel',a.devkitpro.resolve()/'libnx/include')]
     added=[]
-    for p in [out/'entry.c',pc/'switch/crt_probe.c',*[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','windows_user32.c','windows_system.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
+    for p in [out/'entry.c',pc/'switch/crt_probe.c',*[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','windows_user32.c','windows_system.c','steam_callbacks.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
         generated_warnings=['-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable'] if p.parent==out else []
         obj=out/(p.stem+'.o');run([a.cc,*flags,'-Wall','-Wextra','-Werror',*generated_warnings,*includes,'-include',pc/'native/fnv_sdk_runtime.h','-c',p,'-o',obj],p.stem+'-compile');added.append(obj)
     elf=out/'fnv-nx.elf';nro=out/'fnv-nx.nro'
@@ -172,7 +180,6 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--x87-profile',type=Path,help='Exact optional profile from the complete CPU build')
     p.add_argument('--x87-core-validation',type=Path,help='Matching Switch x87 core proof; its objects are linked too')
-    for n in ('analysis','exe','sdk','python-deps','cpu-validation','desktop-validation','initializer-validation','devkitpro','cc','ld','nm','objdump','readelf','elf2nro','nacptool','build-romfs','icon','output'):
+    for n in ('analysis','exe','sdk','python-deps','cpu-validation','desktop-validation','initializer-validation','steam-validation','devkitpro','cc','ld','nm','objdump','readelf','elf2nro','nacptool','build-romfs','icon','output'):
         p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--generation-name',required=True);build(p.parse_args())
-

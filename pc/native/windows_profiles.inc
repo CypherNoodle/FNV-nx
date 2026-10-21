@@ -53,6 +53,28 @@ static int profile_parse(const char *data,size_t bytes,const char *section,const
         }
     }return 1;
 }
+static int profile_value(const char *data,size_t bytes,const char *section,const char *key,const char **first,const char **last,int *found){
+    if((bytes>=2 && (((unsigned char)data[0]==255 && (unsigned char)data[1]==254) || ((unsigned char)data[0]==254 && (unsigned char)data[1]==255))) || memchr(data,0,bytes))return 0;
+    int selected=0;
+    for(size_t at=0;at<bytes;){size_t end=at;while(end<bytes && data[end]!='\n' && data[end]!='\r')end++;
+        if(end-at>4096)return 0;
+        const char *line=data+at,*line_end=data+end;at=end;
+        while(at<bytes && (data[at]=='\n' || data[at]=='\r'))at++;
+        profile_trim(&line,&line_end);if(line==line_end || *line==';')continue;
+        if(*line=='['){const char *close=memchr(line+1,']',(size_t)(line_end-line-1));
+            if(selected)return 1;
+            if(close && profile_equal(line+1,close,section))selected=1;
+            continue;
+        }
+        if(selected){const char *equal=memchr(line,'=',(size_t)(line_end-line));
+            if(profile_equal(line,equal?equal:line_end,key)){
+                if(equal){line=equal+1;profile_trim(&line,&line_end);}else line=line_end;
+                if(line_end-line>=2 && (*line=='\'' || *line=='"') && line_end[-1]==*line){line++;line_end--;}
+                *first=line;*last=line_end;*found=1;return 1;
+            }
+        }
+    }return 1;
+}
 static void profile_guest_string(struct fnv_windows_process *p,uint32_t at,int wide,char *out,size_t capacity){
     for(size_t i=0;i<capacity;i++){uint64_t pos=(uint64_t)at+i*(wide?2u:1u);unsigned width=wide?2:1;
         if(pos+width>UINT64_C(0x100000000))sync_invalid("Windows profile string wraps",at);
@@ -69,7 +91,7 @@ static void profile_integer(int wide){
     char app[256],entry[256],path[512],canonical[512],full[1538];
     profile_guest_string(p,section,wide,app,sizeof(app));profile_guest_string(p,key,wide,entry,sizeof(entry));
     int error=file_path(p,filename,wide,path,canonical);
-    if(error)sync_invalid("Windows profile path outside game sandbox or unsupported",filename);
+    if(error)sync_invalid("Windows profile integer path unsupported",filename);
     snprintf(full,sizeof(full),"%s/%s",p->file_root,path);errno=0;FILE *stream=fopen(full,"rb");
     if(!stream){error=(int)fnv_host_file_error(errno);
         if(error!=2 && error!=3)sync_invalid("Windows profile open failed",(uint32_t)error);
@@ -88,8 +110,46 @@ static void profile_integer(int wide){
 }
 static void api_profile_integer_a(void){profile_integer(0);}
 static void api_profile_integer_w(void){profile_integer(1);}
+static void api_profile_string_a(void){
+    uint32_t section=fnv_cpu_argument_u32(0),key=fnv_cpu_argument_u32(1),fallback=fnv_cpu_argument_u32(2);
+    uint32_t output=fnv_cpu_argument_u32(3),capacity=fnv_cpu_argument_u32(4),filename=fnv_cpu_argument_u32(5);
+    struct fnv_windows_process *p=file_process();
+    if(!section || !key)sync_invalid("Windows profile string enumeration pending",!section?section:key);
+    if(!output || !capacity)sync_invalid("Windows profile string output shape pending",output);
+    if(!filename)sync_invalid("Windows profile default filename pending",filename);
+    char app[256],entry[256],default_value[512],path[512],canonical[512],full[1538];
+    profile_guest_string(p,section,0,app,sizeof(app));profile_guest_string(p,key,0,entry,sizeof(entry));
+    if(fallback)profile_guest_string(p,fallback,0,default_value,sizeof(default_value));else default_value[0]=0;
+    size_t default_bytes=strlen(default_value);
+    while(default_bytes && default_value[default_bytes-1]==' ')default_value[--default_bytes]=0;
+    int error=file_path(p,filename,0,path,canonical);
+    if(error)sync_invalid("Windows profile string path unsupported",filename);
+    snprintf(full,sizeof(full),"%s/%s",p->file_root,path);errno=0;FILE *stream=fopen(full,"rb");
+    if(!stream){error=(int)fnv_host_file_error(errno);
+        if(error!=2 && error!=3)sync_invalid("Windows profile open failed",(uint32_t)error);
+        const char *value=default_value;size_t n=strlen(value);int truncated=n>=capacity;if(truncated)n=capacity-1;
+        unsigned char *dest=file_pointer(p,output,(uint32_t)n+1,1);memcpy(dest,value,n);dest[n]=0;
+        fnv_windows_set_last_error((uint32_t)error);
+        fnv_cpu_return_u32((uint32_t)n,24);return;
+    }
+    uint64_t bytes;
+    if(!fnv_host_file_size(stream,&bytes) || bytes>1048576){fclose(stream);sync_invalid("Windows profile file size pending",filename);}
+    char *data=malloc((size_t)bytes+1);
+    if(!data){fclose(stream);sync_invalid("Windows profile allocation failed",filename);}
+    size_t got=fread(data,1,(size_t)bytes,stream);int extra=fgetc(stream),failed=ferror(stream);
+    if(fclose(stream))failed=1;
+    if(failed || got!=bytes || extra!=EOF){free(data);sync_invalid("Windows profile read failed or changed",filename);}
+    const char *first=data,*last=data;int found=0;int supported=profile_value(data,got,app,entry,&first,&last,&found);
+    if(!supported){free(data);sync_invalid("Windows profile file encoding or line length pending",filename);}
+    const char *value=first;size_t n=(size_t)(last-first);
+    if(!found){value=default_value;n=strlen(value);}
+    int boundary=n>=capacity-1;if(n>=capacity)n=capacity-1;
+    unsigned char *dest=file_pointer(p,output,(uint32_t)n+1,1);memcpy(dest,value,n);dest[n]=0;free(data);
+    fnv_windows_set_last_error(found?(boundary?234u:0u):2u);fnv_cpu_return_u32((uint32_t)n,24);
+}
 static const struct fnv_cpu_export profile_exports[]={
     {"kernel32.dll","GetPrivateProfileIntA",0,0,api_profile_integer_a},
-    {"kernel32.dll","GetPrivateProfileIntW",0,0,api_profile_integer_w}
+    {"kernel32.dll","GetPrivateProfileIntW",0,0,api_profile_integer_w},
+    {"kernel32.dll","GetPrivateProfileStringA",0,0,api_profile_string_a}
 };
-const struct fnv_cpu_export *fnv_windows_profile_exports(size_t *count){if(count)*count=2;return profile_exports;}
+const struct fnv_cpu_export *fnv_windows_profile_exports(size_t *count){if(count)*count=3;return profile_exports;}

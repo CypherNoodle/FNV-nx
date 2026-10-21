@@ -23,5 +23,6 @@ if __name__=='__main__':
     shared.ARGS=[2,1,0];shared.DLLS=['steam_api.dll']*3
     shared.test(p.parse_args(),host_source='steam_callbacks_host.c',guest_programs=callers,
         native_sources=('steam_callbacks.c',),
+        linker_options=('-Wl,--stack,8388608',),
         extra_inputs=(Path(__file__).resolve(),Path(__file__).resolve().parents[1]/'native/steam_callbacks.h'),
         strict_modes=('--strict-null','--strict-range','--strict-flags','--strict-unowned','--strict-rebind','--strict-capacity'))

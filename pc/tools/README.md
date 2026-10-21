@@ -299,3 +299,12 @@ oraculo x86 de 32 bits y registra por separado la limitacion aritmetica C1.
 incluidas las restricciones de direccionamiento, ademas del emisor numerico.
 `initializer_trace.py` comprueba cada slot no nulo y retorno de constructores;
 los callbacks repetidos no se reducen a una lista de destinos unicos.
+
+## Host diagnostics and link input verification
+
+`symbolize_host_fault.py` attributes a native exception PC using the exact
+linked PE and its text symbols; the logged last indirect call remains historical
+context. `verify_link_replacements.py` rejects response files that still select
+an old object after a replacement was compiled. See
+[`host-fault-and-link-verification.md`](../docs/host-fault-and-link-verification.md)
+for commands, private output handling and limitations.

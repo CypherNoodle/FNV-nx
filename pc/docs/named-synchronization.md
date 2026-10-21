@@ -65,3 +65,15 @@ References: [Microsoft object names](https://learn.microsoft.com/windows/win32/s
 [CreateMutexA](https://learn.microsoft.com/windows/win32/api/synchapi/nf-synchapi-createmutexa),
 [CreateEventA](https://learn.microsoft.com/windows/win32/api/synchapi/nf-synchapi-createeventa),
 [GetSystemMetrics](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-getsystemmetrics).
+
+### Replay correction for the apparent argument mismatch
+
+An earlier private replay appeared to pass the mutex name as security
+attributes despite the original caller pushing null attributes and false
+initial ownership. That observation did not justify changing the Windows ABI.
+Inspection of the later replay's link response exposed stale copy-routine
+objects: compiling replacements had not selected them for the link. Rebuilding
+the native platform and explicitly verifying both corrected object paths lets
+the captured startup pass the mutex request and reach window initialization.
+No security-attribute workaround was added. This is diagnostic progress with
+captured PC code, not cold EXE startup or a Switch engine frame.

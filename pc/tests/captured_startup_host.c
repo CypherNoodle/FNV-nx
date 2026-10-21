@@ -42,7 +42,7 @@ static LONG WINAPI report_host_exception(EXCEPTION_POINTERS *exception){
     uintptr_t image=(uintptr_t)GetModuleHandleA(NULL);
     EXCEPTION_RECORD *record=exception->ExceptionRecord;
     CONTEXT *c=exception->ContextRecord;
-    fprintf(stderr,"FNV_HOST_EXCEPTION code=0x%08lx pc=0x%llx image_offset=0x%llx guest_site=0x%08x thread=%lu\n",
+    fprintf(stderr,"FNV_HOST_EXCEPTION code=0x%08lx pc=0x%llx image_offset=0x%llx last_indirect_site=0x%08x thread=%lu\n",
         (unsigned long)record->ExceptionCode,(unsigned long long)c->Rip,
         (unsigned long long)(c->Rip-image),fnv_probe_site,(unsigned long)GetCurrentThreadId());
     if(record->NumberParameters>=2)fprintf(stderr,"access=%llu address=0x%llx\n",
@@ -106,6 +106,12 @@ static void message_box(const struct fnv_cpu_fault *fault){
 }
 static void profile_request(const struct fnv_cpu_fault *fault){
     if(strcmp(fault->text,"KERNEL32.dll!GetPrivateProfileIntA") && strncmp(fault->text,"Windows profile",15))return;
+    if(!strcmp(fault->text,"Windows profile string path unsupported")){
+        uint32_t words[7];printf(",\"ini_string_request\":{");
+        if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
+        printf("\"arguments_readable\":true,\"section\":");diagnostic_string(words[1]);printf(",\"key\":");diagnostic_string(words[2]);
+        printf(",\"default\":");diagnostic_string(words[3]);printf(",\"output\":%u,\"capacity\":%u,\"file\":",words[4],words[5]);diagnostic_string(words[6]);putchar('}');return;
+    }
     uint32_t words[5];printf(",\"ini_request\":{");
     if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
     printf("\"arguments_readable\":true,\"default\":%u,\"section\":",words[3]);diagnostic_string(words[1]);
@@ -138,6 +144,21 @@ static void import_call_arguments(const struct fnv_cpu_fault *fault){
         printf("%s{\"argument\":%u,\"string\":",emitted++?",":"",i-1);
         diagnostic_string(words[i]);putchar('}');}
     printf("]}");
+}
+static void guest_stack_words(const struct fnv_cpu_fault *fault){
+    uint32_t esp=fault->state.gpr[4],ebp=fault->state.gpr[5],words[8];
+    printf(",\"guest_stack\":{\"esp\":%u,\"esp_dwords\":[",esp);
+    unsigned count=0;
+    for(;count<8;count++){
+        uint64_t at=(uint64_t)esp+count*4u;
+        if(at>UINT32_MAX || !peek((uint32_t)at,words+count,4))break;
+    }
+    for(unsigned i=0;i<count;i++)printf("%s%u",i?",":"",words[i]);
+    printf("],\"ebp\":%u,\"ebp_frame\":[",ebp);
+    uint32_t frame[6];
+    int frame_readable=ebp>=8 && peek(ebp-8,frame,sizeof(frame));
+    if(frame_readable)for(unsigned i=0;i<6;i++)printf("%s%u",i?",":"",frame[i]);
+    printf("],\"ebp_frame_readable\":%s}",frame_readable?"true":"false");
 }
 int main(int argc,char **argv){
     SetUnhandledExceptionFilter(report_host_exception);
@@ -223,7 +244,13 @@ int main(int argc,char **argv){
     struct fnv_vm_counters counters;fnv_vm_get_counters(vm,&counters);
     printf(",\"guest_memory\":{\"arena_bytes\":%u,\"vm_bytes\":%u,\"commit_limit\":%u,\"committed_bytes\":%u,\"reserved_bytes\":%u}",
         arena_bytes,vm_bytes,commit_limit,counters.committed_bytes,counters.reserved_bytes);
-    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);import_call_arguments(&fault);
+    struct fnv_windows_file_stats files;assert(fnv_windows_file_stats(process,&files)==FNV_CPU_OK);
+    printf(",\"file_stats\":{\"reads\":%llu,\"read_bytes\":%llu,\"read_ns\":%llu,\"writes\":%llu,\"write_bytes\":%llu,\"write_ns\":%llu,\"syncs\":%llu,\"sync_ns\":%llu,\"sync_errors\":%llu,\"closes\":%llu,\"close_ns\":%llu,\"close_errors\":%llu}",
+        (unsigned long long)files.reads,(unsigned long long)files.read_bytes,(unsigned long long)files.read_ns,
+        (unsigned long long)files.writes,(unsigned long long)files.write_bytes,(unsigned long long)files.write_ns,
+        (unsigned long long)files.syncs,(unsigned long long)files.sync_ns,(unsigned long long)files.sync_errors,
+        (unsigned long long)files.closes,(unsigned long long)files.close_ns,(unsigned long long)files.close_errors);
+    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);import_call_arguments(&fault);guest_stack_words(&fault);
     printf(",\"worker_stats\":{\"capacity\":%u,\"active\":%u,\"finished\":%u,\"created\":%llu,\"reaped\":%llu,\"failures\":%llu},\"origin_host_thread\":%u",
         workers.capacity,workers.active,workers.finished,(unsigned long long)workers.created,(unsigned long long)workers.reaped,(unsigned long long)workers.failures,first_fault_thread);
 #ifdef FNV_CPU_X87_QUAD_MATH

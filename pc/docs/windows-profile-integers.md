@@ -1,4 +1,4 @@
-# Read-only guest INI integer functions
+# Sandboxed guest INI queries
 
 windows_profiles.inc implements GetPrivateProfileIntA/W through an independent
 native export catalog (windows_profiles.h). The original built-in Windows export
@@ -31,9 +31,19 @@ return their file error. Null section/key behavior is verified separately.
 The current subset handles byte-oriented ANSI file contents. UTF-16 file BOMs,
 embedded NULs, files over 1 MiB and encountered lines over 4096 bytes stop
 explicitly. W query support does not claim UTF-16 file decoding. Non-ASCII query
-names, default Windows INI filenames, registry mappings, profile strings,
-enumeration and writes are separate unsupported features. No partial or guessed
-successful result is substituted for unsupported encodings or IO failures.
+names, default Windows INI filenames, registry mappings, profile string
+enumeration and writes remain unsupported. The observed `GetPrivateProfileStringA`
+value-query form supports non-null section/key/filename and a nonempty
+writable output buffer: it reads the bounded ANSI snapshot, trims value whitespace
+as Windows did in the local differential test, removes matching outer single
+or double quotes, copies at most `nSize-1`, appends
+NUL and returns the copied character count. A missing file returns the supplied
+default and file error; a missing key returns the default and `ERROR_FILE_NOT_FOUND`;
+for a found value, filling `nSize-1` characters reports `ERROR_MORE_DATA`,
+including an empty value with capacity one. Missing-file/key errors are retained
+even when their default is shortened. A null default is an empty string and
+trailing spaces in a non-null default are removed. Null section/key enumeration and unobserved
+argument shapes still stop explicitly.
 
 Every call reads a bounded file snapshot and closes/frees its resources before
 returning or trapping. No process/kernel/file-table lock is held during IO.
@@ -45,6 +55,10 @@ Verification:
   quoting, missing file/key, null queries, stdcall cleanup and LastError.
 - Separate rejection processes for root traversal, drive/absolute paths,
   UTF-16 file encoding, inaccessible guest query and overlong lines.
+- `GetPrivateProfileStringA` differential cases for present, missing and empty
+  values, default and value truncation, copied count, NUL termination, LastError
+  and stdcall stack cleanup. Another 51 comparisons cover quoted strings,
+  capacities 1/2/5/128, null defaults and trailing default spaces/tabs.
 - Existing file ABI regression: 2,000 Windows differential operations, 128
   shared-cursor chunks, large 64-bit offsets and permission/path failures.
 - devkitA64/libnx compiles the Windows provider and updated Switch CRT adapter

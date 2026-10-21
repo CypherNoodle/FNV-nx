@@ -31,7 +31,8 @@ static enum fnv_cpu_result execute(unsigned api,const uint32_t *a,uint32_t *v,st
 }
 static uint32_t call(unsigned api,uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e,uint32_t f,uint32_t g){
     uint32_t args[]={a,b,c,d,e,f,g},v=0;struct fnv_cpu_fault fault;enum fnv_cpu_result r=execute(api,args,&v,&fault);
-    if(r!=FNV_CPU_OK)fprintf(stderr,"file API %u: %s\n",api,fault.text);assert(r==FNV_CPU_OK);return v;
+    if(r!=FNV_CPU_OK)fprintf(stderr,"file API %u: %s\n",api,fault.text);
+    assert(r==FNV_CPU_OK);return v;
 }
 #define C(api,a,b,c,d,e) call(api,a,b,c,d,e,0,0)
 static uint32_t path(const char *s,int wide){size_t n=strlen(s);assert(n<512);
@@ -89,7 +90,13 @@ int main(int argc,char **argv){
     if(argc==4 && !strcmp(argv[2],"--audit-root"))return audit_game(argv[1],argv[3]);
     assert(argc==2 || argc==3);char root[2048],oracle[2048];size_t n=strlen(argv[1]);assert(n<sizeof(root)-32);memcpy(root,argv[1],n+1);
     char *last=strrchr(root,'\\');char *forward=strrchr(root,'/');if(forward && (!last || forward>last))last=forward;assert(last);*last=0;
-    snprintf(oracle,sizeof(oracle),"%s/oracle-root%s",root,argc==3?argv[2]:"");strcat(root,"/guest-root");if(argc==3)strcat(root,argv[2]);fixture(root,1);fixture(oracle,1);
+    const char *mode=argc==3?argv[2]:"";size_t root_bytes=strlen(root),mode_bytes=strlen(mode);
+    assert(root_bytes+sizeof("/oracle-root")-1+mode_bytes+1<sizeof(oracle));
+    memcpy(oracle,root,root_bytes);memcpy(oracle+root_bytes,"/oracle-root",sizeof("/oracle-root")-1);
+    memcpy(oracle+root_bytes+sizeof("/oracle-root")-1,mode,mode_bytes+1);
+    assert(root_bytes+sizeof("/guest-root")-1+mode_bytes+1<sizeof(root));
+    memcpy(root+root_bytes,"/guest-root",sizeof("/guest-root")-1);memcpy(root+root_bytes+sizeof("/guest-root")-1,mode,mode_bytes+1);
+    fixture(root,1);fixture(oracle,1);
     arena=VirtualAlloc(NULL,ARENA,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,ARENA,&image)==FNV_NATIVE_OK);
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
@@ -116,11 +123,14 @@ int main(int argc,char **argv){
         else path("Data/fixture.bin",0);
         assert(execute(api,args,&v,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED);
         assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK);
-        if(vm)assert(!fnv_vm_destroy(vm).error);assert(VirtualFree(arena,0,MEM_RELEASE));puts("strict PASS");return 0;
+        if(vm)assert(!fnv_vm_destroy(vm).error);
+        assert(VirtualFree(arena,0,MEM_RELEASE));puts("strict PASS");return 0;
     }
     uint32_t h=open_file("Data\\fixture.bin",0,FILE_SHARE_READ);assert(h!=UINT32_MAX && !(h&3));
     uint32_t other=open_file("Data/fixture.bin",1,FILE_SHARE_READ);assert(other!=UINT32_MAX && other!=h);assert(C(CLOSE,other|3,0,0,0,0));
-    char full[2048];snprintf(full,sizeof(full),"%s/Data/fixture.bin",oracle);HANDLE native=CreateFileA(full,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);assert(native!=INVALID_HANDLE_VALUE);
+    char full[2048];size_t oracle_bytes=strlen(oracle);assert(oracle_bytes+sizeof("/Data/fixture.bin")<=sizeof(full));
+    memcpy(full,oracle,oracle_bytes);memcpy(full+oracle_bytes,"/Data/fixture.bin",sizeof("/Data/fixture.bin"));
+    HANDLE native=CreateFileA(full,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);assert(native!=INVALID_HANDLE_VALUE);
     unsigned seed=0x49bc,checks=0;unsigned char expected[512];
     for(unsigned i=0;i<2000;++i){seed=seed*1664525u+1013904223u;unsigned op=(seed>>24)%5;uint32_t got,wanted;
         C(SET_ERROR,0x9876,0,0,0,0);put32(OUTPUT,0x12345678);put32(OUTPUT+4,0x87654321);DWORD error;

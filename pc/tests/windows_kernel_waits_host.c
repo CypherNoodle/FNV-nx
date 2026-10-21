@@ -5,7 +5,8 @@
 #define LIST (BASE+0x9000)
 #define PREVIOUS (BASE+0x9200)
 static uint32_t many(const uint32_t *h,unsigned n,unsigned all,uint32_t ms){
-    for(unsigned i=0;i<n;++i)write32(LIST+i*4,h[i]);return call(WAIT_MANY,n,LIST,all,ms);
+    for(unsigned i=0;i<n;++i){write32(LIST+i*4,h[i]);}
+    return call(WAIT_MANY,n,LIST,all,ms);
 }
 struct multi_work {uint32_t h[3],result;unsigned all,abandon;HANDLE gate,ready;};
 static DWORD WINAPI multi_worker(void *context){

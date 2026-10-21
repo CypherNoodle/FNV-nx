@@ -15,8 +15,9 @@
 #include "windows_profiles.h"
 #include "windows_shell.h"
 #include "windows_memory.h"
-#include "guest_memory.h"
 #include "memory_horizon.h"
+#include "steam_callbacks.h"
+#include "guest_memory.h"
 #include "crt_profile.h"
 
 #define ROOT "sdmc:/switch/FNV-nx/"
@@ -70,6 +71,8 @@ static void run_probe(void) {
     c.parameters_address=image.base+0x2100000;c.parameters_bytes=0x10000;c.command_line="FalloutNV.exe";c.image_path="FalloutNV.exe";
     c.kernel_handle_capacity=1024;c.critical_section_capacity=256;c.file_root="sdmc:/switch/FNV-nx";c.file_handle_capacity=128;
     struct fnv_windows_process *process=NULL;NEED(fnv_windows_create(&c,&process)==FNV_CPU_OK,"Windows process");
+    struct fnv_steam_callbacks *steam=NULL;
+    NEED(fnv_steam_callbacks_create(process,&steam)==FNV_CPU_OK,"Steam failure-path provider");
     fnv_cpu_function wrapper=fnv_crt_native_entry;uint32_t entry_token=0;
     NEED(fnv_cpu_register_native(fnv_windows_runtime(process),&wrapper,1,&entry_token)==FNV_CPU_OK,"private wrapper registration");
     struct fnv_windows_user32 *user32;NEED(fnv_windows_user32_create(process,&user32)==FNV_CPU_OK,"virtual desktop");
@@ -81,6 +84,7 @@ static void run_probe(void) {
     e=fnv_windows_memory_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_user32_exports(&n);NEED(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS,"USER32 catalog capacity");memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_shell_exports(&n);NEED(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS,"SHELL32 catalog capacity");memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_steam_callbacks_exports(&n);NEED(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS,"Steam catalog capacity");memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     struct fnv_windows_modules *modules=NULL;
     NEED(fnv_windows_modules_create(process,&image,"FalloutNV.exe",catalog,known,&modules)==FNV_CPU_OK,"module catalog");
     struct fnv_native_import *imports=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*imports)),*scratch=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*scratch));size_t count;
@@ -108,6 +112,7 @@ static void run_probe(void) {
            !strcmp(fault.text,"Reached engine entry (diagnostic stop)")?"PASS":"FAIL");
     struct fnv_windows_heap_stats h;if(fnv_windows_heap_stats(process,&h)==FNV_CPU_OK)report("heaps=%u blocks=%u\n",(unsigned)h.live_heaps,(unsigned)h.live_blocks);
     NEED(fnv_windows_thread_detach()==FNV_CPU_OK,"thread detach");NEED(fnv_windows_modules_destroy(modules)==FNV_CPU_OK,"module detach");
+    NEED(fnv_steam_callbacks_destroy(steam)==FNV_CPU_OK,"Steam provider detach");
     NEED(fnv_windows_user32_destroy(user32)==FNV_CPU_OK,"virtual desktop detach");
     NEED(fnv_windows_system_destroy(system)==FNV_CPU_OK,"system detach");
     enum fnv_cpu_result cleanup=fnv_windows_destroy(process);report("cleanup=%u (live guest heaps may remain until process exit)\n",(unsigned)cleanup);

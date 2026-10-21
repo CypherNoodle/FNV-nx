@@ -11,16 +11,23 @@
 #define SECTION (BASE+0x9001)
 #define KEY (BASE+0x9401)
 #define NAME (BASE+0x9801)
+#define OUTPUT (BASE+0x9C01)
 static unsigned char *arena;
 static void write32(uint32_t at,uint32_t v){for(unsigned i=0;i<4;i++)arena[at-BASE+i]=(unsigned char)(v>>(8*i));}
 static void text(uint32_t at,const char *s,int wide){unsigned i=0;do{arena[at-BASE+i*(wide?2:1)]=(unsigned char)s[i];if(wide)arena[at-BASE+i*2+1]=0;}while(s[i++]);}
-static uint32_t call(unsigned api,uint32_t a,uint32_t b,uint32_t c,uint32_t d,struct fnv_cpu_fault *fault){
-    const unsigned counts[]={4,4,0,1};struct fnv_cpu_state state,got;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1BF00;
-    assert(fnv_cpu_set_state(&state)==FNV_CPU_OK);uint32_t args[]={0x401500,a,b,c,d};for(unsigned i=0;i<5;i++)write32(state.gpr[4]+4*i,args[i]);
-    enum fnv_cpu_result r=fnv_cpu_execute(0x401500+api*32,fault);
+static uint32_t call_args(unsigned api,const uint32_t *arguments,struct fnv_cpu_fault *fault){
+    const unsigned counts[]={4,4,0,1,6};struct fnv_cpu_state state,got;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1BF00;
+    assert(fnv_cpu_set_state(&state)==FNV_CPU_OK);write32(state.gpr[4],0x401500);for(unsigned i=0;i<counts[api];i++)write32(state.gpr[4]+4*(i+1),arguments[i]);
+    enum fnv_cpu_result r=fnv_cpu_execute(0x401500+api*48,fault);
     if(fault){assert(r==FNV_CPU_GUEST_FAULT);return 0;}
     if(r!=FNV_CPU_OK)fprintf(stderr,"profile call %u failed\n",api);
     assert(r==FNV_CPU_OK && fnv_cpu_get_state(&got)==FNV_CPU_OK && got.gpr[4]==state.gpr[4]+4+counts[api]*4);return got.gpr[0];
+}
+static uint32_t call(unsigned api,uint32_t a,uint32_t b,uint32_t c,uint32_t d,struct fnv_cpu_fault *fault){uint32_t args[]={a,b,c,d,0,0};return call_args(api,args,fault);}
+static uint32_t call_string(uint32_t capacity){uint32_t args[]={SECTION,KEY,BASE+0xA001,OUTPUT,capacity,NAME};return call_args(4,args,NULL);}
+static void check_output(const char *expected,uint32_t capacity){
+    size_t n=strlen(expected);if(n>=capacity)n=capacity-1;
+    assert(call_string(capacity)==n);assert(!memcmp(arena+OUTPUT-BASE,expected,n));assert(arena[OUTPUT-BASE+n]==0);
 }
 static void save(const char *path,const char *data){FILE *f=fopen(path,"wb");assert(f);assert(fwrite(data,1,strlen(data),f)==strlen(data) && !fclose(f));WritePrivateProfileStringA(NULL,NULL,NULL,path);}
 int main(int argc,char **argv){
@@ -31,8 +38,8 @@ int main(int argc,char **argv){
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=BYTES;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
     c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;c.file_root=root;c.file_handle_capacity=8;
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
-    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count,n;const struct fnv_cpu_export *exports=fnv_windows_profile_exports(&n);assert(n==2);
-    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&count)==FNV_NATIVE_OK && count==4);
+    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count,n;const struct fnv_cpu_export *exports=fnv_windows_profile_exports(&n);assert(n==3);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&count)==FNV_NATIVE_OK && count==5);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1C000;
     fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
     text(SECTION,"General",0);text(KEY,"Count",0);text(NAME,".\\profiles.ini",0);save(file,"[General]\nCount=17\n");
@@ -66,9 +73,49 @@ int main(int argc,char **argv){
     assert(call(0,SECTION,KEY,777,NAME,NULL)==GetPrivateProfileIntA("General","Count",777,file));
     assert(call(0,0,KEY,777,NAME,NULL)==GetPrivateProfileIntA(NULL,"Count",777,file));
     assert(call(0,SECTION,0,777,NAME,NULL)==GetPrivateProfileIntA("General",NULL,777,file));
+    save(file,"[General]\nName=  Ranger  \nEmpty=\nLong=123456789\n");text(SECTION,"General",0);text(KEY,"Name",0);text(NAME,"profiles.ini",0);text(BASE+0xA001,"fallback",0);
+    char expected_string[128];call(3,0x1234,0,0,0,NULL);SetLastError(0x1234);DWORD expected_chars=GetPrivateProfileStringA("General","Name","fallback",expected_string,sizeof(expected_string),file);DWORD expected_error=GetLastError();
+    {uint32_t actual=call_string(sizeof(expected_string));if(actual!=expected_chars)fprintf(stderr,"profile string length expected=%lu actual=%u expected_value=[%s] actual_value=[%s]\n",(unsigned long)expected_chars,actual,expected_string,(char *)arena+OUTPUT-BASE);assert(actual==expected_chars);}assert(!strcmp((char *)arena+OUTPUT-BASE,expected_string));{uint32_t actual_error=call(2,0,0,0,0,NULL);if(actual_error!=expected_error)fprintf(stderr,"profile string LastError expected=%lu actual=%u\n",(unsigned long)expected_error,actual_error);assert(actual_error==expected_error);}
+    text(KEY,"Missing",0);call(3,0x1234,0,0,0,NULL);SetLastError(0x1234);expected_chars=GetPrivateProfileStringA("General","Missing","fallback",expected_string,sizeof(expected_string),file);expected_error=GetLastError();
+    assert(call_string(sizeof(expected_string))==expected_chars);assert(!strcmp((char *)arena+OUTPUT-BASE,expected_string));{uint32_t actual_error=call(2,0,0,0,0,NULL);if(actual_error!=expected_error)fprintf(stderr,"missing profile string LastError expected=%lu actual=%u\n",(unsigned long)expected_error,actual_error);assert(actual_error==expected_error);}
+    check_output("fallback",5);
+    text(KEY,"Name",0);call(3,0x1234,0,0,0,NULL);SetLastError(0x1234);expected_chars=GetPrivateProfileStringA("General","Name","fallback",expected_string,5,file);expected_error=GetLastError();
+    assert(call_string(5)==expected_chars);assert(!strcmp((char *)arena+OUTPUT-BASE,expected_string));{uint32_t actual_error=call(2,0,0,0,0,NULL);if(actual_error!=expected_error)fprintf(stderr,"truncated profile string LastError expected=%lu actual=%u\n",(unsigned long)expected_error,actual_error);assert(actual_error==expected_error);}
+    check_output("Ranger",5);
+    text(KEY,"Empty",0);call(3,0x1234,0,0,0,NULL);SetLastError(0x1234);expected_chars=GetPrivateProfileStringA("General","Empty","fallback",expected_string,sizeof(expected_string),file);expected_error=GetLastError();
+    assert(call_string(sizeof(expected_string))==expected_chars);assert(!strcmp((char *)arena+OUTPUT-BASE,expected_string));assert(call(2,0,0,0,0,NULL)==expected_error);
+    check_output("",64);
+    const char *string_values[]={"Ranger","  Ranger  ","\"Ranger\"","'Ranger'","\"  Ranger  \"","\"\"","''","\"unfinished","value ;comment","value\t",""};
+    unsigned string_comparisons=0;
+    for(unsigned i=0;i<sizeof(string_values)/sizeof(*string_values);i++){
+        snprintf(content,sizeof(content),"[General]\nName=%s\n",string_values[i]);save(file,content);text(KEY,"Name",0);
+        const unsigned capacities[]={1,2,5,128};
+        for(unsigned cindex=0;cindex<sizeof(capacities)/sizeof(*capacities);cindex++){
+            unsigned capacity=capacities[cindex];memset(expected_string,0x5a,sizeof(expected_string));memset(arena+OUTPUT-BASE,0x5a,sizeof(expected_string));
+            call(3,0x1234,0,0,0,NULL);SetLastError(0x1234);
+            DWORD n=GetPrivateProfileStringA("General","Name","fallback",expected_string,capacity,file),err=GetLastError();
+            uint32_t actual=call_string(capacity);
+            if(actual!=n || strcmp((char *)arena+OUTPUT-BASE,expected_string))fprintf(stderr,"string value %u cap %u wanted [%s] got [%s]\n",i,capacity,expected_string,(char *)arena+OUTPUT-BASE);
+            uint32_t actual_error=call(2,0,0,0,0,NULL);
+            if(actual!=n || memcmp(arena+OUTPUT-BASE,expected_string,sizeof(expected_string)) || actual_error!=err){
+                unsigned diff=0;while(diff<sizeof(expected_string) && arena[OUTPUT-BASE+diff]==(unsigned char)expected_string[diff])diff++;
+                fprintf(stderr,"string case=%u cap=%u error=%u expected_error=%lu byte_diff=%u\n",i,capacity,actual_error,(unsigned long)err,diff);
+            }
+            assert(actual==n && !memcmp(arena+OUTPUT-BASE,expected_string,sizeof(expected_string)) && actual_error==err);string_comparisons++;
+        }
+    }
+    const char *defaults[]={NULL,"","fallback","fallback   ","  fallback  ","fallback\t","\"quoted\"  "};
+    for(unsigned i=0;i<sizeof(defaults)/sizeof(*defaults);i++){
+        text(KEY,"Missing",0);if(defaults[i])text(BASE+0xa001,defaults[i],0);
+        memset(expected_string,0x5a,sizeof(expected_string));memset(arena+OUTPUT-BASE,0x5a,sizeof(expected_string));
+        call(3,0x1234,0,0,0,NULL);SetLastError(0x1234);
+        DWORD n=GetPrivateProfileStringA("General","Missing",defaults[i],expected_string,sizeof(expected_string),file),err=GetLastError();
+        uint32_t args[]={SECTION,KEY,defaults[i]?BASE+0xa001:0,OUTPUT,sizeof(expected_string),NAME};
+        assert(call_args(4,args,NULL)==n && !memcmp(arena+OUTPUT-BASE,expected_string,sizeof(expected_string)) && call(2,0,0,0,0,NULL)==err);string_comparisons++;
+    }
     text(NAME,"absent.ini",0);char missing[1100];snprintf(missing,sizeof(missing),"%s/absent.ini",root);
     SetLastError(0x1234);uint32_t expected=GetPrivateProfileIntA("General","Count",-1,missing);DWORD error=GetLastError();
     assert(call(0,SECTION,KEY,UINT32_MAX,NAME,NULL)==expected && call(2,0,0,0,0,NULL)==error);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"windows_profile_comparisons\":%u,\"a_w_queries\":true,\"missing_file_checked\":true,\"native_engine_started\":false}\n",comparisons);return 0;
+    printf("{\"status\":\"PASS\",\"windows_profile_comparisons\":%u,\"string_edge_comparisons\":%u,\"a_w_queries\":true,\"missing_file_checked\":true,\"native_engine_started\":false}\n",comparisons,string_comparisons);return 0;
 }
