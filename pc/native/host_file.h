@@ -21,6 +21,7 @@ static inline int fnv_host_file_directory(const char *path){struct _stat64 s;ret
 static inline int fnv_host_file_exists(const char *path){struct _stat64 s;return !_stat64(path,&s);}
 static inline int fnv_host_file_mkdir(const char *path){if(!_mkdir(path))return 1;return errno==EEXIST && fnv_host_file_directory(path);}
 static inline int fnv_host_file_create_directory(const char *path){return _mkdir(path)==0;}
+static inline int fnv_host_file_remove(const char *path){return _unlink(path)==0;}
 /* disposition: 0=read existing, 1=create new, 2=create/truncate,
  * 3=open existing, 4=open or create, 5=truncate existing. */
 static inline FILE *fnv_host_file_open(const char *path,int disposition){
@@ -52,6 +53,7 @@ static inline int fnv_host_file_directory(const char *path){struct stat s;return
 static inline int fnv_host_file_exists(const char *path){struct stat s;return !stat(path,&s);}
 static inline int fnv_host_file_mkdir(const char *path){if(!mkdir(path,0700))return 1;return errno==EEXIST && fnv_host_file_directory(path);}
 static inline int fnv_host_file_create_directory(const char *path){return mkdir(path,0700)==0;}
+static inline int fnv_host_file_remove(const char *path){return unlink(path)==0;}
 /* disposition: 0=read existing, 1=create new, 2=create/truncate,
  * 3=open existing, 4=open or create, 5=truncate existing. */
 static inline FILE *fnv_host_file_open(const char *path,int disposition){
