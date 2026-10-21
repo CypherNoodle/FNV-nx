@@ -199,6 +199,34 @@ static void file_create(int wide){
     fnv_cpu_return_u32(handle,28);
 }
 static void api_file_create_a(void){file_create(0);}static void api_file_create_w(void){file_create(1);}
+static void api_file_delete_a(void){
+    uint32_t at=fnv_cpu_argument_u32(0),value=0,error=0;int profile=0;
+    struct fnv_windows_process *p=file_process();char path[512],key[512],full[1538];
+    error=(uint32_t)file_path_with_profile(p,at,0,path,key,&profile);
+    if(!error){size_t n=strlen(p->file_root);memcpy(full,p->file_root,n);full[n++]='/';memcpy(full+n,path,strlen(path)+1);
+        struct fnv_host_entry entry;error=fnv_host_metadata(full,&entry);
+        if(error==2){char parent[sizeof(full)];memcpy(parent,full,strlen(full)+1);char *last=strrchr(parent,'/');
+            if(last){*last=0;if(!fnv_host_file_directory(parent))error=3;}}
+        if(!error && (!profile || (entry.attributes&17u)))error=5;
+        if(!error){
+            /* Deferred deletion of a file still open with SHARE_DELETE needs
+             * a pending-delete state; report that unsupported case explicitly.
+             * The zero-share reservation blocks new opens during actual IO. */
+            uint32_t shared_delete=0;fnv_host_mutex_lock(&p->files_guard);
+            for(uint32_t i=0;i<p->config.file_handle_capacity;++i){struct file_slot *f=p->files+i;
+                if((f->stream || f->opening) && !strcmp(f->key,key)){
+                    if(!(f->share&4u)){error=32;break;}shared_delete=1;
+                }}
+            fnv_host_mutex_unlock(&p->files_guard);
+            if(!error && shared_delete)error=50;
+            struct file_slot *reserved=error?NULL:file_reserve_open(p,0,0,key,&error);
+            if(reserved){errno=0;if(fnv_host_file_remove(full))value=1;else error=fnv_host_file_error(errno);
+                file_cancel_open(p,reserved);}
+        }
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,4);
+}
 static void api_file_write(void){
     uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),bytes=fnv_cpu_argument_u32(2),out=fnv_cpu_argument_u32(3),overlapped=fnv_cpu_argument_u32(4);
     struct fnv_windows_process *p=file_process();uint32_t value=0,error=0;unsigned char *count=out?file_pointer(p,out,4,1):NULL;
