@@ -223,6 +223,32 @@ static void api_file_flush(void){
     if(error)fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,4);
 }
+static void api_file_set_eof(void){
+    uint32_t h=fnv_cpu_argument_u32(0),value=0,error=0;struct fnv_windows_process *p=file_process();
+    struct file_slot *f=file_acquire(p,h);
+    if(!f)error=6;
+    else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
+    else {int64_t position=fnv_host_file_tell(f->stream);
+        if(position<0 || !fnv_host_file_truncate(f->stream,(uint64_t)position))error=fnv_host_file_error(errno);
+        else value=1;
+        file_release(p,f);
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,4);
+}
+static void api_file_create_directory_a(void){
+    uint32_t at=fnv_cpu_argument_u32(0),security=fnv_cpu_argument_u32(1),value=0,error=0;int profile=0;
+    struct fnv_windows_process *p=file_process();char path[512],key[512],full[1538];
+    if(security)error=50;
+    else error=(uint32_t)file_path_mode(p,at,0,path,key,2,&profile);
+    if(!error && !profile)error=50;
+    if(!error){size_t n=strlen(p->file_root);memcpy(full,p->file_root,n);full[n++]='/';memcpy(full+n,path,strlen(path)+1);
+        if(fnv_host_file_create_directory(full))value=1;
+        else {error=errno==EEXIST?183:fnv_host_file_error(errno);if(error==2){char *last=strrchr(full,'/');if(last){*last=0;if(!fnv_host_file_directory(full))error=3;}}}
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,8);
+}
 static void api_file_read(void){
     uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),bytes=fnv_cpu_argument_u32(2),out=fnv_cpu_argument_u32(3),overlapped=fnv_cpu_argument_u32(4);
     struct fnv_windows_process *p=file_process();uint32_t value=0,error=0;
@@ -283,4 +309,3 @@ static void file_seek(int extended){
     fnv_cpu_return_u32(value,extended?20:16);
 }
 static void api_file_seek(void){file_seek(0);}static void api_file_seek_ex(void){file_seek(1);}
-
