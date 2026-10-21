@@ -185,13 +185,13 @@ def source_references(text, targets):
     return records
 
 
-def trace_generated(analysis, report, targets):
+def trace_generated(generated_dir, report, targets):
     references = defaultdict(list)
     names = sorted(name for name in report['output_files'] if re.fullmatch(r'recomp_\d{4}\.c', name))
     if not names:
         raise ValueError('No recorded generated C chunks for provenance')
     for name in names:
-        data = (analysis/'generated'/name).read_bytes()
+        data = (generated_dir/name).read_bytes()
         if sha(data) != report['output_files'][name]:
             raise ValueError('Modified generated source: '+name)
         for ref in source_references(data.decode('utf-8'), targets):
@@ -200,17 +200,19 @@ def trace_generated(analysis, report, targets):
     return references, len(names)
 
 
-def audit(analysis, output, deps=None, with_generated=False):
+def audit(analysis, output, deps=None, with_generated=False, generation_name=None):
     if deps:
         sys.path.insert(0, str(deps.resolve()))
     import capstone
+    from run_aot_analysis import generation_paths
     analysis = analysis.resolve()
+    paths = generation_paths(analysis, generation_name)
     def read(name):
         return (analysis/name).read_bytes()
     profile_bytes = read('input-profile.json')
     profile = json.loads(profile_bytes)
     raw = read('fnv-analysis.xbe')
-    report = json.loads(read('generation-report.json'))
+    report = json.loads(paths['report'].read_bytes())
     scan_bytes = read('scan-identity.json')
     scan = json.loads(scan_bytes)
     if profile.get('analysis_only') is not True or \
@@ -226,14 +228,14 @@ def audit(analysis, output, deps=None, with_generated=False):
         if sha(data) != scan['files'][name]:
             raise ValueError('Modified scan file: '+name)
     stub_name = 'recomp_stubs_unresolved.c'
-    stubs = read('generated/'+stub_name)
+    stubs = (paths['generated']/stub_name).read_bytes()
     if sha(stubs) != report['output_files'][stub_name]:
         raise ValueError('Modified unresolved stubs')
     matches = re.findall(rb'recomp_unimpl\("untranslated call target",\s*0x([0-9a-fA-F]+)u\)', stubs)
     targets = {int(v, 16) for v in matches}
     if len(matches) != len(targets) or len(targets) != report['gaps']['unresolved_call_targets']:
         raise ValueError('Unresolved target count mismatch')
-    provenance, chunk_count = trace_generated(analysis, report, targets) if with_generated else ({}, 0)
+    provenance, chunk_count = trace_generated(paths['generated'], report, targets) if with_generated else ({}, 0)
     functions = json.loads(files['functions.json'])
     ranges = Intervals(functions)
     sections = sections_from_container(raw, profile)
@@ -294,6 +296,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--python-deps', type=Path)
     parser.add_argument('--trace-generated', action='store_true', help='Hash and trace all recorded C chunks (private output)')
+    parser.add_argument('--generation-name', help='Audit a separately named generation without changing the baseline')
     args = parser.parse_args()
-    result = audit(args.analysis, args.output, args.python_deps, args.trace_generated)
+    result = audit(args.analysis, args.output, args.python_deps, args.trace_generated, args.generation_name)
     print(json.dumps({key: value for key, value in result.items() if key != 'targets'}, indent=2))

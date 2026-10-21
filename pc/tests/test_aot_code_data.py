@@ -59,6 +59,61 @@ def test(deps, temp_dir=None):
     reg_code=bytes.fromhex('558bec83f9070f87340000000fb691')+struct.pack('<I',selectors)+bytes.fromhex('ff2495')+struct.pack('<I',table)
     reg[:len(reg_code)]=reg_code
     assert len(audit(reg)['excluded'])==1
+    # A final jump table after a real epilogue is not executable fall-through.
+    tail_start=base+0x300;tail_table=tail_start+0x44;tail_end=tail_table+16
+    tail=bytearray(raw)
+    tail_code=b'\x55\x8b\xec\xff\x24\x85'+struct.pack('<I',tail_table)
+    tail[tail_start-base:tail_start-base+len(tail_code)]=tail_code
+    for offset,value in ((0x10,1),(0x20,2),(0x30,3)):
+        tail[tail_start-base+offset:tail_start-base+offset+6]=b'\xb8'+struct.pack('<I',value)+b'\xc3'
+    tail[tail_start-base+0x40:tail_start-base+0x44]=bytes.fromhex('c38d4900')
+    struct.pack_into('<III',tail,tail_table-base,tail_start+0x10,tail_start+0x20,tail_start+0x30)
+    tail[tail_table-base+12:tail_table-base+16]=b'\xcc'*4
+    tail_fn=dict(start=hex(tail_start),end=hex(tail_end),detection_method='prologue',has_prologue=True,
+        section='.text',called_by=[],calls_to=[],num_instructions=12,size=tail_end-tail_start)
+    tail_refs=[dict(type='jump',**{'from':hex(tail_start+3),'to':hex(target)})
+               for target in (tail_start+0x10,tail_start+0x20,tail_start+0x30)]
+    tail_result=audit(tail,[tail_fn],tail_refs)
+    assert not tail_result['excluded'] and len(tail_result['tail_trims'])==1,tail_result
+    assert tail_result['tail_trims'][0]['new_end']==tail_table
+    # An external branch into the alleged table prevents the trim.
+    assert not audit(tail,[tail_fn],tail_refs+[dict(type='jump',**{'from':hex(base),'to':hex(tail_table)})])['tail_trims']
+    # An unreferenced gap seed made of a hotpatch prefix, executable pointers
+    # and selector bytes is table storage, not a callable replacement body.
+    pointer_start=base+0x500;pointer_end=pointer_start+2+8*4+4
+    pointer=bytearray(raw);pointer[pointer_start-base:pointer_start-base+2]=bytes.fromhex('8bff')
+    for index in range(8):struct.pack_into('<I',pointer,pointer_start-base+2+4*index,tail_start+0x10)
+    pointer[pointer_start-base+2+8*4:pointer_end-base]=bytes([0,1,2,2])
+    pointer_fn=dict(start=hex(pointer_start),end=hex(pointer_end),detection_method='gap_prologue',has_prologue=False,
+        section='.text',called_by=[],calls_to=[],num_instructions=1,size=pointer_end-pointer_start)
+    pointer_result=audit(pointer,[pointer_fn],[])
+    assert len(pointer_result['excluded'])==1 and pointer_result['excluded'][0]['reason']=='orphan-hotpatch-prefix-pointer-table'
+    assert not audit(pointer,[pointer_fn],[dict(type='data_imm',**{'from':hex(base),'to':hex(pointer_start)})])['excluded']
+    # Repeated fixed-size pointer/selector records are data too, but only when
+    # every code pointer lands on a decoded boundary in an indexed body.
+    multi=bytearray(raw);multi_start=base+0x600;multi_cursor=multi_start-base
+    selector_record=bytes([0,1,2,3,4,4,3,2,1,0,1,2,3,4])
+    records=((8,[base+0x30,base+0x40,base+0x50,base+0x30,base+0x40,base+0x50,base+0x30,base+0x40]),
+             (5,[base+0x50,base+0x30,base+0x40,base+0x50,base+0x30]))
+    for count,targets in records:
+        multi[multi_cursor:multi_cursor+2]=bytes.fromhex('8bff');multi_cursor+=2
+        for target in targets:
+            struct.pack_into('<I',multi,multi_cursor,target);multi_cursor+=4
+        multi[multi_cursor:multi_cursor+14]=selector_record;multi_cursor+=14
+    multi[multi_cursor:multi_cursor+2]=b'\xcc\xcc';multi_cursor+=2
+    multi_fn=dict(start=hex(multi_start),end=hex(base+multi_cursor),
+        detection_method='gap_prologue',has_prologue=False,section='.text',
+        called_by=[],calls_to=[],num_instructions=20,size=base+multi_cursor-multi_start)
+    multi_result=audit(multi,[owner,multi_fn],[])
+    assert len(multi_result['excluded'])==1 and \
+        multi_result['excluded'][0]['reason']=='orphan-repeated-hotpatch-dispatch-tables',multi_result
+    assert [group['pointer_count'] for group in multi_result['excluded'][0]['groups']]==[8,5]
+    mid_instruction=bytearray(multi);struct.pack_into('<I',mid_instruction,multi_start-base+2,base+0x31)
+    assert not audit(mid_instruction,[owner,multi_fn],[])['excluded']
+    assert not audit(multi,[owner,multi_fn],[dict(type='data_read',
+        **{'from':hex(base+0x60),'to':hex(multi_start)})])['excluded']
+    invalid_selector=bytearray(multi);invalid_selector[multi_start-base+2+8*4+3]=5
+    assert not audit(invalid_selector,[owner,multi_fn],[])['excluded']
     # Build a real synthetic analysis container for integrity/selection tests.
     with tempfile.TemporaryDirectory(prefix='fnv-code-data-',dir=temp_dir) as tmp:
         root=Path(tmp);exe=root/'fixture.exe';write_pe(exe)
