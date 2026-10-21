@@ -86,11 +86,18 @@ static void profile_request(const struct fnv_cpu_fault *fault){
     printf(",\"key\":");diagnostic_string(words[2]);printf(",\"file\":");diagnostic_string(words[4]);putchar('}');
 }
 static void shell_folder_request(const struct fnv_cpu_fault *fault){
-    if(strcmp(fault->text,"SHELL32.dll!SHGetFolderPathA"))return;
+    if(strcmp(fault->text,"SHELL32.dll!SHGetFolderPathA") && strcmp(fault->text,"Windows SHGetFolderPathA variant pending"))return;
     uint32_t words[6];printf(",\"shell_folder_request\":{");
     if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
     printf("\"arguments_readable\":true,\"return_address\":%u,\"hwnd\":%u,\"csidl\":%u,\"token\":%u,\"flags\":%u,\"path_buffer\":%u}",
         words[0],words[1],words[2],words[3],words[4],words[5]);
+}
+static void file_delete_request(const struct fnv_cpu_fault *fault){
+    if(strcmp(fault->text,"KERNEL32.dll!DeleteFileA"))return;
+    uint32_t words[2];printf(",\"file_delete_request\":{");
+    if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
+    printf("\"arguments_readable\":true,\"return_address\":%u,\"path\":",words[0]);
+    diagnostic_string(words[1]);putchar('}');
 }
 int main(int argc,char **argv){
     assert(argc==8+FNV_STARTUP_CAPTURED_TEXT);
@@ -171,7 +178,7 @@ int main(int argc,char **argv){
     struct fnv_vm_counters counters;fnv_vm_get_counters(vm,&counters);
     printf(",\"guest_memory\":{\"arena_bytes\":%u,\"vm_bytes\":%u,\"commit_limit\":%u,\"committed_bytes\":%u,\"reserved_bytes\":%u}",
         arena_bytes,vm_bytes,commit_limit,counters.committed_bytes,counters.reserved_bytes);
-    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);
+    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);
     printf(",\"worker_stats\":{\"capacity\":%u,\"active\":%u,\"finished\":%u,\"created\":%llu,\"reaped\":%llu,\"failures\":%llu},\"origin_host_thread\":%u",
         workers.capacity,workers.active,workers.finished,(unsigned long long)workers.created,(unsigned long long)workers.reaped,(unsigned long long)workers.failures,first_fault_thread);
 #ifdef FNV_CPU_X87_QUAD_MATH
@@ -192,4 +199,3 @@ int main(int argc,char **argv){
     if(cleanup==FNV_CPU_OK){assert(!fnv_vm_destroy(vm).error && VirtualFree(arena,0,MEM_RELEASE));}
     return 0;
 }
-
