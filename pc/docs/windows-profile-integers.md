@@ -68,7 +68,7 @@ The guest file provider now permits synchronous CreateFile/WriteFile only below
 the virtual `C:\Users\FNV\` profile, mapped inside `UserData/FNV` under the port
 root. Writes to relative game paths such as `Data\...` remain rejected. A
 synthetic translated x86 test covers file creation/truncation, byte writes,
-write-access enforcement and this path boundary. `WritePrivateProfileString`,
+flush, write-access enforcement and this path boundary. `WritePrivateProfileString`,
 directory mutation through Win32, and actual game save support remain pending.
 No engine frame, cold EXE launch, or Switch hardware result is claimed.
 
