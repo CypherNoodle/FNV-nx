@@ -33,7 +33,7 @@ int main(int argc,char **argv){
     c.file_root=root;c.file_handle_capacity=4;struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
     size_t n,bound;const struct fnv_cpu_export *exports=fnv_windows_shell_exports(&n);assert(n==1);
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];
-    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==9);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==10);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;
     t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1C000;fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);
     assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);uint32_t args[5]={0,0x1c,0,0,OUTPUT};
@@ -89,10 +89,33 @@ int main(int argc,char **argv){
     unsigned char verify[sizeof(payload)];DWORD got=0;assert(ReadFile(native,verify,sizeof(verify),&got,NULL) && got==3);
     for(size_t i=0;i<got;++i){assert(verify[i]==0x6b);}
     CloseHandle(native);
+    /* Delete real profile files, but preserve game assets and open files. */
+    handle=execute(1,open_args,7,&fault);assert(handle!=UINT32_MAX);
+    uint32_t delete_args[1]={BASE+0x90000};
+    assert(!execute(9,delete_args,1,&fault) && read32(t.teb_address+0x34)==32);
+    assert(execute(8,&handle,1,&fault));
+    open_args[2]|=FILE_SHARE_DELETE;handle=execute(1,open_args,7,&fault);assert(handle!=UINT32_MAX);
+    assert(!execute(9,delete_args,1,&fault) && read32(t.teb_address+0x34)==50);
+    assert(GetFileAttributesA(fixture)!=INVALID_FILE_ATTRIBUTES && execute(8,&handle,1,&fault));
+    open_args[2]&=~FILE_SHARE_DELETE;
+    write32(t.teb_address+0x34,0x1234);assert(execute(9,delete_args,1,&fault) && read32(t.teb_address+0x34)==0x1234);
+    assert(GetFileAttributesA(fixture)==INVALID_FILE_ATTRIBUTES && GetLastError()==2);
+    assert(!execute(9,delete_args,1,&fault) && read32(t.teb_address+0x34)==2);
+    assert(!execute(9,document_dir,1,&fault) && read32(t.teb_address+0x34)==5);
+    char protected_path[2048];int protected_size=snprintf(protected_path,sizeof(protected_path),"%s/protected.txt",root);
+    assert(protected_size>0 && (size_t)protected_size<sizeof(protected_path));
+    native=CreateFileA(protected_path,GENERIC_WRITE,0,NULL,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);assert(native!=INVALID_HANDLE_VALUE && CloseHandle(native));
+    memcpy(arena+0x97000,"protected.txt",sizeof("protected.txt"));uint32_t root_delete[1]={BASE+0x97000};
+    assert(!execute(9,root_delete,1,&fault) && read32(t.teb_address+0x34)==5);
+    assert(GetFileAttributesA(protected_path)!=INVALID_FILE_ATTRIBUTES && DeleteFileA(protected_path));
+    memcpy(arena+0x97000,"Warnings.txt",sizeof("Warnings.txt"));
+    assert(!execute(9,root_delete,1,&fault) && read32(t.teb_address+0x34)==2);
+    memcpy(arena+0x97000,"absent\\missing.txt",sizeof("absent\\missing.txt"));
+    assert(!execute(9,root_delete,1,&fault) && read32(t.teb_address+0x34)==3);
     static const char relative_path[]="Data\\user-write-denied.bin";memcpy(arena+0x90000,relative_path,sizeof(relative_path));
     write_open[0]=BASE+0x90000;uint32_t denied=execute(1,write_open,7,&fault);assert(denied==UINT32_MAX && read32(t.teb_address+0x34)==50);
     static const char escape_path[]="C:\\Users\\FNV\\..\\escape.bin";memcpy(arena+BASE+0x90000-BASE,escape_path,sizeof(escape_path));
     open_args[0]=BASE+0x90000;assert(execute(1,open_args,7,&fault)==UINT32_MAX && read32(t.teb_address+0x34)==5);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"documents_profile\":true,\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
+    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"documents_profile\":true,\"profile_delete\":true,\"readonly_game_delete_denied\":true,\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
 }
