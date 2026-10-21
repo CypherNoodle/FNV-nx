@@ -99,6 +99,20 @@ static void file_delete_request(const struct fnv_cpu_fault *fault){
     printf("\"arguments_readable\":true,\"return_address\":%u,\"path\":",words[0]);
     diagnostic_string(words[1]);putchar('}');
 }
+static void import_call_arguments(const struct fnv_cpu_fault *fault){
+    if(!strstr(fault->text,".dll!"))return;
+    uint32_t words[9];unsigned count=0;
+    for(;count<9;count++){uint64_t at=(uint64_t)fault->state.gpr[4]+count*4u;
+        if(at>UINT32_MAX || !peek((uint32_t)at,words+count,4))break;}
+    printf(",\"import_call_arguments\":{\"stack_dwords\":[");
+    for(unsigned i=0;i<count;i++)printf("%s%u",i?",":"",words[i]);
+    printf("],\"possible_strings\":[");unsigned emitted=0;
+    for(unsigned i=1;i<count;i++){unsigned char first;
+        if(!peek(words[i],&first,1) || (first && (first<32 || first>=127)))continue;
+        printf("%s{\"argument\":%u,\"string\":",emitted++?",":"",i-1);
+        diagnostic_string(words[i]);putchar('}');}
+    printf("]}");
+}
 int main(int argc,char **argv){
     assert(argc==8+FNV_STARTUP_CAPTURED_TEXT);
     arena_bytes=number(argv[argc-5]);uint32_t vm_bytes=number(argv[argc-4]),commit_limit=number(argv[argc-3]);
@@ -178,7 +192,7 @@ int main(int argc,char **argv){
     struct fnv_vm_counters counters;fnv_vm_get_counters(vm,&counters);
     printf(",\"guest_memory\":{\"arena_bytes\":%u,\"vm_bytes\":%u,\"commit_limit\":%u,\"committed_bytes\":%u,\"reserved_bytes\":%u}",
         arena_bytes,vm_bytes,commit_limit,counters.committed_bytes,counters.reserved_bytes);
-    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);
+    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);import_call_arguments(&fault);
     printf(",\"worker_stats\":{\"capacity\":%u,\"active\":%u,\"finished\":%u,\"created\":%llu,\"reaped\":%llu,\"failures\":%llu},\"origin_host_thread\":%u",
         workers.capacity,workers.active,workers.finished,(unsigned long long)workers.created,(unsigned long long)workers.reaped,(unsigned long long)workers.failures,first_fault_thread);
 #ifdef FNV_CPU_X87_QUAD_MATH
