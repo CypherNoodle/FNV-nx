@@ -1,8 +1,8 @@
-# PC window initialization prelude
+# PC borderless window initialization
 
-The PC runtime now provides the resource and class metadata used immediately
-before the initial borderless window. This is not a window implementation or
-a successful engine launch. The Xbox route remains paused.
+The PC runtime provides a bounded borderless top-level window lifecycle with
+real native backing and translated guest creation callbacks. This is not full
+USER32 or a successful engine launch. The Xbox route remains paused.
 
 ## Implemented subset
 
@@ -17,10 +17,20 @@ a successful engine launch. The Xbox route remains paused.
   supported class attributes. Duplicate names return 1410. Does not execute the
   window procedure. Extra bytes, cursor/menu resources and other styles stop.
 - `UnregisterClassA`: releases a registered class by name or atom. Unknown
-  classes return 1411. No windows can yet reference these classes.
+  classes return 1411; a class with a creating/live window returns 1412.
 - `AdjustWindowRect`: visible/popup borderless styles without a menu preserve
   the rectangle. Decorated windows remain unsupported rather than using
   desktop dimensions for the Switch.
+
+- `CreateWindowExA`: requires a configured native backend. Supports the observed
+  top-level borderless subset at (0,0), a class name/atom, optional ASCII title,
+  and an opaque guest create parameter. Builds CREATESTRUCTA32 on the trusted
+  guest stack and sends WM_NCCREATE then WM_CREATE synchronously. Rejection
+  sends the corresponding destruction messages and releases native backing.
+- `DefWindowProcA`: handles those four creation/destruction messages only.
+  Other messages remain explicit unsupported cases.
+- `DestroyWindow`: owner-thread live windows receive WM_DESTROY and
+  WM_NCDESTROY before their native object and virtual-desktop token are removed.
 
 Provider creation checks that its borrowed PE image is the CPU runtime's actual
 backing allocation. Creation and destruction happen outside guest execution;
@@ -45,24 +55,45 @@ IDs, language fallback and malformed resource ranges. Both native provider
 translation units also pass strict devkitA64/libnx compilation. These checks
 do not establish Switch hardware operation.
 
-The private captured-code startup diagnostic with the original PC executable
-now passes four new imported calls and stops at `USER32.dll!CreateWindowExA`:
-184186 indirect calls, 1082 verified arithmetic-cache hits and no cache misses.
-The requested window is 320x240, visible, borderless, and titled
-`Fallout: New Vegas`. There is no cold disk-EXE startup proof, engine frame,
-new NRO or new console result. Private capture artifacts are not published.
+`pc/tests/test_windows_create.py` additionally compares three lifecycle paths
+against real Windows: successful creation/destruction, WM_NCCREATE rejection,
+and WM_CREATE rejection. Guest backing windows are real hidden Win32 windows;
+message observation compares the four supported lifecycle messages, not the
+whole Windows creation transcript. Checks include the x86 CREATESTRUCT layout,
+nested DefWindowProc calls, FindWindow visibility, class-in-use errors, native
+object release, backend failure and three strict rejection paths. The same
+suite passes with the extended x87 state ABI.
 
-## Next boundary
+The private captured-code startup diagnostic now passes actual guest window
+creation and a verified current-thread naming event. It reaches
+`DINPUT8.dll!DirectInput8Create` after 202911 indirect calls, with 1082 arithmetic
+replay hits and no misses. It uses the original PC executable identity and a
+hidden native desktop window. This remains captured-code validation, not cold
+startup from the disk EXE. There is no engine frame, new NRO or new HW result.
+Private capture artifacts are not published.
 
-CreateWindowExA must deliver the guest window procedure's creation messages,
-including guest-layout CREATESTRUCTA, and support nested translated callbacks
-without corrupting the caller's stack or register state. A successful HWND must
-also refer to a real presentation window: Horizon's valid NWindow must back the
-existing Vulkan surface adapter before D3D9 CreateDevice/Present uses it.
-Returning a fabricated successful HWND would not prove either requirement.
+## Horizon presentation binding and remaining boundaries
+
+`windows_boot_horizon` supplies a single atomic lease of an initialized,
+caller-owned NWindow. `fnv_windows_boot_ui_presentation` resolves the guest HWND
+to that native object for the owner thread. This is the pointer type accepted
+by `fnv_vk_backend_create_horizon`. The adapter does not close/resize the default
+window, acquire services or create a Vulkan surface itself. Guest client
+size is metadata; renderer configuration must match the actual native window.
+The owner must release renderer/WSI use before destroying its window/provider.
+Provider teardown must occur on the native window's owning host thread.
+
+The adapter compiles for libnx, but is not wired into a new playable NRO or
+validated on hardware. Guest D3D9 CreateDevice still needs to use this mapping;
+returning a HWND alone is not a rendered game frame. Remaining USER32 work
+includes visible-window notifications, resize/activation, painting and the
+message queue. The supported lifecycle deliberately does not claim a complete
+Windows creation-message transcript.
 
 The existing controlled-stop diagnostic still reports worker failures and a
-busy teardown; this prelude does not claim to repair that separate limitation.
+busy teardown. This change does not claim to repair that separate limitation.
+The next observed engine import is DirectInput8Create; the existing XInput
+provider does not replace DirectInput's keyboard/mouse COM interfaces.
 
 ## Nested callback primitive
 
@@ -87,4 +118,4 @@ cases (target, frame overlap, return ABI, nonvolatile register, unsupported
 instruction and nesting limit). Pass `--x87-build` with a verified host extended
 core to repeat against the 80-bit state ABI. The extended CPU runtime also
 compiles for libnx with Cortex-A57 and soft-TLS options. This primitive alone
-does not implement CreateWindowExA or Horizon surface creation.
+does not by itself implement window messages or Horizon surface creation.

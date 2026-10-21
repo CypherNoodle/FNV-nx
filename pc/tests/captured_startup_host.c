@@ -6,6 +6,7 @@
 #include "windows_modules.h"
 #include "windows_user32.h"
 #include "windows_boot_ui.h"
+#include "windows_debug.h"
 #include "steam_callbacks.h"
 #include "windows_registry.h"
 #include "windows_system.h"
@@ -28,6 +29,16 @@ extern _Atomic unsigned fnv_probe_math_hits,fnv_probe_math_misses;
 int fnv_startup_math_replay_open(const char *);
 void fnv_startup_math_replay_close(void);
 #endif
+/* Desktop diagnostic uses a real hidden backing window. It never substitutes
+ * the running Steam process or claims Horizon presentation. */
+static int diagnostic_window_create(void *context,const struct fnv_boot_window_request *request,void **out){
+    (void)context;*out=NULL;
+    HWND window=CreateWindowExA(0,"STATIC",request->title,WS_POPUP,0,0,
+        (int)request->width,(int)request->height,NULL,NULL,GetModuleHandleA(NULL),NULL);
+    if(!window)return 0;
+    *out=window;return 1;
+}
+static void diagnostic_window_destroy(void *context,void *window){(void)context;assert(DestroyWindow(window));}
 #define BASE 0x400000u
 static uint32_t arena_bytes;
 #define ARENA arena_bytes
@@ -104,6 +115,17 @@ static void message_box(const struct fnv_cpu_fault *fault){
     if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
     printf("\"arguments_readable\":true,\"return_address\":%u,\"window\":%u,\"type\":%u,\"text\":",words[0],words[1],words[4]);
     diagnostic_string(words[2]);printf(",\"caption\":");diagnostic_string(words[3]);putchar('}');
+}
+static void exception_request(const struct fnv_cpu_fault *fault){
+    if(strcmp(fault->text,"KERNEL32.dll!RaiseException"))return;
+    uint32_t words[5],args[15];printf(",\"exception_request\":{");
+    if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"readable\":false}");return;}
+    printf("\"code\":%u,\"flags\":%u,\"argument_count\":%u,\"arguments\":[",words[1],words[2],words[3]);
+    int readable=words[3]<=15 && (!words[3] || peek(words[4],args,words[3]*4));
+    if(readable)for(unsigned i=0;i<words[3];i++)printf("%s%u",i?",":"",args[i]);
+    printf("],\"readable\":%s",readable?"true":"false");
+    if(readable && words[1]==0x406d1388 && words[3]==4){printf(",\"thread_name\":");diagnostic_string(args[1]);}
+    putchar('}');
 }
 static void profile_request(const struct fnv_cpu_fault *fault){
     if(strcmp(fault->text,"KERNEL32.dll!GetPrivateProfileIntA") && strncmp(fault->text,"Windows profile",15))return;
@@ -199,12 +221,15 @@ int main(int argc,char **argv){
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
     struct fnv_windows_boot_ui *boot_ui;assert(fnv_windows_boot_ui_create(process,&image,&boot_ui)==FNV_CPU_OK);
     struct fnv_windows_user32 *user32;assert(fnv_windows_user32_create(process,&user32)==FNV_CPU_OK);
+    struct fnv_boot_window_backend window_backend={NULL,diagnostic_window_create,diagnostic_window_destroy};
+    assert(fnv_windows_boot_ui_set_backend(boot_ui,user32,&window_backend)==FNV_CPU_OK);
     struct fnv_steam_callbacks *steam_callbacks;assert(fnv_steam_callbacks_create(process,&steam_callbacks)==FNV_CPU_OK);
     struct fnv_windows_system *system;assert(fnv_windows_system_create(process,3,&system)==FNV_CPU_OK);
     struct fnv_cpu_export catalog[256],extras[FNV_NATIVE_MAX_IMPORTS];size_t known=0,extra_count=0,n;
     const struct fnv_cpu_export *e=fnv_windows_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;
     e=fnv_windows_modules_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_memory_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_debug_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_boot_ui_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_user32_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_system_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
@@ -253,7 +278,7 @@ int main(int argc,char **argv){
         (unsigned long long)files.writes,(unsigned long long)files.write_bytes,(unsigned long long)files.write_ns,
         (unsigned long long)files.syncs,(unsigned long long)files.sync_ns,(unsigned long long)files.sync_errors,
         (unsigned long long)files.closes,(unsigned long long)files.close_ns,(unsigned long long)files.close_errors);
-    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);import_call_arguments(&fault);guest_stack_words(&fault);
+    message_box(&fault);exception_request(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);import_call_arguments(&fault);guest_stack_words(&fault);
     printf(",\"worker_stats\":{\"capacity\":%u,\"active\":%u,\"finished\":%u,\"created\":%llu,\"reaped\":%llu,\"failures\":%llu},\"origin_host_thread\":%u",
         workers.capacity,workers.active,workers.finished,(unsigned long long)workers.created,(unsigned long long)workers.reaped,(unsigned long long)workers.failures,first_fault_thread);
 #ifdef FNV_CPU_X87_QUAD_MATH
@@ -266,7 +291,7 @@ int main(int argc,char **argv){
     if(!workers.active)fnv_startup_math_replay_close();
 #endif
     enum fnv_cpu_result detach=fnv_windows_thread_detach(),cleanup=FNV_CPU_BUSY;
-    if(detach==FNV_CPU_OK && !workers.active && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_steam_callbacks_destroy(steam_callbacks)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK && fnv_windows_user32_destroy(user32)==FNV_CPU_OK && fnv_windows_boot_ui_destroy(boot_ui)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
+    if(detach==FNV_CPU_OK && !workers.active && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_steam_callbacks_destroy(steam_callbacks)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK && fnv_windows_boot_ui_destroy(boot_ui)==FNV_CPU_OK && fnv_windows_user32_destroy(user32)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
     printf(",\"thread_detach_result\":%u,\"process_cleanup_result\":%u}\n",detach,cleanup);
     /* A fault can leave live guest private heaps. In that case this isolated
      * host process owns the remaining arena until OS exit; never free it while

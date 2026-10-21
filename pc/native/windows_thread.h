@@ -120,5 +120,10 @@ enum fnv_cpu_result fnv_windows_thread_detach(void);
 /* For native import modules; require the matching attached Windows thread. */
 struct fnv_guest_memory *fnv_windows_current_memory(void);
 uint32_t fnv_windows_current_address_space_bytes(void);
+/* Trusted immutable attach metadata for native callback stack validation. */
+void fnv_windows_current_stack_bounds(uint32_t *low,uint32_t *high,uint32_t *thread_id);
 void fnv_windows_set_last_error(uint32_t value);
+/* Current-thread diagnostic label only; copied, max127 ASCII bytes. */
+int fnv_windows_set_debug_name(const char *);
+const char *fnv_windows_current_debug_name(void);
 #endif

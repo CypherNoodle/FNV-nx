@@ -24,6 +24,7 @@ struct windows_thread {
     struct windows_thread *next;
     struct fnv_windows_thread_config config;
     unsigned char *teb, *expansion;
+    char debug_name[128];
 };
 struct heap_block {uint32_t address,bytes,span,local;};
 struct heap_store {
@@ -136,7 +137,17 @@ static struct windows_thread *thread(void) {
 static unsigned char *slot(struct windows_thread *t,uint32_t index) {
     return index<64?t->teb+TEB_SLOTS+index*4:t->expansion+(index-64)*4;
 }
+int fnv_windows_set_debug_name(const char *name){
+    if(!name)return 0;
+    size_t n=0;while(n<128 && name[n]){if((unsigned char)name[n]>127)return 0;n++;}
+    if(n>=128)return 0;
+    memcpy(thread()->debug_name,name,n+1);return 1;
+}
+const char *fnv_windows_current_debug_name(void){return thread()->debug_name;}
 struct fnv_guest_memory *fnv_windows_current_memory(void) { return thread()->process->config.memory; }
+void fnv_windows_current_stack_bounds(uint32_t *low,uint32_t *high,uint32_t *id){
+    struct windows_thread *t=thread();*low=t->config.stack_low;*high=t->config.stack_high;*id=t->config.thread_id;
+}
 uint32_t fnv_windows_current_address_space_bytes(void) { return thread()->process->config.cpu.memory_bytes; }
 void fnv_windows_current_address_bounds(uint32_t *base,uint32_t *bytes){
     const struct fnv_cpu_config *c=&thread()->process->config.cpu;*base=c->guest_base;*bytes=c->memory_bytes;

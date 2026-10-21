@@ -42,7 +42,7 @@ if __name__=='__main__':
     shared.ARGS=[2,1,1,2,3,0,1]
     shared.DLLS=['user32.dll','gdi32.dll','user32.dll','user32.dll','user32.dll','kernel32.dll','kernel32.dll']
     shared.test(p.parse_args(),host_source='windows_boot_ui_host.c',wrapper_stride=64,
-        guest_programs=programs,native_sources=('windows_boot_ui.c','pe_resources.c'),
+        guest_programs=programs,native_sources=('windows_boot_ui.c','pe_resources.c','windows_user32.c'),
         extra_inputs=(Path(__file__).resolve(),*[Path(__file__).resolve().parents[1]/'native'/n for n in ('windows_boot_ui.h','pe_resources.h')]),
         linker_options=('-luser32','-lgdi32','-Wl,--stack,8388608'),
         strict_modes=('--strict-icon-name','--strict-icon-module','--strict-stock','--strict-class-pointer','--strict-class-procedure','--strict-class-extra','--strict-empty-name','--strict-rectangle','--strict-resource'))
