@@ -13,7 +13,7 @@ ARGS=[0,3,4,3,3,3,0,1]
 DLLS=None
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None,native_sources=(),codegen_setup=None,translator_options=None):
+def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None,native_sources=(),codegen_setup=None,translator_options=None,linker_options=()):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -60,7 +60,7 @@ def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--st
         '-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(sdk/'templates/runtime'),'-include',str(pc/'native/fnv_sdk_runtime.h'),str(generated),
         *[str(pc/'native'/n) for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','guest_memory.c','memory_horizon.c','windows_memory.c')],
         *[str(pc/'native'/n) for n in native_sources],
-        str(pc/'tests'/host_source),'-o',str(out/'heap-test.exe')]
+        str(pc/'tests'/host_source),*linker_options,'-o',str(out/'heap-test.exe')]
     built=subprocess.run(command,capture_output=True,text=True);(out/'compiler.log').write_text(built.stdout+built.stderr)
     if built.returncode:raise RuntimeError(built.stderr)
     invocation=[str(out/'heap-test.exe'),str(exe)]
