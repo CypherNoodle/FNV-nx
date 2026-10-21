@@ -29,6 +29,16 @@ def test(sdk, deps):
         pass
     else:
         raise AssertionError('Conflicting true entry points accepted')
+    from regenerate_decode_unit import replace_function
+    first='void sub_00001000(void)\n{\n    return;\n}\n\n'
+    second='void sub_00002000(void)\n{\n    return;\n}\n'
+    body='void sub_00001000(void)\n{\n    int fixed=1;(void)fixed;\n}\n'
+    corrected=replace_function(first+second,0x1000,body)
+    assert corrected.endswith(second) and body.rstrip() in corrected
+    for invalid in (second,first+first):
+        try:replace_function(invalid,0x1000,body)
+        except ValueError:pass
+        else:raise AssertionError('Missing/duplicate unit entry accepted')
     print('PASS stale-overlap reproducer, corrected boundaries, baseline decode, conflict rejection and idempotence')
 
 if __name__=='__main__':

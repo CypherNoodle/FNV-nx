@@ -33,3 +33,34 @@ Do not relabel old objects or cached proofs as regenerated. The currently frozen
 startup executable has not yet been rebuilt with this overlay. Full function
 regeneration and differential execution must precede a claimed runtime fix.
 Game bytes, disassembly, generated game C and captures remain under local/.
+
+
+## Regenerated diagnostic validation
+
+`regenerate_decode_unit.py` accepts a stopped complete diagnostic, the matching
+analysis container/database, an original frozen unit and explicit function
+addresses. It verifies source/SDK/container identities, regenerates those
+functions with the frame/SIMD/multiply and decode overlays, and writes a new unit
+plus an UNTESTED proof. Other function bodies remain intact. It rejects x87
+bodies because this bounded tool does not reproduce the extended-x87 profile.
+Compilation and execution require separate evidence, never a renamed old proof.
+
+A private regenerated memcpy unit compiled and advanced the captured-startup
+experiment past the previous hash-loop access violation to a controlled
+CPUID-provider boundary:169591calls,1082exact ARM64 math hits and no misses.
+The previous binary failed after1080math records. This is a captured-text desktop
+experiment, not cold EXE startup, a game frame or hardware performance evidence.
+
+A private differential test compares original x86 execution under Unicorn with
+the regenerated C routine. It passed4637cases, including all4608tested disjoint
+copies across16x16alignments and18lengths, plus29overlap cases. Checks include
+all512bytes of synthetic memory, EAX, ESP and nonvolatile registers. The next
+backward-overlap case (destination=source+1,length3) hits an unresolved indirect
+target in the isolated generated routine; it remains explicitly unsupported,
+so these results do not claim a complete memcpy implementation. The regenerated
+routine also compiles with devkitA64; no Switch execution is claimed.
+
+The reproducible tool's output was compared with the runtime-tested private
+regeneration and is token-identical (formatting differs). The next startup
+boundary requires an audited guest CPUID contract; it must not expose ARM host
+features or enable instruction paths the translator cannot execute.
