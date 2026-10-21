@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <shlobj.h>
 #include "windows_thread.h"
 #include "windows_shell.h"
 #include <stdio.h>
@@ -8,6 +9,7 @@
 #define BASE 0x400000u
 #define BYTES 0x100000u
 #define OUTPUT (BASE+0x80000u)
+_Static_assert(CSIDL_PERSONAL==5 && CSIDL_LOCAL_APPDATA==0x1c,"Windows folder identifiers");
 static unsigned char *arena;
 static void write32(uint32_t at,uint32_t v){for(unsigned i=0;i<4;i++)arena[at-BASE+i]=(unsigned char)(v>>(8*i));}
 static uint32_t read32(uint32_t at){uint32_t v=0;for(unsigned i=0;i<4;i++)v|=(uint32_t)arena[at-BASE+i]<<(8*i);return v;}
@@ -45,6 +47,15 @@ int main(int argc,char **argv){
     assert(!strcmp((char *)(arena+OUTPUT-BASE),expected));assert(arena[OUTPUT-BASE+sizeof(expected)]==0);
     assert(arena[t.teb_address-BASE+0x34]==0x78 && arena[t.teb_address-BASE+0x35]==0x56);
     check_directory(root,"UserData");check_directory(root,"UserData/FNV");check_directory(root,"UserData/FNV/AppData");check_directory(root,"UserData/FNV/AppData/Local");
+    args[1]=CSIDL_PERSONAL;memset(arena+OUTPUT-BASE,0x5a,262);
+    assert(execute(0,args,5,&fault)==0 && !strcmp((char *)(arena+OUTPUT-BASE),"C:\\Users\\FNV\\Documents"));
+    assert(arena[OUTPUT-BASE+260]==0x5a && arena[OUTPUT-BASE+261]==0x5a && read32(t.teb_address+0x34)==0x5678);
+    check_directory(root,"UserData/FNV/Documents");
+    static const char my_games[]="C:\\Users\\FNV\\Documents\\My Games";
+    memcpy(arena+0x96000,my_games,sizeof(my_games));uint32_t document_dir[2]={BASE+0x96000,0};
+    assert(execute(6,document_dir,2,&fault));check_directory(root,"UserData/FNV/Documents/My Games");
+    assert(!execute(6,document_dir,2,&fault) && read32(t.teb_address+0x34)==183);
+    args[1]=CSIDL_LOCAL_APPDATA;assert(execute(0,args,5,&fault)==0 && !strcmp((char *)(arena+OUTPUT-BASE),expected));
     char fixture[2048];int path_bytes=snprintf(fixture,sizeof(fixture),"%s/UserData/FNV/AppData/Local/fixture.bin",root);assert(path_bytes>0 && (size_t)path_bytes<sizeof(fixture));
     HANDLE native=CreateFileA(fixture,GENERIC_WRITE,0,NULL,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);assert(native!=INVALID_HANDLE_VALUE);
     static const unsigned char payload[]={0x46,0x4e,0x56,0x2d,0x55,0x44,0x31};DWORD written=0;assert(WriteFile(native,payload,sizeof(payload),&written,NULL) && written==sizeof(payload) && CloseHandle(native));
@@ -83,5 +94,5 @@ int main(int argc,char **argv){
     static const char escape_path[]="C:\\Users\\FNV\\..\\escape.bin";memcpy(arena+BASE+0x90000-BASE,escape_path,sizeof(escape_path));
     open_args[0]=BASE+0x90000;assert(execute(1,open_args,7,&fault)==UINT32_MAX && read32(t.teb_address+0x34)==5);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
+    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"documents_profile\":true,\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
 }
