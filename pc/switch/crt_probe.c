@@ -71,6 +71,7 @@ static void run_probe(void) {
     struct fnv_windows_process *process=NULL;NEED(fnv_windows_create(&c,&process)==FNV_CPU_OK,"Windows process");
     fnv_cpu_function wrapper=fnv_crt_native_entry;uint32_t entry_token=0;
     NEED(fnv_cpu_register_native(fnv_windows_runtime(process),&wrapper,1,&entry_token)==FNV_CPU_OK,"private wrapper registration");
+    struct fnv_windows_user32 *user32;NEED(fnv_windows_user32_create(process,&user32)==FNV_CPU_OK,"virtual desktop");
     struct fnv_windows_system *system;NEED(fnv_windows_system_create(process,3,&system)==FNV_CPU_OK,"guest CPU topology");
     struct fnv_cpu_export catalog[256],*extras=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*extras));size_t known=0,extra_count=0,n;
     NEED(extras,"native import scratch");
@@ -106,6 +107,7 @@ static void run_probe(void) {
            !strcmp(fault.text,"Reached engine entry (diagnostic stop)")?"PASS":"FAIL");
     struct fnv_windows_heap_stats h;if(fnv_windows_heap_stats(process,&h)==FNV_CPU_OK)report("heaps=%u blocks=%u\n",(unsigned)h.live_heaps,(unsigned)h.live_blocks);
     NEED(fnv_windows_thread_detach()==FNV_CPU_OK,"thread detach");NEED(fnv_windows_modules_destroy(modules)==FNV_CPU_OK,"module detach");
+    NEED(fnv_windows_user32_destroy(user32)==FNV_CPU_OK,"virtual desktop detach");
     NEED(fnv_windows_system_destroy(system)==FNV_CPU_OK,"system detach");
     enum fnv_cpu_result cleanup=fnv_windows_destroy(process);report("cleanup=%u (live guest heaps may remain until process exit)\n",(unsigned)cleanup);
     if(cleanup==FNV_CPU_OK){NEED(!fnv_vm_destroy(vm).error,"VM release");free(extras);free(imports);free(scratch);free(arena);}
@@ -122,4 +124,3 @@ int main(void) {
     if(log_file)fclose(log_file);
     consoleExit(NULL);return 0;
 }
-
