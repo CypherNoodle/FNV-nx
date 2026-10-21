@@ -31,7 +31,7 @@ int main(int argc,char **argv){
     c.file_root=root;c.file_handle_capacity=4;struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
     size_t n,bound;const struct fnv_cpu_export *exports=fnv_windows_shell_exports(&n);assert(n==1);
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];
-    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==5);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==6);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;
     t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1C000;fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);
     assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);uint32_t args[5]={0,0x1c,0,0,OUTPUT};
@@ -52,10 +52,11 @@ int main(int argc,char **argv){
     uint32_t open_args[7]={BASE+0x90000,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0};uint32_t handle=execute(1,open_args,7,&fault);
     if(handle==UINT32_MAX)fprintf(stderr,"profile open failed, last error=%u path=%s fixture=%s\n",read32(t.teb_address+0x34),(char *)(arena+0x90000),fixture);
     assert(handle!=UINT32_MAX);
-    uint32_t read_args[5]={handle,BASE+0x91000,sizeof(payload),BASE+0x92000,0};assert(execute(3,read_args,5,&fault) && !memcmp(arena+0x91000,payload,sizeof(payload)));
+    uint32_t read_args[5]={handle,BASE+0x91000,sizeof(payload),BASE+0x92000,0};assert(execute(4,read_args,5,&fault) && !memcmp(arena+0x91000,payload,sizeof(payload)));
     uint32_t denied_write[5]={handle,BASE+0x93000,sizeof(payload),BASE+0x92000,0};
     assert(!execute(2,denied_write,5,&fault) && read32(t.teb_address+0x34)==5 && !read32(BASE+0x92000));
-    assert(execute(4,&handle,1,&fault));
+    assert(!execute(3,&handle,1,&fault) && read32(t.teb_address+0x34)==5);
+    assert(execute(5,&handle,1,&fault));
     /* Writes are confined to the mapped profile, and CREATE_ALWAYS truncates. */
     memset(arena+0x93000,0x6b,sizeof(payload));
     uint32_t write_open[7]={BASE+0x90000,GENERIC_WRITE,FILE_SHARE_READ,0,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,0};
@@ -63,8 +64,9 @@ int main(int argc,char **argv){
     write_open[4]=CREATE_ALWAYS;
     handle=execute(1,write_open,7,&fault);assert(handle!=UINT32_MAX && read32(t.teb_address+0x34)==183);
     uint32_t write_args[5]={handle,BASE+0x93000,sizeof(payload),BASE+0x92000,0};
-    read_args[0]=handle;assert(!execute(3,read_args,5,&fault) && read32(t.teb_address+0x34)==5);
-    assert(execute(2,write_args,5,&fault) && read32(BASE+0x92000)==sizeof(payload));assert(execute(4,&handle,1,&fault));
+    read_args[0]=handle;assert(!execute(4,read_args,5,&fault) && read32(t.teb_address+0x34)==5);
+    assert(execute(2,write_args,5,&fault) && read32(BASE+0x92000)==sizeof(payload));
+    assert(execute(3,&handle,1,&fault));assert(execute(5,&handle,1,&fault));
     native=CreateFileA(fixture,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);assert(native!=INVALID_HANDLE_VALUE);
     unsigned char verify[sizeof(payload)];DWORD got=0;assert(ReadFile(native,verify,sizeof(verify),&got,NULL) && got==sizeof(verify));
     for(size_t i=0;i<sizeof(verify);++i){assert(verify[i]==0x6b);}
@@ -74,6 +76,6 @@ int main(int argc,char **argv){
     static const char escape_path[]="C:\\Users\\FNV\\..\\escape.bin";memcpy(arena+BASE+0x90000-BASE,escape_path,sizeof(escape_path));
     open_args[0]=BASE+0x90000;assert(execute(1,open_args,7,&fault)==UINT32_MAX && read32(t.teb_address+0x34)==5);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"relative_game_write_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
+    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"flush_write_handle\":true,\"flush_readonly_rejected\":true,\"relative_game_write_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
 }
 
