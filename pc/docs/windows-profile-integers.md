@@ -67,12 +67,11 @@ confined to that path beneath `file_root` (on Switch, `sdmc:/switch/FNV-nx`).
 The guest file provider now permits synchronous CreateFile/WriteFile only below
 the virtual `C:\Users\FNV\` profile, mapped inside `UserData/FNV` under the port
 root. Writes to relative game paths such as `Data\...` remain rejected. A
-synthetic translated x86 test covers file creation/truncation, byte writes,
-flush, write-access enforcement and this path boundary. `WritePrivateProfileString`,
-directory mutation through Win32, and actual game save support remain pending.
+synthetic translated x86 test covers file creation/truncation, byte writes, cursor-
+based end-of-file truncation, flush, write-access enforcement and this path boundary.
+`WritePrivateProfileString` and actual game save support remain pending. `CreateDirectoryA` is limited to subdirectories of the virtual profile.
 No engine frame, cold EXE launch, or Switch hardware result is claimed.
 
 References: [Microsoft GetPrivateProfileInt](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofileint),
 [Microsoft profile string syntax](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofilestring),
 [Microsoft CSIDL list](https://learn.microsoft.com/en-us/windows/win32/shell/csidl).
-
