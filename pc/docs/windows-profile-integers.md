@@ -57,13 +57,13 @@ old shared interfaces. Its dependency guard has five synthetic checks. Neither
 tool modifies generated game functions or the EXE. Observations, fixtures,
 generated code, objects and replay records remain private local/ outputs.
 
-Captured startup reaches SHELL32.SHGetFolderPathA at 166,060 calls with a null
-window/token, CSIDL 0x1c, and flags 0. Microsoft defines 0x1c as
-CSIDL_LOCAL_APPDATA, not Documents. The bounded provider accepts only that
-observed argument tuple and returns `C:\Users\FNV\AppData\Local`. This guest
-profile is virtualized beneath the port root as `UserData/FNV/AppData/Local`;
-it never exposes the host PC's profile directories. Directory creation is
-confined to that path beneath `file_root` (on Switch, `sdmc:/switch/FNV-nx`).
+Captured startup requests both SHELL32.SHGetFolderPathA LocalAppData (CSIDL
+0x1c) and Documents (CSIDL 5). Both observed calls have null window/token and
+flags 0. The provider returns `C:\Users\FNV\AppData\Local` or
+`C:\Users\FNV\Documents`, backed by `UserData/FNV/AppData/Local` and
+`UserData/FNV/Documents` below the port root. Guest paths do not expose the
+host PC's profile. Other folder identifiers, tokens and flags remain explicit
+diagnostic boundaries. On Switch the root is `sdmc:/switch/FNV-nx`.
 The guest file provider now permits synchronous CreateFile/WriteFile only below
 the virtual `C:\Users\FNV\` profile, mapped inside `UserData/FNV` under the port
 root. Writes to relative game paths such as `Data\...` remain rejected. A
