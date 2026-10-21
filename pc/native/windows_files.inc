@@ -206,13 +206,22 @@ static void api_file_write(void){
     if(!count)error=87;else if(overlapped)error=50;
     else {unsigned char *buffer=bytes?file_pointer(p,at,bytes,0):NULL;struct file_slot *f=file_acquire(p,h);
         if(!f)error=6;
-        else if(!(f->access&0x40000000u))error=5;
+        else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
         else {errno=0;size_t written=bytes?fwrite(buffer,1,bytes,f->stream):0;
             if(written!=bytes || ferror(f->stream)){error=fnv_host_file_error(errno);clearerr(f->stream);}
             else {write32(count,(uint32_t)written);value=1;}file_release(p,f);}
     }
     if(error)fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,20);
+}
+static void api_file_flush(void){
+    uint32_t h=fnv_cpu_argument_u32(0),value=0,error=0;struct fnv_windows_process *p=file_process();
+    struct file_slot *f=file_acquire(p,h);
+    if(!f)error=6;
+    else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
+    else {errno=0;if(fnv_host_file_sync(f->stream))value=1;else error=fnv_host_file_error(errno);file_release(p,f);}
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,4);
 }
 static void api_file_read(void){
     uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),bytes=fnv_cpu_argument_u32(2),out=fnv_cpu_argument_u32(3),overlapped=fnv_cpu_argument_u32(4);
