@@ -3,20 +3,46 @@
 #include "windows_thread.h"
 #include "windows_memory.h"
 #include "windows_modules.h"
+#include "windows_user32.h"
+#include "windows_system.h"
+#include "windows_profiles.h"
+#include "windows_shell.h"
 #include "guest_memory.h"
 #include "memory_horizon.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdatomic.h>
 #undef NDEBUG
 #include <assert.h>
 #include "startup_profile.h"
+#ifdef FNV_CPU_X87_QUAD_MATH
+#include "startup_math_state.h"
+extern RECOMP_TLS unsigned fnv_probe_math_kind,fnv_probe_math_operation;
+extern _Atomic unsigned fnv_probe_math_hits,fnv_probe_math_misses;
+int fnv_startup_math_replay_open(const char *);
+void fnv_startup_math_replay_close(void);
+#endif
 #define BASE 0x400000u
 static uint32_t arena_bytes;
 #define ARENA arena_bytes
 static unsigned char *arena;
-uint32_t fnv_probe_site;
+RECOMP_TLS uint32_t fnv_probe_site;
+static SRWLOCK fault_lock=SRWLOCK_INIT;
+static struct fnv_cpu_fault first_fault;
+static unsigned first_fault_live,first_fault_site,first_fault_thread;
+static unsigned first_math_kind=UINT32_MAX,first_math_operation=UINT32_MAX;
+static void capture_fault(void *context,const struct fnv_cpu_fault *fault){
+    (void)context;if(fault->kind==FNV_CPU_PEER_FAULT)return;
+    AcquireSRWLockExclusive(&fault_lock);
+    if(!first_fault_live){first_fault=*fault;first_fault_site=fnv_probe_site;first_fault_thread=GetCurrentThreadId();
+#ifdef FNV_CPU_X87_QUAD_MATH
+        first_math_kind=fnv_probe_math_kind;first_math_operation=fnv_probe_math_operation;
+#endif
+        first_fault_live=1;}
+    ReleaseSRWLockExclusive(&fault_lock);
+}
 static void put32(uint32_t at,uint32_t value){assert(at>=BASE && (uint64_t)at+4<=BASE+ARENA);for(unsigned i=0;i<4;i++)arena[at-BASE+i]=(unsigned char)(value>>(i*8));}
 static uint32_t permission(void *context,void *address,uint32_t bytes,uint32_t value){
     (void)context;DWORD old;return VirtualProtect(address,bytes,value==3?PAGE_READWRITE:value==1?PAGE_READONLY:PAGE_NOACCESS,&old)?0:GetLastError();
@@ -52,9 +78,50 @@ static void message_box(const struct fnv_cpu_fault *fault){
     printf("\"arguments_readable\":true,\"return_address\":%u,\"window\":%u,\"type\":%u,\"text\":",words[0],words[1],words[4]);
     diagnostic_string(words[2]);printf(",\"caption\":");diagnostic_string(words[3]);putchar('}');
 }
+static void profile_request(const struct fnv_cpu_fault *fault){
+    if(strcmp(fault->text,"KERNEL32.dll!GetPrivateProfileIntA") && strncmp(fault->text,"Windows profile",15))return;
+    uint32_t words[5];printf(",\"ini_request\":{");
+    if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
+    printf("\"arguments_readable\":true,\"default\":%u,\"section\":",words[3]);diagnostic_string(words[1]);
+    printf(",\"key\":");diagnostic_string(words[2]);printf(",\"file\":");diagnostic_string(words[4]);putchar('}');
+}
+static void shell_folder_request(const struct fnv_cpu_fault *fault){
+    if(strcmp(fault->text,"SHELL32.dll!SHGetFolderPathA") && strcmp(fault->text,"Windows SHGetFolderPathA variant pending"))return;
+    uint32_t words[6];printf(",\"shell_folder_request\":{");
+    if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
+    printf("\"arguments_readable\":true,\"return_address\":%u,\"hwnd\":%u,\"csidl\":%u,\"token\":%u,\"flags\":%u,\"path_buffer\":%u}",
+        words[0],words[1],words[2],words[3],words[4],words[5]);
+}
+static void file_delete_request(const struct fnv_cpu_fault *fault){
+    if(strcmp(fault->text,"KERNEL32.dll!DeleteFileA"))return;
+    uint32_t words[2];printf(",\"file_delete_request\":{");
+    if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
+    printf("\"arguments_readable\":true,\"return_address\":%u,\"path\":",words[0]);
+    diagnostic_string(words[1]);putchar('}');
+}
+static void import_call_arguments(const struct fnv_cpu_fault *fault){
+    if(!strstr(fault->text,".dll!"))return;
+    uint32_t words[9];unsigned count=0;
+    for(;count<9;count++){uint64_t at=(uint64_t)fault->state.gpr[4]+count*4u;
+        if(at>UINT32_MAX || !peek((uint32_t)at,words+count,4))break;}
+    printf(",\"import_call_arguments\":{\"stack_dwords\":[");
+    for(unsigned i=0;i<count;i++)printf("%s%u",i?",":"",words[i]);
+    printf("],\"possible_strings\":[");unsigned emitted=0;
+    for(unsigned i=1;i<count;i++){unsigned char first;
+        if(!peek(words[i],&first,1) || (first && (first<32 || first>=127)))continue;
+        printf("%s{\"argument\":%u,\"string\":",emitted++?",":"",i-1);
+        diagnostic_string(words[i]);putchar('}');}
+    printf("]}");
+}
 int main(int argc,char **argv){
-    assert(argc==6+FNV_STARTUP_CAPTURED_TEXT);
-    arena_bytes=number(argv[argc-3]);uint32_t vm_bytes=number(argv[argc-2]),commit_limit=number(argv[argc-1]);
+    assert(argc==8+FNV_STARTUP_CAPTURED_TEXT);
+    arena_bytes=number(argv[argc-5]);uint32_t vm_bytes=number(argv[argc-4]),commit_limit=number(argv[argc-3]);
+    uint32_t worker_capacity=number(argv[argc-1]);assert(worker_capacity==0 || worker_capacity==4);
+#ifdef FNV_CPU_X87_QUAD_MATH
+    assert(fnv_startup_math_replay_open(argv[argc-2]));
+#else
+    assert(!argv[argc-2][0]);
+#endif
     assert(arena_bytes>0x2800000 && (uint64_t)BASE+arena_bytes<=UINT32_MAX &&
         vm_bytes==arena_bytes-0x2800000 && commit_limit && commit_limit<=vm_bytes &&
         !(arena_bytes&65535) && !(commit_limit&65535));
@@ -71,15 +138,25 @@ int main(int argc,char **argv){
     struct fnv_vm_config v={arena+0x2800000,BASE+0x2800000,vm_bytes,commit_limit,&permissions,fnv_vm_eager_apply};
     assert(!fnv_vm_create(&v,&vm).error);
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;
+    c.cpu.diagnostic=capture_fault;
     c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;c.image_bytes=image.size;c.process_id=0x1711;c.peb_address=BASE+0x2000000;
     c.memory=vm;c.heap_address=BASE+0x2400000;c.heap_bytes=0x400000;c.heap_capacity=65536;c.private_heap_reserve=0x1000000;c.private_heap_limit=8;
     c.parameters_address=BASE+0x2100000;c.parameters_bytes=0x10000;c.command_line="FalloutNV.exe";c.image_path="FalloutNV.exe";
     c.kernel_handle_capacity=1024;c.critical_section_capacity=256;c.file_root=argv[2];c.file_handle_capacity=128;
+    if(worker_capacity){
+        c.worker_address=BASE+0x2250000;c.worker_bytes=0x100000;c.worker_capacity=worker_capacity;
+        c.worker_stack_bytes=0x20000;c.worker_tls_bytes=0x11000;c.worker_host_stack_bytes=0x100000;
+    }
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
+    struct fnv_windows_system *system;assert(fnv_windows_system_create(process,3,&system)==FNV_CPU_OK);
     struct fnv_cpu_export catalog[256],extras[FNV_NATIVE_MAX_IMPORTS];size_t known=0,extra_count=0,n;
     const struct fnv_cpu_export *e=fnv_windows_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;
     e=fnv_windows_modules_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_memory_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_user32_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_system_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_profile_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_shell_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     struct fnv_windows_modules *modules;assert(fnv_windows_modules_create(process,&image,"FalloutNV.exe",catalog,known,&modules)==FNV_CPU_OK);
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS],scratch[FNV_NATIVE_MAX_IMPORTS];size_t imported;
     assert(fnv_native_collect_imports(&image,imports,FNV_NATIVE_MAX_IMPORTS,&imported)==FNV_NATIVE_OK);
@@ -97,7 +174,15 @@ int main(int argc,char **argv){
     t.static_tls_data=t.teb_address+0x30000;t.static_tls_data_bytes=0x10000;
     fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);put32(t.state.gpr[4],0);
     struct fnv_cpu_fault fault={0};enum fnv_cpu_result result=fnv_cpu_execute(FNV_STARTUP_ENTRY,&fault);
-    assert(result==FNV_CPU_OK || result==FNV_CPU_GUEST_FAULT);
+    assert(result==FNV_CPU_OK || result==FNV_CPU_GUEST_FAULT || result==FNV_CPU_FAULTED);
+    struct fnv_windows_worker_stats workers;
+    for(unsigned attempt=0;;attempt++){
+        assert(fnv_windows_worker_stats(process,&workers)==FNV_CPU_OK);
+        if(!workers.active || attempt==2000)break;Sleep(1);
+    }
+    AcquireSRWLockShared(&fault_lock);
+    if(first_fault_live){fault=first_fault;fnv_probe_site=first_fault_site;result=FNV_CPU_GUEST_FAULT;}
+    ReleaseSRWLockShared(&fault_lock);
     struct fnv_windows_heap_stats heaps;assert(fnv_windows_heap_stats(process,&heaps)==FNV_CPU_OK);
     printf("{\"faulted\":%s,\"result\":%u,\"implemented_imports\":%u,\"trap_imports\":%u,\"fault_address\":%u,\"fault_kind\":%u,\"text\":",result==FNV_CPU_GUEST_FAULT?"true":"false",result,supported,(unsigned)imported-supported,fault.address,fault.kind);string(fault.text);
     printf(",\"last_indirect_site\":%u,\"trace_index\":%u,\"call_count\":%llu,\"registers\":[",fnv_probe_site,fault.trace_index,(unsigned long long)fault.call_count);
@@ -107,9 +192,21 @@ int main(int argc,char **argv){
     struct fnv_vm_counters counters;fnv_vm_get_counters(vm,&counters);
     printf(",\"guest_memory\":{\"arena_bytes\":%u,\"vm_bytes\":%u,\"commit_limit\":%u,\"committed_bytes\":%u,\"reserved_bytes\":%u}",
         arena_bytes,vm_bytes,commit_limit,counters.committed_bytes,counters.reserved_bytes);
-    message_box(&fault);
-    assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_modules_destroy(modules)==FNV_CPU_OK);
-    enum fnv_cpu_result cleanup=fnv_windows_destroy(process);printf(",\"process_cleanup_result\":%u}\n",cleanup);
+    message_box(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);import_call_arguments(&fault);
+    printf(",\"worker_stats\":{\"capacity\":%u,\"active\":%u,\"finished\":%u,\"created\":%llu,\"reaped\":%llu,\"failures\":%llu},\"origin_host_thread\":%u",
+        workers.capacity,workers.active,workers.finished,(unsigned long long)workers.created,(unsigned long long)workers.reaped,(unsigned long long)workers.failures,first_fault_thread);
+#ifdef FNV_CPU_X87_QUAD_MATH
+    printf(",\"math_replay\":{\"schema\":\"fnv-x87-exact-replay-v1\",\"hits\":%u,\"misses\":%u}",fnv_probe_math_hits,fnv_probe_math_misses);
+    if(first_math_kind!=UINT32_MAX && !strncmp(fault.text,"Target ARM64 x87 ",sizeof("Target ARM64 x87 ")-1)){
+        unsigned char bytes[FNV_STARTUP_MATH_STATE_BYTES];startup_math_pack(bytes,&fault.state.x87_extended);
+        printf(",\"math_request\":{\"kind\":%u,\"operation\":%u,\"state_hex\":\"",first_math_kind,first_math_operation);
+        for(unsigned i=0;i<sizeof(bytes);i++){printf("%02x",bytes[i]);}printf("\"}");
+    }
+    if(!workers.active)fnv_startup_math_replay_close();
+#endif
+    enum fnv_cpu_result detach=fnv_windows_thread_detach(),cleanup=FNV_CPU_BUSY;
+    if(detach==FNV_CPU_OK && !workers.active && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
+    printf(",\"thread_detach_result\":%u,\"process_cleanup_result\":%u}\n",detach,cleanup);
     /* A fault can leave live guest private heaps. In that case this isolated
      * host process owns the remaining arena until OS exit; never free it while
      * its WindowsProcess still references it. This is not normal engine exit. */

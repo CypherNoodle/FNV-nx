@@ -128,8 +128,8 @@ def probe(a):
         host_flags,host_dependencies,host_objects,host_policy=inputs(
             json.loads(generation_paths(analysis,a.generation_name)['report'].read_text()),a.x87_host_core,a.cc,a.stop_target_math)
         own.append(pc/'tools/startup_host_x87.py')
-    if a.stop_target_math:own.append(pc/'tests/startup_math_stop_host.c')
-    native=[pc/'native'/n for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]
+    if a.stop_target_math:own.extend([pc/'tests/startup_math_stop_host.c',pc/'tests/startup_math_state.h'])
+    native=[pc/'native'/n for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','windows_modules.c','windows_user32.c','windows_system.c','guest_memory.c','memory_horizon.c','windows_memory.c')]
     frozen={str(p.resolve()):sha(p) for p in [*own,*native,Path(a.cc[0]).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]}
     for p,h in host_dependencies.items():
@@ -149,7 +149,7 @@ def probe(a):
                 {int(m,16) for source in snippets for m in re.findall(r'\bsub_([0-9A-Fa-f]{8})\b',source)})
     missing=references-set(selected)
     header='#include "fnv_sdk_runtime.h"\n#include "fnv_simd_bits.h"\n#include "fnv_mul_flags.h"\n'
-    header+='extern uint32_t fnv_probe_site;\n#define FNV_STARTUP_ICALL(target, saved, site) do { fnv_probe_site=(site); RECOMP_ICALL_SAFE_AT(target,saved,site); } while(0)\n'
+    header+='extern RECOMP_TLS uint32_t fnv_probe_site;\n#define FNV_STARTUP_ICALL(target, saved, site) do { fnv_probe_site=(site); RECOMP_ICALL_SAFE_AT(target,saved,site); } while(0)\n'
     def symbol(at):return generation_symbols.get(at,f'sub_{at:08X}')
     header+=''.join(f'void {symbol(at)}(void);\n' for at in sorted(references|set(selected)))
     stubs=''.join(f'void {symbol(at)}(void){{recomp_unimpl("Unselected startup target",0x{at:X}u);}}\n' for at in sorted(missing))
@@ -222,6 +222,8 @@ def probe(a):
     host_args=[out/'startup-test.exe',a.exe.resolve(),a.exe.resolve().parent]
     if a.captured_text_data:host_args.append(out/'captured-text-data.bin')
     host_args.extend(str(memory[k]) for k in ('arena_bytes','vm_bytes','commit_limit'))
+    host_args.append('') # Frozen baseline always stops; a separate verifier owns exact target replay.
+    host_args.append(str(4 if getattr(a,'workers',False) else 0))
     host=json.loads(command(host_args,'host.log').strip().splitlines()[-1])
     validate_observation(host,memory_profile)
     if audit(a.exe,analysis)!=identity or sdk_identity(sdk)!=sdk_hash or verify(analysis,helpers)!=helpers:raise ValueError('Inputs changed')
@@ -257,6 +259,7 @@ if __name__=='__main__':
     p.add_argument('--generation-validation',type=Path,help='Frozen complete code/data comparison proof for --generation-name')
     p.add_argument('--x87-host-core',type=Path,help='Verified strict native-host core for extended CRT diagnostics')
     p.add_argument('--stop-target-math',action='store_true',help='Stop explicitly if target-only ARM64 math is reached; never substitute host arithmetic')
+    p.add_argument('--workers',action='store_true',help='Enable four managed workers in a separate backed guest arena; host diagnostic only')
     p.add_argument('--memory-profile',choices=('bounded64','extended808'),default='bounded64',help='Actually backed host-only diagnostic budget; extended profile does not validate the fixed Switch CRT probe')
     p.add_argument('--reuse-validation',type=Path,help='Reuse only identical prior split diagnostic units, driver/flags and ABI headers; freshly select/link the arithmetic core')
     p.add_argument('--captured-text-data',action='store_true',help='Use audited captured text bytes also for inline data/tables in the private host image; never changes the original EXE or verifies cold boot')

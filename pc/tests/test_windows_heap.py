@@ -2,7 +2,9 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import sys
@@ -13,7 +15,15 @@ ARGS=[0,3,4,3,3,3,0,1]
 DLLS=None
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None,native_sources=(),codegen_setup=None,translator_options=None):
+def compiler_environment(command):
+    environment=os.environ.copy()
+    if sys.platform=='win32':
+        compiler=shutil.which(str(command[0]))
+        if compiler:
+            environment['PATH']=str(Path(compiler).resolve().parent)+os.pathsep+environment.get('PATH','')
+    return environment
+
+def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None,native_sources=(),codegen_setup=None,translator_options=None,linker_options=()):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -60,15 +70,16 @@ def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--st
         '-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(sdk/'templates/runtime'),'-include',str(pc/'native/fnv_sdk_runtime.h'),str(generated),
         *[str(pc/'native'/n) for n in ('cpu_runtime.c','pe_image.c','pe_tls.c','windows_thread.c','guest_memory.c','memory_horizon.c','windows_memory.c')],
         *[str(pc/'native'/n) for n in native_sources],
-        str(pc/'tests'/host_source),'-o',str(out/'heap-test.exe')]
-    built=subprocess.run(command,capture_output=True,text=True);(out/'compiler.log').write_text(built.stdout+built.stderr)
-    if built.returncode:raise RuntimeError(built.stderr)
+        str(pc/'tests'/host_source),*linker_options,'-o',str(out/'heap-test.exe')]
+    environment=compiler_environment(a.cc)
+    built=subprocess.run(command,capture_output=True,text=True,env=environment);(out/'compiler.log').write_text(built.stdout+built.stderr)
+    if built.returncode:raise RuntimeError(f'Compiler exit {built.returncode}: '+built.stdout+built.stderr)
     invocation=[str(out/'heap-test.exe'),str(exe)]
-    run=subprocess.run(invocation,capture_output=True,text=True,timeout=45);(out/'host.log').write_text(run.stdout+run.stderr)
+    run=subprocess.run(invocation,capture_output=True,text=True,timeout=45,env=environment);(out/'host.log').write_text(run.stdout+run.stderr)
     if run.returncode:raise RuntimeError(f'Memory bridge exit {run.returncode}: '+run.stdout+run.stderr)
     result=json.loads(run.stdout.strip().splitlines()[-1])
     for mode in strict_modes:
-        child=subprocess.run([*invocation,mode],capture_output=True,text=True,timeout=15)
+        child=subprocess.run([*invocation,mode],capture_output=True,text=True,timeout=15,env=environment)
         (out/(mode+'.log')).write_text(child.stdout+child.stderr)
         assert child.returncode==0 and 'strict PASS' in child.stdout,(mode,child.returncode,child.stderr)
     if getattr(a,'arm_cc',None):

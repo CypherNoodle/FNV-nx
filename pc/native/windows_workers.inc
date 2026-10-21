@@ -82,7 +82,7 @@ static void worker_entry(void *context){
         }
     }else if(!fnv_cpu_is_faulted(p->cpu))worker_poison(w,"Windows managed worker attach failed");
     /* Detach (including mutex abandonment) precedes the signaled thread handle. */
-    fnv_host_mutex_lock(&p->kernel_guard);struct kernel_object *o=w->object;o->maximum=code;o->signaled=1;
+    fnv_host_mutex_lock(&p->kernel_guard);struct kernel_object *o=w->object;o->state->maximum=code;o->state->signaled=1;
     kernel_dispatch(p);o->waiters--;if(!o->live && !o->waiters)event_recycle(p,o);fnv_host_mutex_unlock(&p->kernel_guard);
     fnv_host_mutex_lock(&p->worker_guard);w->phase=3;if(fnv_cpu_is_faulted(p->cpu))p->worker_failures++;
     fnv_host_mutex_unlock(&p->worker_guard);managed_current=NULL;
@@ -112,7 +112,7 @@ static void api_thread_create(void){
             w->config.stack_low=base+8192+p->config.worker_tls_bytes;w->config.stack_high=w->config.stack_low+p->config.worker_stack_bytes;
             fnv_cpu_state_init(&w->config.state,w->config.stack_high-16,w->config.teb_address);
             w->entry=entry;w->parameter=parameter;w->suspended=(flags&4)!=0;w->phase=1;
-            fnv_host_mutex_lock(&p->kernel_guard);w->object=event_lookup(p,handle);w->object->waiters++;w->object->owner=w->config.thread_id;fnv_host_mutex_unlock(&p->kernel_guard);
+            fnv_host_mutex_lock(&p->kernel_guard);w->object=event_lookup(p,handle);w->object->waiters++;w->object->state->owner=w->config.thread_id;fnv_host_mutex_unlock(&p->kernel_guard);
             if(!fnv_host_thread_create(&w->host,worker_entry,w,p->config.worker_host_stack_bytes)){
                 fnv_host_mutex_lock(&p->kernel_guard);w->object->waiters--;w->object->live=0;event_recycle(p,w->object);fnv_host_mutex_unlock(&p->kernel_guard);
                 w->object=NULL;w->phase=0;handle=0;p->worker_failures++;
@@ -132,7 +132,7 @@ static void api_thread_query(int id){
     struct fnv_windows_process *p=thread()->process;unsigned char *destination=id?NULL:sync_pointer(p,output,4);
     if(handle==0xfffffffeu){value=1;answer=id?current.config.thread_id:259;}
     else if(p->handles){fnv_host_mutex_lock(&p->kernel_guard);struct kernel_object *o=event_lookup(p,handle);
-        if(o && o->kind==KERNEL_THREAD){value=1;answer=id?o->owner:o->maximum;}fnv_host_mutex_unlock(&p->kernel_guard);
+        if(o && o->state->kind==KERNEL_THREAD){value=1;answer=id?o->state->owner:o->state->maximum;}fnv_host_mutex_unlock(&p->kernel_guard);
     }
     if(!value)fnv_windows_set_last_error(6);else if(destination)write32(destination,answer);
     fnv_cpu_return_u32(id?answer:value,id?4:8);
@@ -142,7 +142,7 @@ static void api_thread_handle_id(void){api_thread_query(1);}
 static void api_thread_resume(void){
     uint32_t handle=fnv_cpu_argument_u32(0),value=UINT32_MAX;struct fnv_windows_process *p=thread()->process;
     if(p->workers){fnv_host_mutex_lock(&p->worker_guard);fnv_host_mutex_lock(&p->kernel_guard);struct kernel_object *o=event_lookup(p,handle);
-        if(o && o->kind==KERNEL_THREAD){value=0;
+        if(o && o->state->kind==KERNEL_THREAD){value=0;
             for(uint32_t i=0;i<p->config.worker_capacity;++i){struct managed_worker *w=p->workers+i;
                 if(w->phase && w->phase!=3 && w->object==o){value=w->suspended;w->suspended=0;fnv_host_condition_wake_all(&w->condition);break;}
             }

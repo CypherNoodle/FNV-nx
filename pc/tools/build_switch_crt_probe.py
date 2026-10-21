@@ -71,10 +71,10 @@ def build(a):
         if p in frozen and frozen[p]!=h:raise ValueError('CPU/CRT x87 source disagreement')
         frozen[p]=h
     frozen[a.initializer_validation.resolve()]=sha(a.initializer_validation.resolve())
-    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'tools/startup_host_x87.py',pc/'tools/startup_memory_profile.py',pc/'switch/crt_probe.c',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
+    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'tools/startup_host_x87.py',pc/'tools/startup_memory_profile.py',pc/'switch/crt_probe.c',pc/'native/windows_user32.h',pc/'native/windows_system.h',pc/'native/windows_profiles.h',pc/'native/windows_profiles.inc',pc/'native/windows_shell.h',pc/'native/windows_shell.inc',pc/'native/windows_files.inc',pc/'native/host_file.h',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
               *[a.cc.resolve(),a.ld.resolve(),a.nm.resolve(),a.objdump.resolve(),a.readelf.resolve(),a.elf2nro.resolve(),a.nacptool.resolve(),a.build_romfs.resolve(),a.icon.resolve()],
               a.devkitpro.resolve()/'libnx/switch.specs',a.devkitpro.resolve()/'libnx/switch.ld',a.devkitpro.resolve()/'libnx/lib/libnx.a',
-              *[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
+              *[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','windows_user32.c','windows_system.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
         frozen[p]=sha(p)
     objects=[]
     for item in cpu['compiled']:
@@ -135,7 +135,7 @@ def build(a):
     frozen[blob]=sha(blob);shutil.copyfile(blob,rom/blob.name)
     flags=cpu['compiler_flags'];includes=['-I'+str(p) for p in (out,pc/'native',sdk/'templates/runtime',sdk/'src/kernel',a.devkitpro.resolve()/'libnx/include')]
     added=[]
-    for p in [out/'entry.c',pc/'switch/crt_probe.c',*[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
+    for p in [out/'entry.c',pc/'switch/crt_probe.c',*[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','windows_user32.c','windows_system.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:
         generated_warnings=['-Wno-unused-label','-Wno-unused-variable','-Wno-unused-but-set-variable'] if p.parent==out else []
         obj=out/(p.stem+'.o');run([a.cc,*flags,'-Wall','-Wextra','-Werror',*generated_warnings,*includes,'-include',pc/'native/fnv_sdk_runtime.h','-c',p,'-o',obj],p.stem+'-compile');added.append(obj)
     elf=out/'fnv-nx.elf';nro=out/'fnv-nx.nro'
@@ -175,3 +175,4 @@ if __name__=='__main__':
     for n in ('analysis','exe','sdk','python-deps','cpu-validation','desktop-validation','initializer-validation','devkitpro','cc','ld','nm','objdump','readelf','elf2nro','nacptool','build-romfs','icon','output'):
         p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--generation-name',required=True);build(p.parse_args())
+

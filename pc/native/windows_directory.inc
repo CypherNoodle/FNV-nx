@@ -47,7 +47,7 @@ static void file_full(struct fnv_windows_process *p,const char *path,char full[1
 }
 static void file_attributes(int wide){
     struct fnv_windows_process *p=file_process();uint32_t at=fnv_cpu_argument_u32(0),error=0,value=UINT32_MAX;
-    char path[512],key[512],full[1538];error=(uint32_t)file_path_mode(p,at,wide,path,key,2);
+    char path[512],key[512],full[1538];error=(uint32_t)file_path_mode_basic(p,at,wide,path,key,2);
     if(!error){file_full(p,path,full);struct fnv_host_entry e;error=fnv_host_metadata(full,&e);if(!error)value=e.attributes;
         else if(error==2){char *last=strrchr(full,'/');if(last){*last=0;if(!fnv_host_file_directory(full))error=3;}}}
     fnv_host_mutex_lock(&p->files_guard);p->file_stats.attribute_queries++;fnv_host_mutex_unlock(&p->files_guard);
@@ -59,7 +59,7 @@ static void find_first(int wide){
     uint32_t at=fnv_cpu_argument_u32(0),out=fnv_cpu_argument_u32(1),error=0,value=UINT32_MAX;
     uint64_t skipped=0,special=0;
     struct fnv_windows_process *p=file_process();unsigned char *output=file_pointer(p,out,wide?592:320,1);
-    char path[512],key[512],full[1538],pattern[260];error=(uint32_t)file_path_mode(p,at,wide,path,key,1);
+    char path[512],key[512],full[1538],pattern[260];error=(uint32_t)file_path_mode_basic(p,at,wide,path,key,1);
     struct fnv_host_directory *directory=NULL;struct fnv_host_entry entry;
     if(!error){char *last=strrchr(path,'/');const char *leaf=last?last+1:path;
         size_t n=strlen(leaf);if(n>=sizeof(pattern))error=206;
@@ -109,3 +109,4 @@ static void api_file_type(void){
     if(f){value=1;file_release(p,f);}else fnv_windows_set_last_error(6);
     fnv_cpu_return_u32(value,4);
 }
+

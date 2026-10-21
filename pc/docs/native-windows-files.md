@@ -1,7 +1,7 @@
-# Lectura de archivos desde Win32 guest
+# Acceso a archivos desde Win32 guest
 
-WindowsThread incorpora CreateFileA/W, ReadFile, GetFileSize/Ex y SetFilePointer/Ex.
-La lectura agrego siete exports; la tabla base actual tiene 73, incluyendo
+WindowsThread incorpora CreateFileA/W, ReadFile, WriteFile, GetFileSize/Ex y SetFilePointer/Ex.
+El catalogo base contiene 94 exports, incluyendo
 [atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
@@ -14,9 +14,12 @@ la raiz durante create. Con ambos en cero se deshabilita el proveedor. Raiz
 inexistente, combinaciones incompletas o limites invalidos se rechazan y
 deshacen la inicializacion del proceso. No se crean carpetas ni archivos.
 
-La implementacion abre archivos regulares existentes con GENERIC_READ y
-OPEN_EXISTING. Los flags secuenciales/aleatorios se aceptan como hints; no se
-promete un efecto de rendimiento. Se aceptan separadores de Windows y '/',
+Los archivos del juego se abren solo con GENERIC_READ y OPEN_EXISTING. Para el
+prefijo virtual `C:\Users\FNV\` se admiten GENERIC_WRITE o READ|WRITE y los cinco
+dispositions CreateFile; CREATE_NEW es exclusivo y CREATE_ALWAYS trunca. Esta
+ruta se mapea dentro de `UserData/FNV` bajo `file_root`, nunca al perfil del host.
+Los flags secuenciales/aleatorios se aceptan como hints; no se promete un efecto
+de rendimiento. Se aceptan separadores de Windows y '/',
 normalizan '.' y '..' dentro de la raiz y rechazan un '..' que salga por encima.
 El namespace guest admite ASCII; la variante W lee UTF-16LE pero no implementa
 conversion Unicode general. La distincion de mayusculas al abrir depende del
@@ -24,20 +27,33 @@ filesystem host. Las claves para compartir aperturas se comparan en ASCII sin
 mayusculas; no detectan aliases de symlinks, hardlinks o nombres cortos.
 
 No hay busqueda de archivos, rutas absolutas guest, unidades Windows, dispositivos,
-streams alternativos, SECURITY_ATTRIBUTES, templates, acceso de escritura,
-creacion/truncado, OVERLAPPED, IOCP ni cancelacion. Esos modos pendientes fallan
-explicitamente; no se simula una escritura exitosa. GetFileAttributes y FindFirst/FindNext/FindClose ahora tienen un
+streams alternativos, SECURITY_ATTRIBUTES, templates, OVERLAPPED, IOCP ni cancelacion.
+WriteFile es sincrono, exige un handle con permiso de escritura y rechaza OVERLAPPED.
+Las escrituras relativas a `Data` u otras rutas del juego fallan cerradas; no hay
+todavia renombrado, archivos mapeados,
+WritePrivateProfileString. CreateDirectoryA solo crea subdirectorios del perfil virtual. SetEndOfFile trunca en la posicion actual solo con
+un handle de escritura. FlushFileBuffers sincroniza un handle con permiso de
+escritura mediante fflush y el commit/fsync del host. GetFileAttributes
+y FindFirst/FindNext/FindClose ahora tienen un
 [proveedor de inventarios](native-windows-directory.md), con sus limites explicitos. Tampoco hay
 guardados ni archivos mapeados a memoria en este bloque.
+
+DeleteFileA consulta la existencia real: archivo ausente devuelve 2, padre
+ausente 3, directorio o archivo de juego existente 5. El borrado efectivo se
+limita a archivos regulares del perfil virtual sin handles abiertos. Un handle
+sin FILE_SHARE_DELETE bloquea con 32. El borrado diferido cuando un handle
+comparte FILE_SHARE_DELETE permanece sin implementar y devuelve 50 sin borrar.
+Una reserva de clave bloquea aperturas nuevas durante el unlink; el lock de
+tabla se libera antes del IO. No se devuelve exito si el archivo no se borro.
 
 ## Cursores, handles y locks
 
 Cada apertura tiene FILE* propio y un mutex de IO. ReadFile, consultas y seeks
 del mismo handle se serializan; abrir el mismo archivo dos veces crea cursores
-independientes. La comprobacion de FILE_SHARE_READ se hace bajo el lock de tabla
-entre aperturas de este proveedor. No implementa arbitraje de sharing con otros
-procesos/otros proveedores del host. Solo hay acceso de lectura: los bits de
-share-write y share-delete permiten sharing sin conceder acceso de escritura.
+independientes. La comprobacion de sharing de lectura/escritura se hace bajo el
+lock de tabla entre aperturas de este proveedor. No implementa arbitraje con otros
+procesos/otros proveedores del host. El acceso efectivo queda limitado por los
+derechos registrados en cada handle.
 
 La tabla de archivos tiene lock separado de eventos/threads. fopen, fclose,
 fread, fstat y seeks no toman el lock de eventos ni mantienen el lock de tabla
@@ -104,10 +120,33 @@ Contratos: [ReadFile](https://learn.microsoft.com/en-us/windows/win32/api/fileap
 [GetFileSizeEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfilesizeex),
 [CreateFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
 
+La prueba sintetica del perfil cubre CreateDirectoryA y CREATE_ALWAYS+WriteFile+SetEndOfFile+FlushFileBuffers sobre
+`C:\Users\FNV\AppData\Local`, vuelve a leer los bytes desde el host y comprueba
+que el truncado coincide con el cursor, una escritura a `Data\...` se rechaza y
+las APIs mutantes requieren permiso de escritura. No acredita todavia un guardado
+real de FNV ni la escritura de INI.
+
 La revision del proveedor confirma que CloseHandle enruta D a archivos, C a
 busquedas (rechazadas por ese API), y E al kernel; los tests cubren tipos,
 handles forjados y cierres concurrentes. fread limpia errno antes de leer y
 captura su valor inmediatamente. Si el backend falla sin informar errno,
 se usa ERROR_IO_DEVICE (1117), no un error obsoleto de una operacion anterior.
-Las aperturas de escritura siguen devolviendo error 50: el proveedor de esta
-fase es de lectura, no se han habilitado silenciosamente INI/logs/guardados.
+Las lecturas usan `rb` para assets; el subconjunto de escritura queda confinado
+al perfil virtual y no habilita rutas de assets.
+
+
+CopyFileA dispone de una ruta acotada para la inicializacion del perfil: copia
+un archivo regular de atributos normales/archive a un destino nuevo dentro de
+UserData/FNV, con bFailIfExists distinto de cero. Usa bloques de 64 KiB,
+reservas de comparticion para origen y destino, creacion exclusiva, flush y
+limpieza del archivo recien creado si falla la lectura/escritura/cierre.
+No mantiene files_guard durante E/S. Un destino existente se conserva (80),
+y las escrituras a assets se rechazan (50). La sobrescritura (flag cero) y
+atributos especiales del origen siguen sin implementarse (50); no se simula
+exito. Esta primera ruta copia el contenido, no las fechas originales ni ACL.
+
+La prueba del perfil incluye 131089 bytes comparados con CopyFileA de Windows,
+colisiones comparadas con Windows, un archivo vacio, origen ausente, conflicto
+de comparticion, destino de assets rechazado y error explicito de sobrescritura.
+Se ejecuta mediante once wrappers x86 traducidos. No demuestra todavia un
+arranque del motor ni la ejecucion de esta copia en Switch.

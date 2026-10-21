@@ -1,11 +1,12 @@
-/* Original synchronous, read-only guest file ABI. Separate table and per-file
+/* Synchronous guest file ABI. Game assets stay read-only; profile writes are
+ * confined to the virtual UserData tree. Separate table and per-file
  * IO locks: no SD operation holds kernel_guard, process guard, or files_guard. */
 #include "host_file.h"
 #include "host_directory.h"
 #include <string.h>
 struct file_slot {
     FILE *stream;struct fnv_host_directory *search;fnv_host_mutex io_guard;
-    uint32_t generation,live,pins,next,share,kind,search_done;
+    uint32_t generation,live,pins,next,share,access,kind,search_done,opening;
     char key[512];
     char pattern[260];
 };
@@ -56,7 +57,18 @@ static unsigned char *file_pointer(struct fnv_windows_process *p,uint32_t at,uin
         sync_invalid("Windows file argument unreadable or not writable",at);
     return memory(p,at);
 }
-static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int mode){
+static size_t file_virtual_profile_prefix(const char *source){
+    static const char prefix[]="C:\\Users\\FNV\\";
+    for(size_t i=0;i<sizeof(prefix)-1;++i){unsigned a=(unsigned char)source[i],b=(unsigned char)prefix[i];
+        if(!a)return 0;
+        if(a=='/')a='\\';
+        if(b>='A' && b<='Z')b+=32;
+        if(a>='A' && a<='Z')a+=32;
+        if(a!=b)return 0;
+    }
+    return sizeof(prefix)-1;
+}
+static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int mode,int *profile){
     char source[512];int ended=0;
     for(size_t i=0;i<sizeof(source);++i){uint64_t pos=(uint64_t)at+i*(wide?2:1);unsigned width=wide?2:1;
         if(pos+width>UINT64_C(0x100000000))sync_invalid("Windows file path wraps",at);
@@ -65,15 +77,23 @@ static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,cha
         source[i]=(char)c;if(!c){ended=1;break;}
     }
     if(!ended || !source[0])return 123;
-    size_t length=strlen(source);int trailing=source[length-1]=='/' || source[length-1]=='\\';
+    size_t profile_floor=0,prefix=file_virtual_profile_prefix(source);
+    if(profile)*profile=prefix!=0;
+    if(prefix){
+        char tail[sizeof(source)];size_t tail_bytes=strlen(source+prefix)+1;
+        memcpy(tail,source+prefix,tail_bytes);memcpy(source,tail,tail_bytes);profile_floor=2;
+    }
+    size_t length=strlen(source);int trailing=length && (source[length-1]=='/' || source[length-1]=='\\');
     if(trailing && mode!=2)return 3;
     if(source[0]=='/' || source[0]=='\\' || strchr(source,':'))return 50;
     size_t used=0,depth=0,starts[256];
+    if(profile_floor){memcpy(path,"UserData/FNV",sizeof("UserData/FNV")-1);used=sizeof("UserData/FNV")-1;
+        starts[0]=0;starts[1]=8;depth=profile_floor;}
     for(size_t start=0;source[start];){size_t end=start;while(source[end] && source[end]!='/' && source[end]!='\\')end++;
         size_t n=end-start;
         if(n==1 && source[start]=='.'){}
         else if(n==2 && source[start]=='.' && source[start+1]=='.'){
-            if(!depth)return 5;
+            if(depth<=profile_floor)return 5;
             used=starts[--depth];
         }else if(n){size_t original=used;if(used)path[used++]='/';
             for(size_t i=0;i<n;++i){unsigned c=(unsigned char)source[start+i];
@@ -90,7 +110,9 @@ static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,cha
     for(size_t i=0;i<=used;++i){unsigned c=(unsigned char)path[i];key[i]=(char)(c>='A'&&c<='Z'?c+32:c);}
     return 0;
 }
-static int file_path(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key){return file_path_mode(p,at,wide,path,key,0);}
+static int file_path_mode_basic(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int mode){return file_path_mode(p,at,wide,path,key,mode,NULL);}
+static int file_path(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key){return file_path_mode(p,at,wide,path,key,0,NULL);}
+static int file_path_with_profile(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int *profile){return file_path_mode(p,at,wide,path,key,0,profile);}
 /* Called exactly once after live becomes false and the last operation unpins.
  * The slot is unavailable until fclose has finished; no table lock during IO. */
 static void file_finish_close(struct fnv_windows_process *p,struct file_slot *f){
@@ -124,6 +146,25 @@ static void file_release(struct fnv_windows_process *p,struct file_slot *f){
     fnv_host_mutex_unlock(&f->io_guard);fnv_host_mutex_lock(&p->files_guard);
     int finish=!--f->pins && !f->live;fnv_host_mutex_unlock(&p->files_guard);if(finish)file_finish_close(p,f);
 }
+static int file_share_compatible(uint32_t access,uint32_t share,const struct file_slot *other){
+    return !(((access&0x80000000u) && !(other->share&1)) || ((access&0x40000000u) && !(other->share&2)) ||
+             ((other->access&0x80000000u) && !(share&1)) || ((other->access&0x40000000u) && !(share&2)));
+}
+static struct file_slot *file_reserve_open(struct fnv_windows_process *p,uint32_t access,uint32_t share,const char *key,uint32_t *error){
+    struct file_slot *reserved=NULL;fnv_host_mutex_lock(&p->files_guard);
+    for(uint32_t i=0;i<p->config.file_handle_capacity;++i){struct file_slot *other=p->files+i;
+        if((other->stream || other->opening) && !strcmp(other->key,key) && !file_share_compatible(access,share,other)){*error=32;break;}}
+    if(!*error && p->file_free==UINT32_MAX)*error=4;
+    if(!*error){uint32_t i=p->file_free;reserved=p->files+i;p->file_free=reserved->next;if(p->file_free==UINT32_MAX)p->file_tail=UINT32_MAX;
+        reserved->next=UINT32_MAX;reserved->opening=1;reserved->share=share;reserved->access=access;memcpy(reserved->key,key,strlen(key)+1);}
+    fnv_host_mutex_unlock(&p->files_guard);return reserved;
+}
+static void file_cancel_open(struct fnv_windows_process *p,struct file_slot *f){
+    if(!f)return;
+    fnv_host_mutex_lock(&p->files_guard);f->opening=0;f->share=0;f->access=0;f->key[0]=0;
+    uint32_t i=(uint32_t)(f-p->files);if(p->file_tail!=UINT32_MAX)p->files[p->file_tail].next=i;else p->file_free=i;
+    p->file_tail=i;fnv_host_mutex_unlock(&p->files_guard);
+}
 enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *p,struct fnv_windows_file_stats *out){
     if(!p || !out)return FNV_CPU_INVALID;
     struct fnv_windows_file_stats s={0};if(p->files){fnv_host_mutex_lock(&p->files_guard);s=p->file_stats;fnv_host_mutex_unlock(&p->files_guard);}
@@ -132,38 +173,160 @@ enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *p,struct 
 static void file_create(int wide){
     uint32_t at=fnv_cpu_argument_u32(0),access=fnv_cpu_argument_u32(1),share=fnv_cpu_argument_u32(2),security=fnv_cpu_argument_u32(3);
     uint32_t disposition=fnv_cpu_argument_u32(4),flags=fnv_cpu_argument_u32(5),template=fnv_cpu_argument_u32(6);
-    struct fnv_windows_process *p=file_process();uint32_t error=0,handle=UINT32_MAX;char path[512],key[512],full[1538];
-    if(access!=0x80000000u || security || template || disposition!=3 || (share&~7u) || (flags&~0x1800ffffu))error=50;
-    else error=(uint32_t)file_path(p,at,wide,path,key);
-    if(!error){size_t n=strlen(p->file_root);memcpy(full,p->file_root,n);full[n++]='/';memcpy(full+n,path,strlen(path)+1);
-        errno=0;FILE *stream=fopen(full,"rb");
-        if(!stream){error=fnv_host_file_error(errno);
-            if(error==2){char *last=strrchr(full,'/');if(last){*last=0;if(!fnv_host_file_directory(full))error=3;}}}
-        else {uint64_t size;if(!fnv_host_file_size(stream,&size))error=5;
-            if(!error){fnv_host_mutex_lock(&p->files_guard);
-                for(uint32_t i=0;i<p->config.file_handle_capacity;++i){struct file_slot *other=p->files+i;
-                    if(other->stream && !strcmp(other->key,key) && (!(share&1) || !(other->share&1))){error=32;break;}}
-                if(!error && p->file_free==UINT32_MAX)error=4;
-                if(!error){uint32_t i=p->file_free;struct file_slot *f=p->files+i;p->file_free=f->next;if(p->file_free==UINT32_MAX)p->file_tail=UINT32_MAX;
-                    f->generation++;f->live=1;f->kind=1;f->share=share;f->stream=stream;memcpy(f->key,key,strlen(key)+1);
-                    handle=0xd0000000u|(f->generation<<(p->file_bits+2))|(i<<2);p->file_stats.live_handles++;p->file_stats.opens++;stream=NULL;
-                }
-                fnv_host_mutex_unlock(&p->files_guard);
+    struct fnv_windows_process *p=file_process();uint32_t error=0,success_error=0,handle=UINT32_MAX;char path[512],key[512],full[1538];int profile=0;
+    int writable=access==0x40000000u || access==0xc0000000u;
+    if((access!=0x80000000u && !writable) || security || template || disposition<1 || disposition>5 || (share&~7u) || (flags&~0x1800ffffu))error=50;
+    else error=(uint32_t)file_path_with_profile(p,at,wide,path,key,&profile);
+    if(!error && (writable ? !profile : disposition!=3))error=50;
+    if(!error){struct file_slot *reserved=file_reserve_open(p,access,share,key,&error);
+        if(reserved){size_t n=strlen(p->file_root);memcpy(full,p->file_root,n);full[n++]='/';memcpy(full+n,path,strlen(path)+1);
+            int existed=fnv_host_file_exists(full);
+            errno=0;FILE *stream=fnv_host_file_open(full,writable?disposition:0);
+            if(!stream){error=fnv_host_file_error(errno);
+                if(error==2){char *last=strrchr(full,'/');if(last){*last=0;if(!fnv_host_file_directory(full))error=3;}}}
+            else {uint64_t size;if(!fnv_host_file_size(stream,&size))error=5;
+                if(!error){fnv_host_mutex_lock(&p->files_guard);reserved->generation++;reserved->live=1;reserved->opening=0;
+                    reserved->kind=1;reserved->stream=stream;handle=0xd0000000u|(reserved->generation<<(p->file_bits+2))|((uint32_t)(reserved-p->files)<<2);
+                    p->file_stats.live_handles++;p->file_stats.opens++;stream=NULL;fnv_host_mutex_unlock(&p->files_guard);
+                    if(existed && (disposition==2 || disposition==4))success_error=183;}
+                if(stream)fclose(stream);
             }
-            if(stream)fclose(stream);
+            if(error)file_cancel_open(p,reserved);
         }
     }
     if(error)fnv_windows_set_last_error(error);
+    else if(success_error)fnv_windows_set_last_error(success_error);
     fnv_cpu_return_u32(handle,28);
 }
 static void api_file_create_a(void){file_create(0);}static void api_file_create_w(void){file_create(1);}
+/* The observed boot path requests an exclusive configuration copy. Overwrite
+ * and special source attributes remain explicitly unsupported, never truncated.
+ * Reservations cover the whole copy without holding the file-table lock on IO. */
+static void api_file_copy_a(void){
+    uint32_t source=fnv_cpu_argument_u32(0),target=fnv_cpu_argument_u32(1),exclusive=fnv_cpu_argument_u32(2);
+    struct fnv_windows_process *p=file_process();uint32_t error=0,value=0;int profile=0;
+    char src[512],src_key[512],dst[512],dst_key[512],src_full[1538],dst_full[1538];
+    struct file_slot *src_slot=NULL,*dst_slot=NULL;FILE *input=NULL,*output=NULL;unsigned char *buffer=NULL;int created=0;
+    error=(uint32_t)file_path_with_profile(p,source,0,src,src_key,NULL);
+    if(!error)error=(uint32_t)file_path_with_profile(p,target,0,dst,dst_key,&profile);
+    if(!error && !profile)error=50;
+    if(!error && !strcmp(src_key,dst_key))error=5;
+    if(!error && !exclusive)error=50;
+    if(!error){size_t n=strlen(p->file_root);
+        memcpy(src_full,p->file_root,n);src_full[n]='/';memcpy(src_full+n+1,src,strlen(src)+1);
+        memcpy(dst_full,p->file_root,n);dst_full[n]='/';memcpy(dst_full+n+1,dst,strlen(dst)+1);
+        src_slot=file_reserve_open(p,0x80000000u,1,src_key,&error);
+    }
+    if(!error){struct fnv_host_entry entry;error=fnv_host_metadata(src_full,&entry);
+        if(!error && (entry.attributes&16u))error=5;
+        if(!error && (entry.attributes&~(32u|128u)))error=50;
+    }
+    if(!error){errno=0;input=fnv_host_file_open(src_full,0);if(!input)error=fnv_host_file_error(errno);}
+    uint64_t remaining=0;
+    if(!error && !fnv_host_file_size(input,&remaining))error=50;
+    if(!error){buffer=malloc(65536);if(!buffer)error=8;}
+    if(!error)dst_slot=file_reserve_open(p,0x40000000u,0,dst_key,&error);
+    if(!error){errno=0;output=fnv_host_file_open(dst_full,1);
+        if(!output)error=fnv_host_file_error(errno);else created=1;}
+    while(!error && remaining){size_t count=remaining>65536?65536:(size_t)remaining;
+        errno=0;size_t got=fread(buffer,1,count,input);if(got!=count){error=fnv_host_file_error(errno);break;}
+        errno=0;if(fwrite(buffer,1,count,output)!=count){error=fnv_host_file_error(errno);break;}remaining-=count;
+    }
+    if(output){errno=0;if(!error && !fnv_host_file_sync(output))error=fnv_host_file_error(errno);
+        errno=0;if(fclose(output) && !error)error=fnv_host_file_error(errno);}
+    if(input){errno=0;if(fclose(input) && !error)error=fnv_host_file_error(errno);}
+    /* Only an exclusively created destination can be removed on failure. */
+    if(error && created && !fnv_host_file_remove(dst_full))error=1117;
+    free(buffer);if(dst_slot)file_cancel_open(p,dst_slot);if(src_slot)file_cancel_open(p,src_slot);
+    if(error)fnv_windows_set_last_error(error);else value=1;
+    fnv_cpu_return_u32(value,12);
+}
+static void api_file_delete_a(void){
+    uint32_t at=fnv_cpu_argument_u32(0),value=0,error=0;int profile=0;
+    struct fnv_windows_process *p=file_process();char path[512],key[512],full[1538];
+    error=(uint32_t)file_path_with_profile(p,at,0,path,key,&profile);
+    if(!error){size_t n=strlen(p->file_root);memcpy(full,p->file_root,n);full[n++]='/';memcpy(full+n,path,strlen(path)+1);
+        struct fnv_host_entry entry;error=fnv_host_metadata(full,&entry);
+        if(error==2){char parent[sizeof(full)];memcpy(parent,full,strlen(full)+1);char *last=strrchr(parent,'/');
+            if(last){*last=0;if(!fnv_host_file_directory(parent))error=3;}}
+        if(!error && (!profile || (entry.attributes&17u)))error=5;
+        if(!error){
+            /* Deferred deletion of a file still open with SHARE_DELETE needs
+             * a pending-delete state; report that unsupported case explicitly.
+             * The zero-share reservation blocks new opens during actual IO. */
+            uint32_t shared_delete=0;fnv_host_mutex_lock(&p->files_guard);
+            for(uint32_t i=0;i<p->config.file_handle_capacity;++i){struct file_slot *f=p->files+i;
+                if((f->stream || f->opening) && !strcmp(f->key,key)){
+                    if(!(f->share&4u)){error=32;break;}shared_delete=1;
+                }}
+            fnv_host_mutex_unlock(&p->files_guard);
+            if(!error && shared_delete)error=50;
+            struct file_slot *reserved=error?NULL:file_reserve_open(p,0,0,key,&error);
+            if(reserved){errno=0;if(fnv_host_file_remove(full))value=1;else error=fnv_host_file_error(errno);
+                file_cancel_open(p,reserved);}
+        }
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,4);
+}
+static void api_file_write(void){
+    uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),bytes=fnv_cpu_argument_u32(2),out=fnv_cpu_argument_u32(3),overlapped=fnv_cpu_argument_u32(4);
+    struct fnv_windows_process *p=file_process();uint32_t value=0,error=0;unsigned char *count=out?file_pointer(p,out,4,1):NULL;
+    if(count)write32(count,0);
+    if(!count)error=87;else if(overlapped)error=50;
+    else {unsigned char *buffer=bytes?file_pointer(p,at,bytes,0):NULL;struct file_slot *f=file_acquire(p,h);
+        if(!f)error=6;
+        else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
+        else {errno=0;size_t written=bytes?fwrite(buffer,1,bytes,f->stream):0;
+            if(written!=bytes || ferror(f->stream)){error=fnv_host_file_error(errno);clearerr(f->stream);}
+            else {write32(count,(uint32_t)written);value=1;}file_release(p,f);}
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,20);
+}
+static void api_file_flush(void){
+    uint32_t h=fnv_cpu_argument_u32(0),value=0,error=0;struct fnv_windows_process *p=file_process();
+    struct file_slot *f=file_acquire(p,h);
+    if(!f)error=6;
+    else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
+    else {errno=0;if(fnv_host_file_sync(f->stream))value=1;else error=fnv_host_file_error(errno);file_release(p,f);}
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,4);
+}
+static void api_file_set_eof(void){
+    uint32_t h=fnv_cpu_argument_u32(0),value=0,error=0;struct fnv_windows_process *p=file_process();
+    struct file_slot *f=file_acquire(p,h);
+    if(!f)error=6;
+    else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
+    else {int64_t position=fnv_host_file_tell(f->stream);
+        if(position<0 || !fnv_host_file_truncate(f->stream,(uint64_t)position))error=fnv_host_file_error(errno);
+        else value=1;
+        file_release(p,f);
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,4);
+}
+static void api_file_create_directory_a(void){
+    uint32_t at=fnv_cpu_argument_u32(0),security=fnv_cpu_argument_u32(1),value=0,error=0;int profile=0;
+    struct fnv_windows_process *p=file_process();char path[512],key[512],full[1538];
+    if(security)error=50;
+    else error=(uint32_t)file_path_mode(p,at,0,path,key,2,&profile);
+    if(!error && !profile)error=50;
+    if(!error){size_t n=strlen(p->file_root);memcpy(full,p->file_root,n);full[n++]='/';memcpy(full+n,path,strlen(path)+1);
+        if(fnv_host_file_create_directory(full))value=1;
+        else {error=errno==EEXIST?183:fnv_host_file_error(errno);if(error==2){char *last=strrchr(full,'/');if(last){*last=0;if(!fnv_host_file_directory(full))error=3;}}}
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(value,8);
+}
 static void api_file_read(void){
     uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),bytes=fnv_cpu_argument_u32(2),out=fnv_cpu_argument_u32(3),overlapped=fnv_cpu_argument_u32(4);
     struct fnv_windows_process *p=file_process();uint32_t value=0,error=0;
     unsigned char *count=out?file_pointer(p,out,4,1):NULL;if(count)write32(count,0);
     if(!count)error=87;else if(overlapped)error=50;
-    else {unsigned char *buffer=file_pointer(p,at,bytes,1);struct file_slot *f=file_acquire(p,h);
+    else {unsigned char *buffer=bytes?file_pointer(p,at,bytes,1):NULL;struct file_slot *f=file_acquire(p,h);
         if(!f)error=6;
+        else if(!(f->access&0x80000000u)){error=5;file_release(p,f);}
         else {uint64_t start=0,end=0;int timed=fnv_host_now_ns(&start);size_t got=0;
             errno=0;if(bytes)got=fread(buffer,1,bytes,f->stream);
             int read_error=errno,failed=ferror(f->stream);if(failed){error=fnv_host_file_error(read_error);clearerr(f->stream);}else value=1;

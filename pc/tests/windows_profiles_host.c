@@ -1,0 +1,74 @@
+#include <windows.h>
+#include "windows_thread.h"
+#include "windows_profiles.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#undef NDEBUG
+#include <assert.h>
+#define BASE 0x400000u
+#define BYTES 0x100000u
+#define SECTION (BASE+0x9001)
+#define KEY (BASE+0x9401)
+#define NAME (BASE+0x9801)
+static unsigned char *arena;
+static void write32(uint32_t at,uint32_t v){for(unsigned i=0;i<4;i++)arena[at-BASE+i]=(unsigned char)(v>>(8*i));}
+static void text(uint32_t at,const char *s,int wide){unsigned i=0;do{arena[at-BASE+i*(wide?2:1)]=(unsigned char)s[i];if(wide)arena[at-BASE+i*2+1]=0;}while(s[i++]);}
+static uint32_t call(unsigned api,uint32_t a,uint32_t b,uint32_t c,uint32_t d,struct fnv_cpu_fault *fault){
+    const unsigned counts[]={4,4,0,1};struct fnv_cpu_state state,got;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1BF00;
+    assert(fnv_cpu_set_state(&state)==FNV_CPU_OK);uint32_t args[]={0x401500,a,b,c,d};for(unsigned i=0;i<5;i++)write32(state.gpr[4]+4*i,args[i]);
+    enum fnv_cpu_result r=fnv_cpu_execute(0x401500+api*32,fault);
+    if(fault){assert(r==FNV_CPU_GUEST_FAULT);return 0;}
+    if(r!=FNV_CPU_OK)fprintf(stderr,"profile call %u failed\n",api);
+    assert(r==FNV_CPU_OK && fnv_cpu_get_state(&got)==FNV_CPU_OK && got.gpr[4]==state.gpr[4]+4+counts[api]*4);return got.gpr[0];
+}
+static void save(const char *path,const char *data){FILE *f=fopen(path,"wb");assert(f);assert(fwrite(data,1,strlen(data),f)==strlen(data) && !fclose(f));WritePrivateProfileStringA(NULL,NULL,NULL,path);}
+int main(int argc,char **argv){
+    assert(argc==2 || argc==3);arena=VirtualAlloc(NULL,BYTES,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
+    struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,BYTES,&image)==FNV_NATIVE_OK);
+    char root[1024],file[1100];assert(GetFullPathNameA(argv[1],sizeof(root),root,NULL));char *end=strrchr(root,'\\');assert(end);*end=0;
+    snprintf(file,sizeof(file),"%s/profiles.ini",root);
+    struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=BYTES;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
+    c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;c.file_root=root;c.file_handle_capacity=8;
+    struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
+    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count,n;const struct fnv_cpu_export *exports=fnv_windows_profile_exports(&n);assert(n==2);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&count)==FNV_NATIVE_OK && count==4);
+    struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1C000;
+    fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
+    text(SECTION,"General",0);text(KEY,"Count",0);text(NAME,".\\profiles.ini",0);save(file,"[General]\nCount=17\n");
+    if(argc==3){const char *mode=argv[2];uint32_t sec=SECTION;
+        if(!strcmp(mode,"--strict-traversal"))text(NAME,"../profiles.ini",0);
+        else if(!strcmp(mode,"--strict-absolute"))text(NAME,"C:\\outside.ini",0);
+        else if(!strcmp(mode,"--strict-encoding")){FILE *f=fopen(file,"wb");assert(f);assert(fwrite("\xff\xfe[",1,3,f)==3 && !fclose(f));}
+        else if(!strcmp(mode,"--strict-pointer"))sec=BASE+BYTES;
+        else {char huge[5000];memset(huge,'A',sizeof(huge)-1);huge[sizeof(huge)-1]=0;save(file,huge);}
+        struct fnv_cpu_fault fault;call(0,sec,KEY,777,NAME,&fault);assert(fault.kind==FNV_CPU_UNIMPLEMENTED);
+        assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));puts("strict PASS");return 0;
+    }
+    const char *values[]={"12","-12","+12","0x10","010","12abc","abc","","  ","4294967296","4294967295","-4294967297","\"12\"","'12'","12 ;x","0Xff","0x","-0x10","+0x10"," 23  ","0b101","0B101","0o12","0O12","-0b10","0d12","0xFFFFFFFFFF","-4294967296","\"\"","''","\"  \"","\"12","12\"","12.5","123\t45"};
+    unsigned comparisons=0,seed=0x47e8;char content[1024],number[180];
+    for(unsigned trial=0;trial<2400;trial++){
+        seed=seed*1664525u+1013904223u;
+        if(trial<sizeof(values)/sizeof(*values))snprintf(number,sizeof(number),"%s",values[trial]);
+        else {switch(trial%6){case 0:snprintf(number,sizeof(number),"%u",seed);break;case 1:snprintf(number,sizeof(number),"-%u",seed);break;
+            case 2:snprintf(number,sizeof(number),"0x%Xsuffix",seed);break;case 3:snprintf(number,sizeof(number),"0o%o",seed);break;
+            case 4:snprintf(number,sizeof(number),"\" %u \"",seed);break;default:snprintf(number,sizeof(number),"0X%X",seed);break;}}
+        snprintf(content,sizeof(content)," ;comment\r\n [ General ] suffix\r\n  Count = %s \r\nCount=91\r\n[General]\r\nCount=92\r\n",number);save(file,content);
+        for(unsigned wide=0;wide<2;wide++){
+            text(SECTION," gEnErAl ",wide);text(KEY," COUNT ",wide);text(NAME,".\\profiles.ini",wide);
+            call(3,0x1234,0,0,0,NULL);SetLastError(0x1234);uint32_t expected=GetPrivateProfileIntA(" gEnErAl "," COUNT ",777,file);DWORD error=GetLastError();
+            assert(call(wide,SECTION,KEY,777,NAME,NULL)==expected);assert(call(2,0,0,0,0,NULL)==error);comparisons++;
+        }
+    }
+    save(file,"\xff" "ignored\n[General]\nCount=19\n");text(SECTION,"General",0);text(KEY,"Count",0);text(NAME,"profiles.ini",0);
+    assert(call(0,SECTION,KEY,777,NAME,NULL)==GetPrivateProfileIntA("General","Count",777,file));
+    save(file,"[General]\nOther=8\n[General]\nCount=9\n");text(SECTION,"General",0);text(KEY,"Count",0);text(NAME,"profiles.ini",0);
+    assert(call(0,SECTION,KEY,777,NAME,NULL)==GetPrivateProfileIntA("General","Count",777,file));
+    assert(call(0,0,KEY,777,NAME,NULL)==GetPrivateProfileIntA(NULL,"Count",777,file));
+    assert(call(0,SECTION,0,777,NAME,NULL)==GetPrivateProfileIntA("General",NULL,777,file));
+    text(NAME,"absent.ini",0);char missing[1100];snprintf(missing,sizeof(missing),"%s/absent.ini",root);
+    SetLastError(0x1234);uint32_t expected=GetPrivateProfileIntA("General","Count",-1,missing);DWORD error=GetLastError();
+    assert(call(0,SECTION,KEY,UINT32_MAX,NAME,NULL)==expected && call(2,0,0,0,0,NULL)==error);
+    assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
+    printf("{\"status\":\"PASS\",\"windows_profile_comparisons\":%u,\"a_w_queries\":true,\"missing_file_checked\":true,\"native_engine_started\":false}\n",comparisons);return 0;
+}

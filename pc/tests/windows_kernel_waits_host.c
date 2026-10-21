@@ -49,6 +49,48 @@ static void review_regressions(void){
     assert(call(CLOSE_HANDLE,ev|3,0,0,0)==(uint32_t)(CloseHandle((HANDLE)((uintptr_t)native|3))!=0));
     assert(call(WAIT_ONE,ev,0,0,0)==WAIT_FAILED);
 }
+static void named_kernel_objects(void){
+    const uint32_t a=BASE+0xA000,b=BASE+0xA400;char name[100];
+    snprintf(name,sizeof(name),"FNV-own-kernel-%lu",(unsigned long)GetCurrentProcessId());
+    guest_name(a,name,0);guest_name(b,name,1);
+    uint32_t h=call(CREATE_MUTEX,0,0,a,0);HANDLE native=CreateMutexA(NULL,FALSE,name);assert(h && native);
+    uint32_t alias=call(CREATE_MUTEX_W,0,1,b,0);HANDLE other=CreateMutexA(NULL,TRUE,name);
+    assert(alias && alias!=h && other && call(GET_ERROR,0,0,0,0)==GetLastError());
+    /* Existing initial-owner is ignored: Release fails until a wait acquires. */
+    assert(call(RELEASE_MUTEX,alias,0,0,0)==(uint32_t)(ReleaseMutex(other)!=0));
+    assert(call(GET_ERROR,0,0,0,0)==GetLastError());
+    assert(call(WAIT_ONE,h,0,0,0)==WaitForSingleObject(native,0));
+    assert(call(WAIT_ONE,alias,0,0,0)==WaitForSingleObject(other,0));
+    assert(call(RELEASE_MUTEX,h,0,0,0) && ReleaseMutex(native));
+    assert(call(CLOSE_HANDLE,h,0,0,0) && CloseHandle(native));
+    assert(call(RELEASE_MUTEX,alias,0,0,0) && ReleaseMutex(other));
+    assert(!call(CREATE_EVENT,0,0,0,a) && call(GET_ERROR,0,0,0,0)==6);
+    assert(!CreateEventA(NULL,FALSE,FALSE,name) && GetLastError()==6);
+    assert(call(CLOSE_HANDLE,alias,0,0,0) && CloseHandle(other));
+    h=call(CREATE_SEM,0,1,2,a);native=CreateSemaphoreA(NULL,1,2,name);assert(h && native);
+    alias=call(CREATE_SEM_W,0,0,8,b);other=CreateSemaphoreA(NULL,0,8,name);
+    assert(alias && other && call(GET_ERROR,0,0,0,0)==GetLastError());
+    assert(call(WAIT_ONE,alias,0,0,0)==WaitForSingleObject(other,0));
+    assert(call(WAIT_ONE,h,0,0,0)==WaitForSingleObject(native,0));
+    assert(call(RELEASE_SEM,h,3,0,0)==(uint32_t)(ReleaseSemaphore(native,3,NULL)!=0));
+    assert(call(GET_ERROR,0,0,0,0)==GetLastError());
+    uint32_t list[]={h,alias};HANDLE handles[]={native,other};
+    assert(many(list,2,1,0)==WaitForMultipleObjects(2,handles,TRUE,0));
+    assert(call(GET_ERROR,0,0,0,0)==GetLastError());
+    assert(call(CLOSE_HANDLE,h,0,0,0) && CloseHandle(native));
+    assert(call(RELEASE_SEM,alias,1,0,0) && ReleaseSemaphore(other,1,NULL));
+    assert(call(WAIT_ONE,alias,0,0,0)==WaitForSingleObject(other,0));
+    assert(call(CLOSE_HANDLE,alias,0,0,0) && CloseHandle(other));
+    /* Case sensitive, default/Local share a namespace; Global is separate. */
+    guest_name(a,"FNV-case",0);guest_name(b,"fnv-case",1);
+    h=call(CREATE_MUTEX,0,0,a,0);alias=call(CREATE_MUTEX_W,0,0,b,0);
+    assert(h && alias && call(GET_ERROR,0,0,0,0)==0);
+    assert(call(CLOSE_HANDLE,h,0,0,0) && call(CLOSE_HANDLE,alias,0,0,0));
+    guest_name(a,"Global\\FNV-case",0);guest_name(b,"Local\\FNV-case",1);
+    h=call(CREATE_MUTEX,0,0,a,0);alias=call(CREATE_MUTEX_W,0,0,b,0);
+    assert(h && alias && call(GET_ERROR,0,0,0,0)==0);
+    assert(call(CLOSE_HANDLE,h,0,0,0) && call(CLOSE_HANDLE,alias,0,0,0));
+}
 int main(int argc,char **argv){
     if(argc==3)return event_suite(argc,argv);
     assert(event_suite(argc,argv)==0); /* Preserve all event race/strict regressions. */
@@ -59,7 +101,7 @@ int main(int argc,char **argv){
     assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count;
     assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&count)==FNV_NATIVE_OK && count==15);
     struct fnv_windows_thread_config config=thread_config(0);assert(fnv_windows_thread_attach(process,&config)==FNV_CPU_OK);
-    review_regressions();
+    review_regressions();named_kernel_objects();
     unsigned seed=0xc2a9,comparisons=0;
     for(unsigned trial=0;trial<200;++trial){
         uint32_t h[]={call(CREATE_EVENT,0,trial&1,trial&2,0),call(CREATE_SEM,0,1,3,0),call(CREATE_MUTEX,0,trial&1,0,0)};
@@ -116,5 +158,5 @@ int main(int argc,char **argv){
     assert(many(objects,64,1,0)==0);for(unsigned i=0;i<64;++i)assert(call(CLOSE_HANDLE,objects[i],0,0,0));
     for(unsigned i=0;i<3;++i)assert(call(CLOSE_HANDLE,list[i],0,0,0));
     assert(!stats().live_handles && !stats().waiting_threads);assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"mixed_windows_comparisons\":%u,\"event_regression_comparisons\":12000,\"event_contention_rounds\":300,\"wait_all_atomic_grant\":true,\"mutex_abandonment\":true,\"pending_abandonment_rounds\":100,\"max_wait_objects\":64,\"oldest_eligible_checked\":true,\"grant_then_close_checked\":true,\"tagged_windows_comparisons\":13,\"adaptive_handle_budgets_checked\":4,\"native_engine_started\":false}\n",comparisons);return 0;
+    printf("{\"status\":\"PASS\",\"mixed_windows_comparisons\":%u,\"named_event_oracle_rounds\":100,\"named_mutex_semaphore_checks\":true,\"pending_alias_close_checked\":true,\"event_regression_comparisons\":12000,\"event_contention_rounds\":300,\"wait_all_atomic_grant\":true,\"mutex_abandonment\":true,\"pending_abandonment_rounds\":100,\"max_wait_objects\":64,\"oldest_eligible_checked\":true,\"grant_then_close_checked\":true,\"tagged_windows_comparisons\":13,\"adaptive_handle_budgets_checked\":4,\"native_engine_started\":false}\n",comparisons);return 0;
 }

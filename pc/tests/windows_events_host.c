@@ -81,14 +81,47 @@ static void close_pending(void){
     assert(call(CLOSE_HANDLE,g.event,0,0,0));uint32_t next=call(CREATE_EVENT,0,0,0,0);assert(next && next!=g.event);
     assert(WaitForSingleObject(g.done,5000)==WAIT_OBJECT_0);finish(&t,&g,1);assert(call(CLOSE_HANDLE,next,0,0,0));
 }
+static void guest_name(uint32_t at,const char *name,int wide){
+    unsigned i=0;do {arena[at-BASE+i*(wide?2:1)]=(unsigned char)name[i];if(wide)arena[at-BASE+i*2+1]=0;}while(name[i++]);
+}
+static void named_events(void){
+    const uint32_t a=BASE+0xA001,b=BASE+0xA401;char name[100],local[110];
+    for(unsigned trial=0;trial<100;++trial){
+        snprintf(name,sizeof(name),"FNV-own-events-%lu-%u",(unsigned long)GetCurrentProcessId(),trial);
+        snprintf(local,sizeof(local),"Local\\%s",name);guest_name(a,name,0);guest_name(b,local,1);
+        HANDLE native=CreateEventA(NULL,FALSE,FALSE,name);assert(native && GetLastError()==0);
+        uint32_t h=call(CREATE_EVENT,0,0,0,a);assert(h && call(GET_ERROR,0,0,0,0)==0);
+        HANDLE alias=CreateEventA(NULL,TRUE,TRUE,local);DWORD expected=GetLastError();
+        uint32_t other=call(CREATE_W,0,1,1,b);assert(other && other!=h && call(GET_ERROR,0,0,0,0)==expected && expected==183);
+        assert(call(WAIT_ONE,other,0,0,0)==WaitForSingleObject(alias,0));
+        assert(call(SET_EVENT,h,0,0,0)==(uint32_t)(SetEvent(native)!=0));
+        assert(call(CLOSE_HANDLE,h,0,0,0) && CloseHandle(native));
+        assert(call(WAIT_ONE,other,0,0,0)==WaitForSingleObject(alias,0));
+        assert(call(WAIT_ONE,other,0,0,0)==WaitForSingleObject(alias,0));
+        assert(call(CLOSE_HANDLE,other,0,0,0) && CloseHandle(alias));
+        h=call(CREATE_EVENT,0,1,1,a);assert(h && call(GET_ERROR,0,0,0,0)==0);
+        assert(call(WAIT_ONE,h,0,0,0)==0 && call(WAIT_ONE,h,0,0,0)==0);
+        assert(call(CLOSE_HANDLE,h,0,0,0));
+    }
+    /* A queued wait pins its own handle; closing another alias preserves state. */
+    guest_name(a,"FNV-pending-alias",0);guest_name(b,"Local\\FNV-pending-alias",1);
+    uint32_t h=call(CREATE_EVENT,0,0,0,a);struct group g={0};
+    g.event=call(CREATE_W,0,0,0,b);assert(h && g.event && h!=g.event);
+    g.rounds=1;g.done=CreateSemaphoreW(NULL,0,1,NULL);g.gates[0]=CreateEventW(NULL,FALSE,TRUE,NULL);
+    struct work w={&g,0};HANDLE t=CreateThread(NULL,0,waiter,&w,0,NULL);assert(t);wait_count(1);
+    assert(call(CLOSE_HANDLE,h,0,0,0));h=call(CREATE_EVENT,0,1,1,a);
+    assert(h && call(GET_ERROR,0,0,0,0)==183 && stats().waiting_threads==1);
+    assert(call(SET_EVENT,h,0,0,0));assert(WaitForSingleObject(g.done,5000)==0);finish(&t,&g,1);
+    assert(call(CLOSE_HANDLE,h,0,0,0) && call(CLOSE_HANDLE,g.event,0,0,0));
+}
 static void strict_case(const char *mode){
     if(!strcmp(mode,"--strict-peer")){
         struct group g={0};g.event=call(CREATE_EVENT,0,0,0,0);g.rounds=1;g.peer=1;g.done=CreateSemaphoreW(NULL,0,1,NULL);g.gates[0]=CreateEventW(NULL,FALSE,TRUE,NULL);
         struct work w={&g,0};HANDLE t=CreateThread(NULL,0,waiter,&w,0,NULL);assert(t);wait_count(1);struct fnv_cpu_fault fault;
-        assert(execute(CREATE_EVENT,0,0,0,BASE+0x9000,&fault)==FNV_CPU_GUEST_FAULT);
+        assert(execute(CREATE_EVENT,BASE+0x9000,0,0,0,&fault)==FNV_CPU_GUEST_FAULT);
         assert(fnv_windows_thread_detach()==FNV_CPU_OK && WaitForSingleObject(g.done,5000)==WAIT_OBJECT_0);finish(&t,&g,1);assert(!stats().waiting_threads);
-    }else {struct fnv_cpu_fault fault;uint32_t name=!strcmp(mode,"--strict-name")?BASE+0x9000:0,attr=!strcmp(mode,"--strict-security")?BASE+0x9000:0;
-        assert(execute(CREATE_EVENT,attr,0,0,name,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED && strstr(fault.text,!strcmp(mode,"--strict-disabled")?"provider unavailable":"named/security"));
+    }else {arena[0x9000]=0x80;struct fnv_cpu_fault fault;uint32_t name=!strcmp(mode,"--strict-name")?BASE+0x9000:0,attr=!strcmp(mode,"--strict-security")?BASE+0x9000:0;
+        assert(execute(CREATE_EVENT,attr,0,0,name,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED && strstr(fault.text,!strcmp(mode,"--strict-disabled")?"provider unavailable":(!strcmp(mode,"--strict-name")?"name encoding":"named/security")));
         assert(fnv_windows_thread_detach()==FNV_CPU_OK);}
     assert(fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));puts("strict PASS");
 }
@@ -134,9 +167,9 @@ int main(int argc,char **argv){
     assert(call(WAIT_ONE,h,0,0,0)==WAIT_FAILED && call(GET_ERROR,0,0,0,0)==6);
     uint32_t objects[4];for(unsigned i=0;i<4;++i){objects[i]=call(CREATE_EVENT,0,0,0,0);assert(objects[i]);}
     assert(!call(CREATE_EVENT,0,0,0,0) && call(GET_ERROR,0,0,0,0)==8);for(unsigned i=0;i<4;++i)assert(call(CLOSE_HANDLE,objects[i],0,0,0));
-    uint64_t manual_cpu=contention(1),auto_cpu=contention(0);close_pending();
+    uint64_t manual_cpu=contention(1),auto_cpu=contention(0);close_pending();named_events();
     unsigned recycled=0;while((h=call(CREATE_EVENT,0,0,0,0))){assert(call(CLOSE_HANDLE,h,0,0,0));recycled++;assert(recycled<=16380);}
     assert(recycled>10000 && call(GET_ERROR,0,0,0,0)==8);struct fnv_windows_handle_stats s=stats();assert(!s.live_handles && !s.waiting_threads && s.blocking_waits && s.timeouts && s.retired_slots==4 && s.generation_limit==4095 && !s.remaining_creations && s.total_creations==16380);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"event_oracle_comparisons\":%u,\"set_reset_contention_rounds\":300,\"manual_blocked_cpu_100ns\":%llu,\"auto_blocked_cpu_100ns\":%llu,\"generation_recycles\":%u,\"all_handles_released\":true,\"native_engine_started\":false}\n",comparisons,(unsigned long long)manual_cpu,(unsigned long long)auto_cpu,recycled);return 0;
+    printf("{\"status\":\"PASS\",\"event_oracle_comparisons\":%u,\"set_reset_contention_rounds\":300,\"named_event_oracle_rounds\":100,\"manual_blocked_cpu_100ns\":%llu,\"auto_blocked_cpu_100ns\":%llu,\"generation_recycles\":%u,\"all_handles_released\":true,\"native_engine_started\":false}\n",comparisons,(unsigned long long)manual_cpu,(unsigned long long)auto_cpu,recycled);return 0;
 }
