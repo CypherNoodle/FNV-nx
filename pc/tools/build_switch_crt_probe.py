@@ -36,6 +36,8 @@ def build(a):
     out=a.output.resolve();pc=Path(__file__).resolve().parents[1];analysis=a.analysis.resolve();sdk=a.sdk.resolve()
     if out.exists():raise ValueError('Use a fresh private output')
     cpu=json.loads(a.cpu_validation.read_text());desktop=json.loads(a.desktop_validation.read_text())
+    from startup_memory_profile import require_switch_profile
+    require_switch_profile(desktop)
     if desktop.get('extra_entries') or desktop.get('generation_matches_all_bodies') is False:
         raise ValueError('Supplementary host entries are not validated by the complete Switch CPU generation')
     observed=json.loads(a.initializer_validation.read_text())
@@ -69,7 +71,7 @@ def build(a):
         if p in frozen and frozen[p]!=h:raise ValueError('CPU/CRT x87 source disagreement')
         frozen[p]=h
     frozen[a.initializer_validation.resolve()]=sha(a.initializer_validation.resolve())
-    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'tools/startup_host_x87.py',pc/'switch/crt_probe.c',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
+    for p in [Path(__file__).resolve(),pc/'tools/initializer_trace.py',pc/'tools/startup_host_x87.py',pc/'tools/startup_memory_profile.py',pc/'switch/crt_probe.c',a.cpu_validation.resolve(),a.desktop_validation.resolve(),
               *[a.cc.resolve(),a.ld.resolve(),a.nm.resolve(),a.objdump.resolve(),a.readelf.resolve(),a.elf2nro.resolve(),a.nacptool.resolve(),a.build_romfs.resolve(),a.icon.resolve()],
               a.devkitpro.resolve()/'libnx/switch.specs',a.devkitpro.resolve()/'libnx/switch.ld',a.devkitpro.resolve()/'libnx/lib/libnx.a',
               *[pc/'native'/n for n in ('pe_tls.c','windows_thread.c','windows_modules.c','guest_memory.c','memory_horizon.c','windows_memory.c')]]:

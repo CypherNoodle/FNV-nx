@@ -36,6 +36,8 @@ def probe(a):
     if a.all_generated and (not a.generation_name or not a.split):raise ValueError('--all-generated requires a validated generation and split compilation')
     if (a.x87_host_core or a.stop_target_math) and (not a.generation_name or not a.split):
         raise ValueError('Extended host diagnostics require a verified generation and split compilation')
+    from startup_memory_profile import configuration,validate_observation
+    memory_profile=getattr(a,'memory_profile','bounded64');memory=configuration(memory_profile)
     reuse_validation=getattr(a,'reuse_validation',None)
     if reuse_validation and (not a.all_generated or not a.split):raise ValueError('Object reuse requires a complete split diagnostic')
     sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve())]
@@ -115,7 +117,7 @@ def probe(a):
     if a.entry not in selected:raise ValueError('Entry absent from existing analysis function database')
     if any(set(report['roots'])-set(selected) for report in table_reports):
         raise ValueError('Budget did not include every audited initializer root')
-    own=[Path(__file__),pc/'tests/captured_startup_host.c',pc/'tools/aot_frame_restore.py',pc/'tools/aot_simd_bits.py',pc/'tools/aot_mul_flags.py',
+    own=[Path(__file__),pc/'tools/startup_memory_profile.py',pc/'tests/captured_startup_host.c',pc/'tools/aot_frame_restore.py',pc/'tools/aot_simd_bits.py',pc/'tools/aot_mul_flags.py',
         pc/'tools/audit_startup.py',pc/'tools/audit_install.py',pc/'tools/audit_seh_helpers.py',pc/'tools/run_aot_analysis.py',database,a.helpers.resolve()]
     if table_reports:own += [pc/'tools/audit_initializer_table.py',*[p.resolve() for p in a.include_table]]
     if generation_info:own += [pc/'tools/generated_subset.py',pc/'tools/verify_aot_code_data.py',pc/'tools/build_cpu_runtime.py',pc/'tools/aot_code_data.py',*generation_inputs]
@@ -219,13 +221,15 @@ def probe(a):
         command([*a.cc,*flags,*includes,'-include',pc/'native/fnv_sdk_runtime.h',*generated,*native,pc/'tests/captured_startup_host.c','-o',out/'startup-test.exe'],'compiler.log')
     host_args=[out/'startup-test.exe',a.exe.resolve(),a.exe.resolve().parent]
     if a.captured_text_data:host_args.append(out/'captured-text-data.bin')
+    host_args.extend(str(memory[k]) for k in ('arena_bytes','vm_bytes','commit_limit'))
     host=json.loads(command(host_args,'host.log').strip().splitlines()[-1])
+    validate_observation(host,memory_profile)
     if audit(a.exe,analysis)!=identity or sdk_identity(sdk)!=sdk_hash or verify(analysis,helpers)!=helpers:raise ValueError('Inputs changed')
     for name,h in frozen.items():
         if sha(Path(name))!=h:raise ValueError('Source changed: '+name)
     if any(sha(out/name)!=h for name,h in generated_files.items()):raise ValueError('Generated source changed')
     if any(sha(out/item['object'])!=item['object_sha256'] for item in compiled):raise ValueError('Compiled object changed')
-    result=dict(status='EXPERIMENT_STOPPED' if host['faulted'] else 'EXPERIMENT_RETURNED',host=host,
+    result=dict(status='EXPERIMENT_STOPPED' if host['faulted'] else 'EXPERIMENT_RETURNED',host=host,memory_profile=memory_profile,
         identity=identity,source_sha256=frozen,sdk_sha256=sdk_hash,selected_functions=len(selected),
         rejected_functions=rejected,unselected_direct_targets=len(missing),budget=a.budget,explicit_wrapper=explicit_wrapper,included_roots=a.include,explicit_stops=a.stop_at,
         generated_sha256=generated_files.get('generated.c'),generated_files_sha256=generated_files,compiled=compiled,
@@ -253,6 +257,7 @@ if __name__=='__main__':
     p.add_argument('--generation-validation',type=Path,help='Frozen complete code/data comparison proof for --generation-name')
     p.add_argument('--x87-host-core',type=Path,help='Verified strict native-host core for extended CRT diagnostics')
     p.add_argument('--stop-target-math',action='store_true',help='Stop explicitly if target-only ARM64 math is reached; never substitute host arithmetic')
+    p.add_argument('--memory-profile',choices=('bounded64','extended808'),default='bounded64',help='Actually backed host-only diagnostic budget; extended profile does not validate the fixed Switch CRT probe')
     p.add_argument('--reuse-validation',type=Path,help='Reuse only identical prior split diagnostic units, driver/flags and ABI headers; freshly select/link the arithmetic core')
     p.add_argument('--captured-text-data',action='store_true',help='Use audited captured text bytes also for inline data/tables in the private host image; never changes the original EXE or verifies cold boot')
     p.add_argument('--all-generated',action='store_true',help='Compile every known generated function, retaining explicit --stop-at traps; avoids one missing indirect target per subset run')

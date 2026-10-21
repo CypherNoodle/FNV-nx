@@ -7,11 +7,14 @@
 #include "memory_horizon.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <errno.h>
 #undef NDEBUG
 #include <assert.h>
 #include "startup_profile.h"
 #define BASE 0x400000u
-#define ARENA 0x4000000u
+static uint32_t arena_bytes;
+#define ARENA arena_bytes
 static unsigned char *arena;
 uint32_t fnv_probe_site;
 static void put32(uint32_t at,uint32_t value){assert(at>=BASE && (uint64_t)at+4<=BASE+ARENA);for(unsigned i=0;i<4;i++)arena[at-BASE+i]=(unsigned char)(value>>(i*8));}
@@ -23,9 +26,39 @@ static int same(const struct fnv_cpu_export *e,const struct fnv_native_import *i
         (i->by_ordinal?e->ordinal==i->ordinal:!strcmp(e->name,i->name));
 }
 static void string(const char *s){putchar('"');for(;*s;s++){unsigned c=(unsigned char)*s;if(c=='"' || c=='\\')putchar('\\');
-    if(c>=32)putchar((int)c);else printf("\\u%04x",c);}putchar('"');}
+    if(c>=32 && c<127)putchar((int)c);else printf("\\u%04x",c);}putchar('"');}
+static uint32_t number(const char *text){
+    assert(text && text[0]>='0' && text[0]<='9');errno=0;char *end;
+    unsigned long long n=strtoull(text,&end,10);assert(!errno && !*end && n<=UINT32_MAX);return (uint32_t)n;
+}
+static int peek(uint32_t at,void *out,size_t bytes){
+    SIZE_T got=0;
+    return at>=BASE && (uint64_t)at+bytes<=(uint64_t)BASE+ARENA &&
+        ReadProcessMemory(GetCurrentProcess(),arena+(at-BASE),out,bytes,&got) && got==bytes;
+}
+static void diagnostic_string(uint32_t at){
+    char text[512];size_t n=0;const char *status="truncated";
+    for(;n<sizeof(text)-1;n++){
+        unsigned char c;
+        if((uint64_t)at+n>UINT32_MAX || !peek(at+(uint32_t)n,&c,1)){status="unreadable";break;}
+        if(!c){status="complete";break;}text[n]=(char)c;
+    }
+    text[n]=0;printf("{\"address\":%u,\"status\":",at);string(status);printf(",\"value\":");string(text);putchar('}');
+}
+static void message_box(const struct fnv_cpu_fault *fault){
+    if(strcmp(fault->text,"USER32.dll!MessageBoxA"))return;
+    uint32_t words[5];printf(",\"message_box\":{");
+    if(!peek(fault->state.gpr[4],words,sizeof(words))){printf("\"arguments_readable\":false}");return;}
+    printf("\"arguments_readable\":true,\"return_address\":%u,\"window\":%u,\"type\":%u,\"text\":",words[0],words[1],words[4]);
+    diagnostic_string(words[2]);printf(",\"caption\":");diagnostic_string(words[3]);putchar('}');
+}
 int main(int argc,char **argv){
-    assert(argc==3+FNV_STARTUP_CAPTURED_TEXT);arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
+    assert(argc==6+FNV_STARTUP_CAPTURED_TEXT);
+    arena_bytes=number(argv[argc-3]);uint32_t vm_bytes=number(argv[argc-2]),commit_limit=number(argv[argc-1]);
+    assert(arena_bytes>0x2800000 && (uint64_t)BASE+arena_bytes<=UINT32_MAX &&
+        vm_bytes==arena_bytes-0x2800000 && commit_limit && commit_limit<=vm_bytes &&
+        !(arena_bytes&65535) && !(commit_limit&65535));
+    arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,ARENA,&image)==FNV_NATIVE_OK);
 #if FNV_STARTUP_CAPTURED_TEXT
     assert(FNV_STARTUP_TEXT_RVA<image.size && FNV_STARTUP_TEXT_BYTES<=image.size-FNV_STARTUP_TEXT_RVA);
@@ -35,7 +68,7 @@ int main(int argc,char **argv){
     assert(fclose(captured)==0);
 #endif
     struct fnv_vm_permissions permissions={NULL,permission};struct fnv_guest_memory *vm;
-    struct fnv_vm_config v={arena+0x2800000,BASE+0x2800000,0x1800000,0x1000000,&permissions,fnv_vm_eager_apply};
+    struct fnv_vm_config v={arena+0x2800000,BASE+0x2800000,vm_bytes,commit_limit,&permissions,fnv_vm_eager_apply};
     assert(!fnv_vm_create(&v,&vm).error);
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;
     c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;c.image_bytes=image.size;c.process_id=0x1711;c.peb_address=BASE+0x2000000;
@@ -71,6 +104,10 @@ int main(int argc,char **argv){
     for(unsigned i=0;i<8;i++)printf("%s%u",i?",":"",fault.state.gpr[i]);
     printf("],\"trace\":[");for(unsigned i=0;i<16;i++)printf("%s%u",i?",":"",fault.trace[i]);
     printf("],\"live_heaps\":%u,\"heap_blocks\":%u",heaps.live_heaps,heaps.live_blocks);
+    struct fnv_vm_counters counters;fnv_vm_get_counters(vm,&counters);
+    printf(",\"guest_memory\":{\"arena_bytes\":%u,\"vm_bytes\":%u,\"commit_limit\":%u,\"committed_bytes\":%u,\"reserved_bytes\":%u}",
+        arena_bytes,vm_bytes,commit_limit,counters.committed_bytes,counters.reserved_bytes);
+    message_box(&fault);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_modules_destroy(modules)==FNV_CPU_OK);
     enum fnv_cpu_result cleanup=fnv_windows_destroy(process);printf(",\"process_cleanup_result\":%u}\n",cleanup);
     /* A fault can leave live guest private heaps. In that case this isolated
