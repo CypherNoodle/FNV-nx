@@ -32,6 +32,7 @@ static inline FILE *fnv_host_file_open(const char *path,int disposition){
     int fd=_open(path,flags,mode);if(fd<0)return NULL;
     FILE *stream=_fdopen(fd,disposition==0?"rb":"r+b");if(!stream)_close(fd);return stream;
 }
+static inline int fnv_host_file_sync(FILE *stream){return fflush(stream)==0 && _commit(_fileno(stream))==0;}
 #else
 #include <unistd.h>
 _Static_assert(sizeof(off_t)>=8,"File backend requires 64-bit off_t");
@@ -59,6 +60,7 @@ static inline FILE *fnv_host_file_open(const char *path,int disposition){
     int fd=open(path,flags,mode);if(fd<0)return NULL;
     FILE *stream=fdopen(fd,disposition==0?"rb":"r+b");if(!stream)close(fd);return stream;
 }
+static inline int fnv_host_file_sync(FILE *stream){return fflush(stream)==0 && fsync(fileno(stream))==0;}
 #endif
 static inline uint32_t fnv_host_file_error(int value){
     switch(value){case ENOENT:return 2;case ENOTDIR:return 3;case EACCES:return 5;case EEXIST:return 80;case EMFILE:case ENFILE:return 4;
