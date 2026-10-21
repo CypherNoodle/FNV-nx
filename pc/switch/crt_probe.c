@@ -12,6 +12,7 @@
 #include "windows_user32.h"
 #include "windows_system.h"
 #include "windows_profiles.h"
+#include "windows_shell.h"
 #include "windows_memory.h"
 #include "guest_memory.h"
 #include "memory_horizon.h"
@@ -77,6 +78,7 @@ static void run_probe(void) {
     e=fnv_windows_modules_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_memory_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_user32_exports(&n);NEED(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS,"USER32 catalog capacity");memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_shell_exports(&n);NEED(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS,"SHELL32 catalog capacity");memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     struct fnv_windows_modules *modules=NULL;
     NEED(fnv_windows_modules_create(process,&image,"FalloutNV.exe",catalog,known,&modules)==FNV_CPU_OK,"module catalog");
     struct fnv_native_import *imports=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*imports)),*scratch=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*scratch));size_t count;
@@ -120,3 +122,4 @@ int main(void) {
     if(log_file)fclose(log_file);
     consoleExit(NULL);return 0;
 }
+
