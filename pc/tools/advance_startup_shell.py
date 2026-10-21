@@ -20,6 +20,7 @@ CHANGES = ('tests/captured_startup_host.c', 'native/windows_thread.c',
            'native/windows_events.inc')
 PROVIDER = ('native/windows_shell.h', 'native/windows_shell.inc')
 STEAM_PROVIDER = ('native/steam_callbacks.h', 'native/steam_callbacks.c')
+REGISTRY_PROVIDER = ('native/windows_registry.h', 'native/windows_registry.c')
 PLATFORM = ('cpu_runtime.c', 'pe_image.c', 'pe_tls.c', 'windows_thread.c',
             'windows_modules.c', 'guest_memory.c', 'memory_horizon.c',
             'windows_memory.c', 'windows_user32.c', 'windows_system.c')
@@ -91,13 +92,16 @@ def refresh(a):
         frozen[str(path)] = sha(path)
     provider = [pc / n for n in PROVIDER]
     steam_provider = [pc / n for n in STEAM_PROVIDER]
+    registry_provider = [pc / n for n in REGISTRY_PROVIDER]
+    require_current_proof(json.loads(a.registry_test.read_text()), registry_provider)
     require_current_proof(json.loads(a.steam_test.read_text()), steam_provider)
-    for path in steam_provider:
+    for path in [*steam_provider,*registry_provider]:
         frozen[str(path.resolve())] = sha(path)
     for path in provider:
         frozen[str(path.resolve())] = sha(path)
     common = [native / n for n in ('windows_thread.c', 'windows_thread.h', 'windows_files.inc', 'host_file.h', 'windows_events.inc')]
     require_current_proof(json.loads(a.steam_test.read_text()), [*steam_provider,*common])
+    require_current_proof(json.loads(a.registry_test.read_text()), [*registry_provider,*common])
     profile_proof = json.loads(a.profile_test.read_text())
     require_current_proof(profile_proof, [*provider, *common])
     kernel_proof = json.loads(a.kernel_test.read_text())
@@ -107,7 +111,7 @@ def refresh(a):
     cpuid = native / 'guest_cpuid.h'
     require_current_proof(json.loads(a.cpuid_test.read_text()), [cpuid, *common])
     frozen[str(cpuid.resolve())] = sha(cpuid)
-    for path in (baseline, a.profile_test.resolve(), a.kernel_test.resolve(), a.user32_test.resolve(), a.cpuid_test.resolve(), a.steam_test.resolve(), Path(__file__).resolve(), a.exe.resolve()):
+    for path in (baseline, a.profile_test.resolve(), a.kernel_test.resolve(), a.user32_test.resolve(), a.cpuid_test.resolve(), a.steam_test.resolve(), a.registry_test.resolve(), Path(__file__).resolve(), a.exe.resolve()):
         frozen[str(path)] = sha(path)
     for name, digest in old['generated_files_sha256'].items():
         if Path(name).name != name:
@@ -132,9 +136,9 @@ def refresh(a):
     if any(sum(obj.stem == name for obj in objects) != 1 for name in replace):
         raise ValueError('Ambiguous native compiler unit')
     # This provider is new, not a replacement for any frozen game object.
-    if any(obj.stem=='steam_callbacks' for obj in objects):
-        raise ValueError('Steam callback provider already linked in baseline')
-    sources.append(native / 'steam_callbacks.c')
+    if any(obj.stem in ('steam_callbacks','windows_registry') for obj in objects):
+        raise ValueError('New native provider already linked in baseline')
+    sources.extend((native / 'steam_callbacks.c',native / 'windows_registry.c'))
     headers = {Path(name).resolve() for name in frozen if Path(name).suffix in ('.h', '.inc')}
     forbidden = {p for p in changed if p.suffix in ('.h', '.inc')}
     reused = [p for p in objects if p.stem not in replace]
@@ -190,7 +194,7 @@ def refresh(a):
               'host': host, 'source_sha256': frozen, 'compiled': compiled,
               'executable_sha256': sha(program), 'generated_files_sha256': {p.name: sha(p) for p in (rsp, blob)},
               'refreshed_platform_sources': dict(previous=previous, current={str(p): sha(p) for p in changed}),
-              'new_native_provider_sources': {str(p): sha(p) for p in [*provider,*steam_provider]},
+              'new_native_provider_sources': {str(p): sha(p) for p in [*provider,*steam_provider,*registry_provider]},
               'reused_link_objects': len(reused), 'diagnostic_file_root': str(root),
               'suitable_for_switch_packaging': False, 'native_engine_started': False,
               'cold_boot_supported': False, 'switch_hardware_tested': False}
@@ -200,6 +204,6 @@ def refresh(a):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('baseline', 'exe', 'sdk', 'output', 'profile-test', 'kernel-test', 'user32-test', 'cpuid-test', 'steam-test', 'file-root'):
+    for name in ('baseline', 'exe', 'sdk', 'output', 'profile-test', 'kernel-test', 'user32-test', 'cpuid-test', 'steam-test', 'registry-test', 'file-root'):
         parser.add_argument('--' + name, type=Path, required=True)
     refresh(parser.parse_args())

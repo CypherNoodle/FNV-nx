@@ -2,7 +2,7 @@
 
 The captured PC startup reaches `SteamAPI_RegisterCallback` before any
 demonstrated engine frame. The native provider implements registration and
-unregistration only. It does not implement a Steam client, initialization,
+unregistration and the unavailable-client result of `SteamAPI_Init`. It does not implement a Steam client, successful initialization,
 ownership checks, authentication, call results or callback delivery.
 
 ## ABI and implementation
@@ -22,7 +22,7 @@ explicitly. These are bounded implementation policies, not Windows oracle claims
 Objects must remain valid until unregistered. Concurrent guest mutation or
 unmapping of an object during an API call is unsupported.
 
-Both exports are void **cdecl**: they pop only the return address. The native
+Both registration exports are void **cdecl**: they pop only the return address. The native
 bridge preserves EAX and guest LastError. It validates the full object range
 and, for managed VM ranges, writable access before touching the object.
 The provider never calls guest virtual methods during registration. Destruction
@@ -35,6 +35,9 @@ guest objects. Each registered native function has its own token storage.
 arguments, call through the IAT and clean their own argument stack. The native
 fixture checks 10,240 calls over repeated full-capacity register/unregister
 cycles, object bytes, duplicates, slot reuse, EAX, nonvolatile registers and ESP.
+An additional 2,000 translated `SteamAPI_Init` calls check false, caller stack
+and LastError preservation, including full-registry calls that must not alter
+any registered object or host count (12,240 translated calls in total).
 Six separate negative executions cover null/out-of-range objects, unsupported
 flags, foreign registration, rebinding and capacity exhaustion. The provider
 also compiles for ARM64/libnx with warnings as errors.
@@ -54,5 +57,24 @@ execution. The next import stop moved from `SteamAPI_RegisterCallback` to
 `SteamAPI_Init` after 171,870 indirect calls (1,082 cache hits, no misses).
 The replacement source/object hashes and baseline identity are recorded in a
 separate private experiment report; it is not a cold-EXE or Switch build proof.
-Four earlier diagnostic workers still report failure, and process cleanup
-remains busy; callback registration does not resolve those existing limits.
+Four diagnostic workers are marked failed, and process cleanup remains busy.
+The worker counter increments when the process is faulted at worker completion;
+it does not establish four independent worker faults. Callback registration
+does not resolve that diagnostic cleanup limitation.
+
+## Unavailable Steam client
+
+Valve's [SteamAPI_Init contract](https://partner.steamgames.com/doc/api/steam_api#SteamAPI_Init)
+specifies false when no Steam client is running. This provider has no Steam
+client transport or interfaces and returns false on every initialization
+attempt. The export takes no arguments and returns a false bool in EAX/AL using
+cdecl. It creates no interfaces, session or events and preserves the registry.
+This covers the failure path only; it does not establish successful game startup.
+There is no configuration to force initialization to succeed or skip guest checks.
+
+A fresh private captured-startup run with this result reached an ordinary
+`RegOpenKeyExA` installation-key query after 171,875 indirect calls. Thus this
+observed guest path does not immediately terminate on Init(false). It does not
+prove that later Steam-dependent functionality works or that cold startup can
+run without Steam. The executable, guest branches and ownership checks were
+not patched.

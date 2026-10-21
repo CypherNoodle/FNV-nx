@@ -3,7 +3,8 @@
 #include "cpu_runtime.h"
 struct fnv_windows_process;
 struct fnv_steam_callbacks;
-/* Registration only: no Steam client, authentication, interface or delivery.
+/* Registration and Init(false) for a guest with no Steam client.
+ * No authentication, interface acquisition or callback delivery.
  * One process; create before attach, destroy after every thread detaches.
  * Guest objects must outlive registration. Capacity is 128 unique objects. */
 enum fnv_cpu_result fnv_steam_callbacks_create(struct fnv_windows_process *,struct fnv_steam_callbacks **);
