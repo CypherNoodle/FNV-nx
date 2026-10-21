@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 89u
+#define FNV_WINDOWS_THREAD_EXPORTS 90u
 struct fnv_windows_process;
 /* Immutable built-in catalog, borrowed for native dynamic module preparation. */
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count);
@@ -120,3 +120,4 @@ struct fnv_guest_memory *fnv_windows_current_memory(void);
 uint32_t fnv_windows_current_address_space_bytes(void);
 void fnv_windows_set_last_error(uint32_t value);
 #endif
+
