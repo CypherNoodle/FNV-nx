@@ -56,6 +56,17 @@ static unsigned char *file_pointer(struct fnv_windows_process *p,uint32_t at,uin
         sync_invalid("Windows file argument unreadable or not writable",at);
     return memory(p,at);
 }
+static size_t file_virtual_profile_prefix(const char *source){
+    static const char prefix[]="C:\\Users\\FNV\\";
+    for(size_t i=0;i<sizeof(prefix)-1;++i){unsigned a=(unsigned char)source[i],b=(unsigned char)prefix[i];
+        if(!a)return 0;
+        if(a=='/')a='\\';
+        if(b>='A' && b<='Z')b+=32;
+        if(a>='A' && a<='Z')a+=32;
+        if(a!=b)return 0;
+    }
+    return sizeof(prefix)-1;
+}
 static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int mode){
     char source[512];int ended=0;
     for(size_t i=0;i<sizeof(source);++i){uint64_t pos=(uint64_t)at+i*(wide?2:1);unsigned width=wide?2:1;
@@ -65,15 +76,22 @@ static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,cha
         source[i]=(char)c;if(!c){ended=1;break;}
     }
     if(!ended || !source[0])return 123;
-    size_t length=strlen(source);int trailing=source[length-1]=='/' || source[length-1]=='\\';
+    size_t profile_floor=0,prefix=file_virtual_profile_prefix(source);
+    if(prefix){
+        char tail[sizeof(source)];size_t tail_bytes=strlen(source+prefix)+1;
+        memcpy(tail,source+prefix,tail_bytes);memcpy(source,tail,tail_bytes);profile_floor=2;
+    }
+    size_t length=strlen(source);int trailing=length && (source[length-1]=='/' || source[length-1]=='\\');
     if(trailing && mode!=2)return 3;
     if(source[0]=='/' || source[0]=='\\' || strchr(source,':'))return 50;
     size_t used=0,depth=0,starts[256];
+    if(profile_floor){memcpy(path,"UserData/FNV",sizeof("UserData/FNV")-1);used=sizeof("UserData/FNV")-1;
+        starts[0]=0;starts[1]=8;depth=profile_floor;}
     for(size_t start=0;source[start];){size_t end=start;while(source[end] && source[end]!='/' && source[end]!='\\')end++;
         size_t n=end-start;
         if(n==1 && source[start]=='.'){}
         else if(n==2 && source[start]=='.' && source[start+1]=='.'){
-            if(!depth)return 5;
+            if(depth<=profile_floor)return 5;
             used=starts[--depth];
         }else if(n){size_t original=used;if(used)path[used++]='/';
             for(size_t i=0;i<n;++i){unsigned c=(unsigned char)source[start+i];
@@ -216,3 +234,4 @@ static void file_seek(int extended){
     fnv_cpu_return_u32(value,extended?20:16);
 }
 static void api_file_seek(void){file_seek(0);}static void api_file_seek_ex(void){file_seek(1);}
+
