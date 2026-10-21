@@ -44,3 +44,11 @@ Windows synchronization fixture also needs an 8 MiB PE stack reserve; its old
 
 Folder semantics: [Microsoft SHGetFolderPathA](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shgetfolderpatha),
 [Microsoft CSIDL](https://learn.microsoft.com/en-us/windows/win32/shell/csidl).
+
+
+The refresh also supports changes to windows_user32.c/h. Supply --user32-test
+with a passing report that hashes both provider files and current common runtime
+inputs; the proof itself is frozen in the new diagnostic. A changed USER32
+header participates in the same forbidden dependency closure as other platform
+headers. The rebuilt adapter creates/destroys its virtual desktop alongside
+SYSTEM_INFO. This extends the native platform, never the generated game code.
