@@ -5,8 +5,8 @@
 #include "host_directory.h"
 #include <string.h>
 struct file_slot {
-    FILE *stream;struct fnv_host_directory *search;fnv_host_mutex io_guard;
-    uint32_t generation,live,pins,next,share,access,kind,search_done,opening;
+    FILE *stream;struct fnv_host_directory *search;fnv_host_mutex io_guard;fnv_host_condition idle;
+    uint32_t generation,live,pins,next,share,access,kind,search_done,opening,closing,last_io;
     char key[512];
     char pattern[260];
 };
@@ -24,7 +24,12 @@ static enum fnv_cpu_result files_prepare(struct fnv_windows_process *p){
     if(!fnv_host_mutex_init(&p->files_guard)){free(root);free(items);return FNV_CPU_NO_MEMORY;}
     for(uint32_t i=0;i<count;++i){
         if(!fnv_host_mutex_init(&items[i].io_guard)){
-            while(i)fnv_host_mutex_destroy(&items[--i].io_guard);
+            while(i){--i;fnv_host_condition_destroy(&items[i].idle);fnv_host_mutex_destroy(&items[i].io_guard);}
+            fnv_host_mutex_destroy(&p->files_guard);free(root);free(items);return FNV_CPU_NO_MEMORY;
+        }
+        if(!fnv_host_condition_init(&items[i].idle)){
+            fnv_host_mutex_destroy(&items[i].io_guard);
+            while(i){--i;fnv_host_condition_destroy(&items[i].idle);fnv_host_mutex_destroy(&items[i].io_guard);}
             fnv_host_mutex_destroy(&p->files_guard);free(root);free(items);return FNV_CPU_NO_MEMORY;
         }
         items[i].next=i+1<count?i+1:UINT32_MAX;
@@ -37,7 +42,7 @@ static void files_dispose(struct fnv_windows_process *p){
     if(!p->files)return;
     for(uint32_t i=0;i<p->config.file_handle_capacity;++i){if(p->files[i].stream)fclose(p->files[i].stream);
         if(p->files[i].search)fnv_host_directory_close(p->files[i].search);
-        fnv_host_mutex_destroy(&p->files[i].io_guard);}
+        fnv_host_condition_destroy(&p->files[i].idle);fnv_host_mutex_destroy(&p->files[i].io_guard);}
     free(p->files);free(p->file_root);fnv_host_mutex_destroy(&p->files_guard);
 }
 static struct fnv_windows_process *file_process(void){
@@ -115,22 +120,48 @@ static int file_path(struct fnv_windows_process *p,uint32_t at,int wide,char *pa
 static int file_path_with_profile(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int *profile){return file_path_mode(p,at,wide,path,key,0,profile);}
 /* Called exactly once after live becomes false and the last operation unpins.
  * The slot is unavailable until fclose has finished; no table lock during IO. */
-static void file_finish_close(struct fnv_windows_process *p,struct file_slot *f){
-    if(f->kind==1)fclose(f->stream);else fnv_host_directory_close(f->search);
-    fnv_host_mutex_lock(&p->files_guard);f->stream=NULL;f->search=NULL;
+static uint32_t file_finish_close(struct fnv_windows_process *p,struct file_slot *f){
+    uint32_t error=0;
+    if(f->kind==1){errno=0;if(fnv_host_file_close(f->stream))error=fnv_host_file_error(errno);}
+    else fnv_host_directory_close(f->search);
+    fnv_host_mutex_lock(&p->files_guard);f->stream=NULL;f->search=NULL;f->closing=0;f->last_io=0;
     if(f->generation==p->file_generation_max)p->file_stats.retired_slots++;
     else {uint32_t i=(uint32_t)(f-p->files);f->next=UINT32_MAX;
         if(p->file_tail!=UINT32_MAX)p->files[p->file_tail].next=i;else p->file_free=i;
         p->file_tail=i;
     }
-    fnv_host_mutex_unlock(&p->files_guard);
+    fnv_host_mutex_unlock(&p->files_guard);return error;
 }
-static int files_close(struct fnv_windows_process *p,uint32_t handle,uint32_t *value){
+#ifdef FNV_TEST_FILE_IO
+extern void fnv_test_file_close_wait(void);
+extern void fnv_test_file_io_gate(uint32_t operation);
+#endif
+static int files_close(struct fnv_windows_process *p,uint32_t handle,uint32_t *value,uint32_t *error){
     if((handle&0xf0000000u)!=0xd0000000u)return 0;
-    *value=0;if(!p->files)return 1;
-    fnv_host_mutex_lock(&p->files_guard);struct file_slot *f=file_lookup(p,handle);int finish=0;
-    if(f){f->live=0;p->file_stats.live_handles--;finish=!f->pins;*value=1;}
-    fnv_host_mutex_unlock(&p->files_guard);if(finish)file_finish_close(p,f);return 1;
+    *value=0;*error=6;if(!p->files)return 1;
+    fnv_host_mutex_lock(&p->files_guard);struct file_slot *f=file_lookup(p,handle);
+    if(!f){fnv_host_mutex_unlock(&p->files_guard);return 1;}
+    f->live=0;f->closing=1;p->file_stats.live_handles--;
+    /* Stop new operations, then wait for every already-pinned operation. The
+     * closer alone owns final flush/close and reports their actual errors. */
+    while(f->pins){
+#ifdef FNV_TEST_FILE_IO
+        fnv_test_file_close_wait();
+#endif
+        if(fnv_host_condition_wait(&f->idle,&p->files_guard)<0){
+            f->live=1;f->closing=0;p->file_stats.live_handles++;*error=1117;
+            fnv_host_mutex_unlock(&p->files_guard);return 1;
+        }
+    }
+    fnv_host_mutex_unlock(&p->files_guard);*error=0;
+    if(f->access&0x40000000u){errno=0;
+        /* A prior read buffer must be reconciled before fflush on newlib. */
+        if(f->last_io==1){int64_t at=fnv_host_file_tell(f->stream);
+            if(at<0 || !fnv_host_file_seek(f->stream,at))*error=fnv_host_file_error(errno);}
+        errno=0;if(!*error && !fnv_host_file_sync(f->stream))*error=fnv_host_file_error(errno);
+    }
+    uint32_t closed=file_finish_close(p,f);if(!*error)*error=closed;
+    *value=!*error;return 1;
 }
 static struct file_slot *file_acquire_kind(struct fnv_windows_process *p,uint32_t handle,uint32_t kind){
     uint64_t start=0,end=0;int timed=fnv_host_now_ns(&start);
@@ -144,7 +175,9 @@ static struct file_slot *file_acquire_kind(struct fnv_windows_process *p,uint32_
 static struct file_slot *file_acquire(struct fnv_windows_process *p,uint32_t handle){return file_acquire_kind(p,handle,1);}
 static void file_release(struct fnv_windows_process *p,struct file_slot *f){
     fnv_host_mutex_unlock(&f->io_guard);fnv_host_mutex_lock(&p->files_guard);
-    int finish=!--f->pins && !f->live;fnv_host_mutex_unlock(&p->files_guard);if(finish)file_finish_close(p,f);
+    int finish=!--f->pins && !f->live && !f->closing;
+    if(!f->pins && f->closing)fnv_host_condition_wake_all(&f->idle);
+    fnv_host_mutex_unlock(&p->files_guard);if(finish)(void)file_finish_close(p,f);
 }
 static int file_share_compatible(uint32_t access,uint32_t share,const struct file_slot *other){
     return !(((access&0x80000000u) && !(other->share&1)) || ((access&0x40000000u) && !(other->share&2)) ||
@@ -269,6 +302,17 @@ static void api_file_delete_a(void){
     if(error)fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,4);
 }
+static int file_prepare_io(struct file_slot *f,uint32_t operation){
+    if(f->last_io && f->last_io!=operation){
+        errno=0;int64_t at=fnv_host_file_tell(f->stream);
+        if(at<0 || !fnv_host_file_seek(f->stream,at))return 0;
+    }
+    f->last_io=operation;
+#ifdef FNV_TEST_FILE_IO
+    fnv_test_file_io_gate(operation);
+#endif
+    return 1;
+}
 static void api_file_write(void){
     uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),bytes=fnv_cpu_argument_u32(2),out=fnv_cpu_argument_u32(3),overlapped=fnv_cpu_argument_u32(4);
     struct fnv_windows_process *p=file_process();uint32_t value=0,error=0;unsigned char *count=out?file_pointer(p,out,4,1):NULL;
@@ -277,9 +321,12 @@ static void api_file_write(void){
     else {unsigned char *buffer=bytes?file_pointer(p,at,bytes,0):NULL;struct file_slot *f=file_acquire(p,h);
         if(!f)error=6;
         else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
-        else {errno=0;size_t written=bytes?fwrite(buffer,1,bytes,f->stream):0;
-            if(written!=bytes || ferror(f->stream)){error=fnv_host_file_error(errno);clearerr(f->stream);}
-            else {write32(count,(uint32_t)written);value=1;}file_release(p,f);}
+        else {errno=0;size_t written=0;
+            if(bytes && !file_prepare_io(f,2))error=fnv_host_file_error(errno);
+            else if(bytes)written=fwrite(buffer,1,bytes,f->stream);
+            if(!error && (written!=bytes || ferror(f->stream))){error=fnv_host_file_error(errno);clearerr(f->stream);}
+            else if(!error){write32(count,(uint32_t)written);value=1;}
+            file_release(p,f);}
     }
     if(error)fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,20);
@@ -289,7 +336,7 @@ static void api_file_flush(void){
     struct file_slot *f=file_acquire(p,h);
     if(!f)error=6;
     else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
-    else {errno=0;if(fnv_host_file_sync(f->stream))value=1;else error=fnv_host_file_error(errno);file_release(p,f);}
+    else {errno=0;if(file_prepare_io(f,2) && fnv_host_file_sync(f->stream))value=1;else error=fnv_host_file_error(errno);file_release(p,f);}
     if(error)fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,4);
 }
@@ -298,7 +345,7 @@ static void api_file_set_eof(void){
     struct file_slot *f=file_acquire(p,h);
     if(!f)error=6;
     else if(!(f->access&0x40000000u)){error=5;file_release(p,f);}
-    else {int64_t position=fnv_host_file_tell(f->stream);
+    else {errno=0;int ready=file_prepare_io(f,2);int64_t position=ready?fnv_host_file_tell(f->stream):-1;
         if(position<0 || !fnv_host_file_truncate(f->stream,(uint64_t)position))error=fnv_host_file_error(errno);
         else value=1;
         file_release(p,f);
@@ -328,8 +375,8 @@ static void api_file_read(void){
         if(!f)error=6;
         else if(!(f->access&0x80000000u)){error=5;file_release(p,f);}
         else {uint64_t start=0,end=0;int timed=fnv_host_now_ns(&start);size_t got=0;
-            errno=0;if(bytes)got=fread(buffer,1,bytes,f->stream);
-            int read_error=errno,failed=ferror(f->stream);if(failed){error=fnv_host_file_error(read_error);clearerr(f->stream);}else value=1;
+            errno=0;int ready=!bytes || file_prepare_io(f,1);if(ready && bytes)got=fread(buffer,1,bytes,f->stream);
+            int read_error=errno,failed=!ready || ferror(f->stream);if(failed){error=fnv_host_file_error(read_error);clearerr(f->stream);}else value=1;
             write32(count,(uint32_t)got);int measured=timed && fnv_host_now_ns(&end) && end>=start;
             fnv_host_mutex_lock(&p->files_guard);p->file_stats.reads++;p->file_stats.read_bytes+=got;p->file_stats.read_errors+=failed!=0;
             if(measured)p->file_stats.read_ns+=end-start;
@@ -368,7 +415,7 @@ static void file_seek(int extended){
             else if(method==2 && !fnv_host_file_size(f->stream,&base))error=fnv_host_file_error(errno);
             if(!error){if(distance<0){uint64_t magnitude=(uint64_t)(-(distance+1))+1;if(magnitude>base)error=131;else target=base-magnitude;}
                 else if(base>(uint64_t)INT64_MAX-(uint64_t)distance)error=87;else target=base+(uint64_t)distance;}
-            if(!error && !fnv_host_file_seek(f->stream,(int64_t)target))error=fnv_host_file_error(errno);
+            if(!error){errno=0;if(!fnv_host_file_seek(f->stream,(int64_t)target))error=fnv_host_file_error(errno);else f->last_io=0;}
             file_release(p,f);
         }
     }

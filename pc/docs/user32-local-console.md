@@ -80,3 +80,17 @@ The earlier copy run counted166083 calls; that is not a regression metric:
 the private profile now already contains FALLOUT.INI, so startup takes its
 existing-config branch. These are bounded desktop diagnostics with captured
 text, not cold EXE startup, a game frame or Switch execution.
+
+
+The base Windows catalog now also exports ADVAPI32.GetUserNameA. All guest
+threads use the same virtual identity FNV, consistent with C:\Users\FNV.
+No host username or impersonation token is exposed. A successful ASCII copy
+writes FNV plus NUL, reports4characters and preserves LastError. Buffer sizes
+below4 fail with122 and report8, matching the observed Windows ANSI wrapper's
+conservative two-byte bound (native short-buffer size is twice the successful
+ASCII size). Only4actual output bytes are checked/written even for a larger
+claimed buffer. The DWORD count may be unaligned; inaccessible count/output
+pointers remain explicit faults. A zero-size query does not dereference output.
+Nine capacities, canaries and two pointer-fault processes exercise translated
+callers; native GetUserNameA is warmed up before comparing LastError semantics.
+The first native call can initialize its security provider and change LastError.

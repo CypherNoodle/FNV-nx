@@ -14,7 +14,7 @@ if __name__=='__main__':
     shared.ARGS=[7,7,5,2,2,4,5,1,0,1,4]
     a=p.parse_args()
     shared.test(a,host_source='windows_files_host.c',extra_inputs=(Path(__file__).resolve(),),wrapper_stride=64,
-                strict_modes=('--strict-path','--strict-buffer','--strict-disabled','--strict-noaccess'))
+                strict_modes=('--strict-path','--strict-buffer','--strict-disabled','--strict-noaccess'),linker_options=('-Wl,--stack,8388608',))
     if a.game_root:
         out=a.output.resolve();exe=out/'heap-test.exe';validation=json.loads((out/'validation.json').read_text())
         assert hashlib.sha256(exe.read_bytes()).hexdigest()==validation['exe_sha256']

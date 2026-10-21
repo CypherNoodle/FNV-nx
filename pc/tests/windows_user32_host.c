@@ -13,10 +13,10 @@ static void write32(uint32_t at,uint32_t v){for(unsigned i=0;i<4;i++)arena[at-BA
 static enum fnv_cpu_result call(unsigned api,uint32_t value,uint32_t *answer,struct fnv_cpu_fault *fault){
     struct fnv_cpu_state before,after;assert(fnv_cpu_get_state(&before)==FNV_CPU_OK);
     before.gpr[4]=BASE+0x1BF00;assert(fnv_cpu_set_state(&before)==FNV_CPU_OK);
-    write32(before.gpr[4],0x401500);write32(before.gpr[4]+4,value);if(api==3)write32(before.gpr[4]+8,query_title);
+    write32(before.gpr[4],0x401500);write32(before.gpr[4]+4,value);if(api>=3)write32(before.gpr[4]+8,query_title);
     enum fnv_cpu_result r=fnv_cpu_execute(0x401500+api*32,fault);
     if(r==FNV_CPU_OK){assert(fnv_cpu_get_state(&after)==FNV_CPU_OK);
-        assert(after.gpr[4]==before.gpr[4]+4+(api==1?0:api==3?8:4));*answer=after.gpr[0];}
+        assert(after.gpr[4]==before.gpr[4]+4+(api==1?0:api>=3?8:4));*answer=after.gpr[0];}
     return r;
 }
 int main(int argc,char **argv){
@@ -30,10 +30,17 @@ int main(int argc,char **argv){
     assert(fnv_windows_user32_create(process,&second)==FNV_CPU_BUSY && !second);
     size_t n,bound;const struct fnv_cpu_export *exports=fnv_windows_user32_exports(&n);assert(n==2 && exports==fnv_windows_user32_exports(NULL));
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];
-    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==4);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==5);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;
     t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1C000;fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);
     assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);uint32_t answer=0;
+    if(argc==3 && !strncmp(argv[2],"--strict-username-",18)){
+        query_title=BASE+0x82001;write32(query_title,32);uint32_t at=BASE+0x83000;
+        if(!strcmp(argv[2],"--strict-username-size"))query_title=BASE+BYTES;else at=BASE+BYTES;
+        struct fnv_cpu_fault fault;assert(call(4,at,&answer,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED);
+        assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_user32_destroy(desktop)==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
+        puts("strict PASS");return 0;
+    }
     if(argc==3 && !strncmp(argv[2],"--strict-find-",14)){
         uint32_t at=BASE+0x80000;memset(arena+0x80000,'x',256);
         if(!strcmp(argv[2],"--strict-find-pointer"))at=BASE+BYTES;
@@ -53,6 +60,24 @@ int main(int argc,char **argv){
         assert(call(0,0x1000,&answer,NULL)==FNV_CPU_OK && answer==0);
         assert(call(1,0,&answer,NULL)==FNV_CPU_OK && answer==seed);
     }
+    /* Username is virtual; compare buffer/error rules without host identity. */
+    char native_name[512];DWORD native_size=sizeof(native_name);
+    assert(GetUserNameA(native_name,&native_size)); /* Initialize native security provider before checking LastError. */
+    native_size=sizeof(native_name);SetLastError(0x1234);
+    assert(GetUserNameA(native_name,&native_size) && GetLastError()==0x1234 && native_size==strlen(native_name)+1);
+    DWORD small_size=0;assert(!GetUserNameA(NULL,&small_size) && GetLastError()==122 && small_size==native_size*2);
+    query_title=BASE+0x82001;
+    for(uint32_t capacity=0;capacity<9;capacity++){
+        memset(arena+0x83000,0xa5,32);write32(query_title,capacity);
+        assert(call(2,0x1234,&answer,NULL)==FNV_CPU_OK);
+        assert(call(4,capacity?BASE+0x83000:0,&answer,NULL)==FNV_CPU_OK && answer==(capacity>=4));
+        uint32_t n=0;for(unsigned i=0;i<4;i++)n|=(uint32_t)arena[query_title-BASE+i]<<(8*i);
+        assert(n==(capacity<4?8:4));
+        if(capacity>=4){assert(!memcmp(arena+0x83000,"FNV",4) && arena[0x83004]==0xa5);}
+        else for(unsigned i=0;i<32;i++)assert(arena[0x83000+i]==0xa5);
+        assert(call(1,0,&answer,NULL)==FNV_CPU_OK && answer==(capacity<4?122:0x1234));
+    }
+    query_title=0;
     static const char class_name[]="FNV_SYNTHETIC_WINDOW_96d9b9a",title[]="Synthetic Window 96d9b9a";
     memcpy(arena+0x80000,class_name,sizeof(class_name));memcpy(arena+0x81000,title,sizeof(title));
     query_title=BASE+0x81000;
@@ -83,5 +108,5 @@ int main(int argc,char **argv){
      * USER32 setup can change LastError; record it without assuming a value. */
     (void)error;
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_user32_destroy(desktop)==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"virtual_window_checks\":true,\"native_window_comparisons\":3,\"local_session_checks\":1000,\"last_error_preserved\":true,\"stdcall_checked\":true,\"windows_remote_session\":%d,\"native_engine_started\":false}\n",native);return 0;
+    printf("{\"status\":\"PASS\",\"virtual_username_checks\":9,\"virtual_window_checks\":true,\"native_window_comparisons\":3,\"local_session_checks\":1000,\"last_error_preserved\":true,\"stdcall_checked\":true,\"windows_remote_session\":%d,\"native_engine_started\":false}\n",native);return 0;
 }

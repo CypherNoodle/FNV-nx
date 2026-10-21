@@ -34,7 +34,7 @@ static inline FILE *fnv_host_file_open(const char *path,int disposition){
     int fd=_open(path,flags,mode);if(fd<0)return NULL;
     FILE *stream=_fdopen(fd,disposition==0?"rb":"r+b");if(!stream)_close(fd);return stream;
 }
-static inline int fnv_host_file_sync(FILE *stream){return fflush(stream)==0 && _commit(_fileno(stream))==0;}
+static inline int fnv_host_file_sync_real(FILE *stream){return fflush(stream)==0 && _commit(_fileno(stream))==0;}
 static inline int fnv_host_file_truncate(FILE *stream,uint64_t size){
     if(size>(uint64_t)INT64_MAX){errno=EINVAL;return 0;}
     if(fflush(stream))return 0;
@@ -69,15 +69,32 @@ static inline FILE *fnv_host_file_open(const char *path,int disposition){
     int fd=open(path,flags,mode);if(fd<0)return NULL;
     FILE *stream=fdopen(fd,disposition==0?"rb":"r+b");if(!stream)close(fd);return stream;
 }
-static inline int fnv_host_file_sync(FILE *stream){return fflush(stream)==0 && fsync(fileno(stream))==0;}
+static inline int fnv_host_file_sync_real(FILE *stream){return fflush(stream)==0 && fsync(fileno(stream))==0;}
 static inline int fnv_host_file_truncate(FILE *stream,uint64_t size){
     if(size>(uint64_t)INT64_MAX){errno=EINVAL;return 0;}
     if(fflush(stream))return 0;
     return ftruncate(fileno(stream),(off_t)size)==0;
 }
 #endif
+/* Fault injection is compiled only into dedicated synthetic test executables. */
+#ifdef FNV_TEST_FILE_IO
+extern int fnv_test_file_sync_failure,fnv_test_file_close_failure;
+#endif
+static inline int fnv_host_file_sync(FILE *stream){
+#ifdef FNV_TEST_FILE_IO
+    if(fnv_test_file_sync_failure){errno=ENOSPC;return 0;}
+#endif
+    return fnv_host_file_sync_real(stream);
+}
+static inline int fnv_host_file_close(FILE *stream){
+    int result=fclose(stream);
+#ifdef FNV_TEST_FILE_IO
+    if(fnv_test_file_close_failure){errno=EIO;return EOF;}
+#endif
+    return result;
+}
 static inline uint32_t fnv_host_file_error(int value){
     switch(value){case ENOENT:return 2;case ENOTDIR:return 3;case EACCES:return 5;case EEXIST:return 80;case EMFILE:case ENFILE:return 4;
-        case ENOMEM:return 8;case EINVAL:return 87;default:return 1117;}
+        case ENOSPC:return 112;case ENOMEM:return 8;case EINVAL:return 87;default:return 1117;}
 }
 #endif

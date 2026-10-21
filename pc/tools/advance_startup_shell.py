@@ -16,7 +16,8 @@ from x87_target_evaluator import sha, unchanged
 CHANGES = ('tests/captured_startup_host.c', 'native/windows_thread.c',
            'native/windows_thread.h', 'native/host_file.h',
            'native/windows_files.inc', 'native/windows_directory.inc',
-           'native/windows_user32.c', 'native/windows_user32.h')
+           'native/windows_user32.c', 'native/windows_user32.h',
+           'native/windows_events.inc')
 PROVIDER = ('native/windows_shell.h', 'native/windows_shell.inc')
 PLATFORM = ('cpu_runtime.c', 'pe_image.c', 'pe_tls.c', 'windows_thread.c',
             'windows_modules.c', 'guest_memory.c', 'memory_horizon.c',
@@ -90,7 +91,7 @@ def refresh(a):
     provider = [pc / n for n in PROVIDER]
     for path in provider:
         frozen[str(path.resolve())] = sha(path)
-    common = [native / n for n in ('windows_thread.c', 'windows_thread.h', 'windows_files.inc', 'host_file.h')]
+    common = [native / n for n in ('windows_thread.c', 'windows_thread.h', 'windows_files.inc', 'host_file.h', 'windows_events.inc')]
     profile_proof = json.loads(a.profile_test.read_text())
     require_current_proof(profile_proof, [*provider, *common])
     kernel_proof = json.loads(a.kernel_test.read_text())

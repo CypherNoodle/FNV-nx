@@ -12,4 +12,4 @@ if __name__=='__main__':
     shared.test(p.parse_args(),host_source='windows_shell_host.c',
         extra_inputs=(Path(__file__).resolve(),Path(__file__).resolve().parents[1]/'native/windows_shell.h',
                       Path(__file__).resolve().parents[1]/'native/windows_shell.inc'),
-        strict_modes=('--strict-csidl','--strict-flags','--strict-hwnd','--strict-token','--strict-output'),wrapper_stride=64)
+        strict_modes=('--strict-csidl','--strict-flags','--strict-hwnd','--strict-token','--strict-output'),wrapper_stride=64,linker_options=('-DFNV_TEST_FILE_IO',))

@@ -217,7 +217,7 @@ static void api_tls_set(void) {
 }
 #include "windows_heap.inc"
 #include "windows_sync.inc"
-static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
+static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *,uint32_t *);
 #include "windows_events.inc"
 #include "windows_workers.inc"
 #include "windows_time.inc"
@@ -228,6 +228,15 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *);
 #include "windows_parameters.inc"
 #include "windows_environment.inc"
 #include "windows_charset.inc"
+static void api_user_name_a(void){
+    uint32_t output=fnv_cpu_argument_u32(0),size=fnv_cpu_argument_u32(1);struct fnv_windows_process *p=thread()->process;
+    unsigned char *count=file_pointer(p,size,4,1);uint32_t capacity=read32(count);
+    /* Windows' ANSI wrapper reports a conservative double-byte bound on an
+     * insufficient buffer; successful ASCII copies report the actual size. */
+    if(capacity<4){write32(count,8);fnv_windows_set_last_error(122);fnv_cpu_return_u32(0,8);return;}
+    unsigned char *name=file_pointer(p,output,4,1);
+    memcpy(name,"FNV",4);write32(count,4);fnv_cpu_return_u32(1,8);
+}
 static void api_startup_info(void){
     uint32_t at=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     unsigned char *output=sync_pointer(p,at,68);
@@ -250,6 +259,7 @@ static void api_handle_count(void){
     (void)thread();fnv_cpu_return_u32(fnv_cpu_argument_u32(0),4);
 }
 static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
+    {"advapi32.dll","GetUserNameA",0,0,api_user_name_a},
     {"kernel32.dll","TlsAlloc",0,0,api_tls_alloc},
     {"kernel32.dll","TlsFree",0,0,api_tls_free},
     {"kernel32.dll","TlsGetValue",0,0,api_tls_get},

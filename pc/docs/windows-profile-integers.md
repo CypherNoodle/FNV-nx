@@ -75,3 +75,11 @@ No engine frame, cold EXE launch, or Switch hardware result is claimed.
 References: [Microsoft GetPrivateProfileInt](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofileint),
 [Microsoft profile string syntax](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofilestring),
 [Microsoft CSIDL list](https://learn.microsoft.com/en-us/windows/win32/shell/csidl).
+
+
+Revision de prefijos numericos contra Windows local:0x10->16,0o12->10,
+0b101->5,010->10; las variantes0X10/0O12/0B101 devuelven0. La suite A/W
+vuelve a pasar4800comparaciones, incluyendo esos casos, signos, overflow,
+comillas y sufijos. Por tanto no se sustituyo el parser por uno solo decimal.
+Estos resultados describen el Windows usado como oraculo, no una deduccion
+basada en strtol ni una promesa sobre toda version historica de Windows.

@@ -1,7 +1,7 @@
 # Acceso a archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, WriteFile, GetFileSize/Ex y SetFilePointer/Ex.
-El catalogo base contiene 95 exports, incluyendo
+El catalogo base contiene 96 exports, incluyendo
 [atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
@@ -150,3 +150,32 @@ colisiones comparadas con Windows, un archivo vacio, origen ausente, conflicto
 de comparticion, destino de assets rechazado y error explicito de sobrescritura.
 Se ejecuta mediante once wrappers x86 traducidos. No demuestra todavia un
 arranque del motor ni la ejecucion de esta copia en Switch.
+
+
+Correcciones de streams de actualizacion y cierre:
+- Cada slot registra su ultima operacion. Al alternar ReadFile/WriteFile, se
+  obtiene la posicion logica y se hace seek a ella bajo el mutex de E/S antes
+  de cambiar de direccion. Seek explicito reinicia el estado. Flush y truncado
+  tambien reconcilian una lectura previa. No depende de la extension de glibc
+  ni de que newlib descarte un buffer sin reposicionar el descriptor.
+- CloseHandle invalida el handle para nuevas operaciones y espera en una
+  condicion hasta terminar todas las operaciones ya fijadas. El closer posee
+  el flush/sync y fclose finales; ningun otro hilo recicla el slot antes.
+  La espera libera files_guard y no mantiene el mutex durante E/S.
+- Un fallo de sincronizacion o cierre devuelve FALSE y su error real; disco
+  lleno se traduce a112, fallo generico de E/S a1117. Tras un cierre final,
+  incluso fallido, el handle queda consumido y no debe volver a utilizarse.
+  Si falla la espera de condicion antes de cerrar, el handle se restaura.
+- La fixture comprueba leer3/escribir3/leer3 en un archivo de20000bytes, luego
+  verifica todos los bytes desde el host. Inyecta fallos separados de sync y
+  fclose y verifica los errores112/1117 y el handle invalidado. Dos hilos con
+  eventos prueban deterministamente el cierre mientras WriteFile esta fijado.
+  Los hooks de inyeccion solo se compilan con FNV_TEST_FILE_IO en la fixture.
+
+La regresion de lectura compara2000operaciones y128bloques de cursor compartido
+contra Windows. Su ejecutable de prueba requiere reserva de stack8MiB; con el
+valor PE anterior de2MiB falla por stack overflow, antes de terminar la suite.
+El proveedor y la integracion libnx pasan compilacion estricta. Estas pruebas
+no son una medicion de la SD ni una ejecucion de newlib en consola; la validacion
+fisica de las transiciones queda pendiente. Sincronizar al cerrar puede costar
+latencia de SD, que aun no se ha medido con el motor.

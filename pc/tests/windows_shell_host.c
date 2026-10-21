@@ -11,15 +11,36 @@
 #define OUTPUT (BASE+0x80000u)
 _Static_assert(CSIDL_PERSONAL==5 && CSIDL_LOCAL_APPDATA==0x1c,"Windows folder identifiers");
 static unsigned char *arena;
+int fnv_test_file_sync_failure,fnv_test_file_close_failure;
+static _Thread_local uint32_t test_stack=BASE+0x1BF00;
+static HANDLE io_entered,io_release,close_waiting;
+static volatile LONG gate_enabled;
+void fnv_test_file_io_gate(uint32_t operation){
+    if(operation==2 && InterlockedCompareExchange(&gate_enabled,0,0)){
+        assert(SetEvent(io_entered));assert(WaitForSingleObject(io_release,5000)==WAIT_OBJECT_0);
+    }
+}
+void fnv_test_file_close_wait(void){if(close_waiting)assert(SetEvent(close_waiting));}
 static void write32(uint32_t at,uint32_t v){for(unsigned i=0;i<4;i++)arena[at-BASE+i]=(unsigned char)(v>>(8*i));}
 static uint32_t read32(uint32_t at){uint32_t v=0;for(unsigned i=0;i<4;i++)v|=(uint32_t)arena[at-BASE+i]<<(8*i);return v;}
 static uint32_t execute(unsigned api,const uint32_t *args,unsigned count,struct fnv_cpu_fault *fault){
-    struct fnv_cpu_state before,after;assert(fnv_cpu_get_state(&before)==FNV_CPU_OK);before.gpr[4]=BASE+0x1BF00;
+    struct fnv_cpu_state before,after;assert(fnv_cpu_get_state(&before)==FNV_CPU_OK);before.gpr[4]=test_stack;
     assert(fnv_cpu_set_state(&before)==FNV_CPU_OK);write32(before.gpr[4],0x401500);
     for(unsigned i=0;i<count;i++)write32(before.gpr[4]+4+i*4,args[i]);
     enum fnv_cpu_result r=fnv_cpu_execute(0x401500+api*64,fault);
     if(r==FNV_CPU_OK){assert(fnv_cpu_get_state(&after)==FNV_CPU_OK && after.gpr[4]==before.gpr[4]+4+count*4);return after.gpr[0];}
     return UINT32_MAX;
+}
+struct close_race {struct fnv_windows_process *process;uint32_t handle,index;};
+static DWORD WINAPI close_race_thread(void *context){
+    struct close_race *r=context;struct fnv_windows_thread_config t={0};
+    t.thread_id=100+r->index;t.teb_address=BASE+0x20000+r->index*0x10000;t.tls_expansion_address=t.teb_address+4096;
+    t.stack_low=t.teb_address+0x4000;t.stack_high=t.teb_address+0xc000;
+    fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);test_stack=t.stack_high-256;
+    assert(fnv_windows_thread_attach(r->process,&t)==FNV_CPU_OK);struct fnv_cpu_fault fault;
+    uint32_t args[5]={r->handle,BASE+0xa0000,3,BASE+0xb0000,0};
+    if(r->index)assert(execute(8,args,1,&fault));else assert(execute(2,args,5,&fault));
+    assert(fnv_windows_thread_detach()==FNV_CPU_OK);return 0;
 }
 static void check_directory(const char *root,const char *suffix){char path[2048];
     int n=snprintf(path,sizeof(path),"%s/%s",root,suffix);assert(n>0 && (size_t)n<sizeof(path));DWORD attr=GetFileAttributesA(path);
@@ -89,6 +110,41 @@ int main(int argc,char **argv){
     unsigned char verify[sizeof(payload)];DWORD got=0;assert(ReadFile(native,verify,sizeof(verify),&got,NULL) && got==3);
     for(size_t i=0;i<got;++i){assert(verify[i]==0x6b);}
     CloseHandle(native);
+    /* Exercise both update-stream directions without an intervening guest seek. */
+    write_open[1]=GENERIC_READ|GENERIC_WRITE;write_open[4]=CREATE_ALWAYS;
+    handle=execute(1,write_open,7,&fault);assert(handle!=UINT32_MAX);
+    unsigned char sequence[20000];for(size_t i=0;i<sizeof(sequence);i++)sequence[i]=(unsigned char)(i*17);
+    memcpy(arena+0xa0000,sequence,sizeof(sequence));write_args[1]=BASE+0xa0000;write_args[0]=handle;write_args[2]=sizeof(sequence);
+    assert(execute(2,write_args,5,&fault));seek_args[1]=0;seek_args[0]=handle;assert(execute(4,seek_args,5,&fault));
+    read_args[0]=handle;read_args[2]=3;assert(execute(7,read_args,5,&fault) && !memcmp(arena+0x91000,sequence,3));
+    memcpy(arena+0xa0000,"XYZ",3);write_args[2]=3;assert(execute(2,write_args,5,&fault));
+    assert(execute(7,read_args,5,&fault) && !memcmp(arena+0x91000,sequence+6,3));
+    assert(execute(8,&handle,1,&fault));
+    native=CreateFileA(fixture,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);assert(native!=INVALID_HANDLE_VALUE);
+    unsigned char verify_io[20000];assert(ReadFile(native,verify_io,sizeof(verify_io),&got,NULL) && got==sizeof(sequence) && CloseHandle(native));
+    memcpy(sequence+3,"XYZ",3);assert(!memcmp(sequence,verify_io,sizeof(sequence)));
+    /* Close errors propagate while the consumed guest handle stays invalid. */
+    handle=execute(1,write_open,7,&fault);assert(handle!=UINT32_MAX);write_args[0]=handle;
+    assert(execute(2,write_args,5,&fault));fnv_test_file_sync_failure=1;
+    assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==112);fnv_test_file_sync_failure=0;
+    assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==6);
+    handle=execute(1,write_open,7,&fault);assert(handle!=UINT32_MAX);fnv_test_file_close_failure=1;
+    assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==1117);fnv_test_file_close_failure=0;
+    assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==6);
+    /* A real in-flight write is pinned while CloseHandle waits for it. */
+    handle=execute(1,write_open,7,&fault);assert(handle!=UINT32_MAX);
+    io_entered=CreateEventA(NULL,TRUE,FALSE,NULL);io_release=CreateEventA(NULL,TRUE,FALSE,NULL);close_waiting=CreateEventA(NULL,TRUE,FALSE,NULL);
+    assert(io_entered && io_release && close_waiting);InterlockedExchange(&gate_enabled,1);
+    struct close_race race[2]={{process,handle,0},{process,handle,1}};
+    HANDLE writing=CreateThread(NULL,0,close_race_thread,race,0,NULL);assert(writing);
+    assert(WaitForSingleObject(io_entered,5000)==WAIT_OBJECT_0);
+    HANDLE closing=CreateThread(NULL,0,close_race_thread,race+1,0,NULL);assert(closing);
+    assert(WaitForSingleObject(close_waiting,5000)==WAIT_OBJECT_0);
+    assert(WaitForSingleObject(closing,0)==WAIT_TIMEOUT && SetEvent(io_release));
+    assert(WaitForSingleObject(writing,5000)==WAIT_OBJECT_0 && WaitForSingleObject(closing,5000)==WAIT_OBJECT_0);
+    InterlockedExchange(&gate_enabled,0);assert(CloseHandle(writing) && CloseHandle(closing));
+    assert(CloseHandle(io_entered) && CloseHandle(io_release) && CloseHandle(close_waiting));close_waiting=NULL;
+    assert(!execute(8,&handle,1,&fault) && read32(t.teb_address+0x34)==6);
     /* Delete real profile files, but preserve game assets and open files. */
     handle=execute(1,open_args,7,&fault);assert(handle!=UINT32_MAX);
     uint32_t delete_args[1]={BASE+0x90000};
@@ -148,5 +204,5 @@ int main(int argc,char **argv){
     static const char escape_path[]="C:\\Users\\FNV\\..\\escape.bin";memcpy(arena+BASE+0x90000-BASE,escape_path,sizeof(escape_path));
     open_args[0]=BASE+0x90000;assert(execute(1,open_args,7,&fault)==UINT32_MAX && read32(t.teb_address+0x34)==5);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"documents_profile\":true,\"exclusive_profile_copy\":true,\"profile_delete\":true,\"readonly_game_delete_denied\":true,\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
+    printf("{\"status\":\"PASS\",\"api\":\"SHELL32!SHGetFolderPathA\",\"csidl\":28,\"mapped_root\":\"UserData/FNV/AppData/Local\",\"documents_profile\":true,\"alternating_read_write\":true,\"close_sync_errors\":true,\"close_waits_for_pinned_write\":true,\"exclusive_profile_copy\":true,\"profile_delete\":true,\"readonly_game_delete_denied\":true,\"profile_directory_create\":true,\"profile_file_read\":true,\"profile_create_truncate_write\":true,\"set_end_of_file_truncate\":true,\"flush_write_handle\":true,\"readonly_access_rejected\":true,\"relative_game_mutation_rejected\":true,\"traversal_rejected\":true,\"last_error_preserved\":true,\"engine_started\":false}\n");return 0;
 }
