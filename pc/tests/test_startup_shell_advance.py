@@ -47,6 +47,15 @@ class RefreshGuards(unittest.TestCase):
         with self.assertRaises(ValueError):
             require_current_proof(proof,[source,header])
 
+    def test_cpuid_requires_its_current_header(self):
+        cpuid=self.pc/'native/guest_cpuid.h';cpuid.write_text('limits v1')
+        proof=dict(status='PASS',source_sha256={str(self.abi):sha(self.abi)})
+        with self.assertRaises(ValueError):require_current_proof(proof,[cpuid,self.abi])
+        proof['source_sha256'][str(cpuid)]=sha(cpuid)
+        require_current_proof(proof,[cpuid,self.abi])
+        cpuid.write_text('limits v2')
+        with self.assertRaises(ValueError):require_current_proof(proof,[cpuid,self.abi])
+
     def test_direct_header_dependency_rejected(self):
         self.game.write_text('#include "windows_thread.h"\n')
         with self.assertRaises(ValueError):

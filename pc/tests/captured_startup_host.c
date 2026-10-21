@@ -1,6 +1,7 @@
 #include <windows.h>
 #include "fnv_sdk_runtime.h"
 #include "windows_thread.h"
+#include "guest_cpuid.h"
 #include "windows_memory.h"
 #include "windows_modules.h"
 #include "windows_user32.h"
@@ -161,7 +162,7 @@ int main(int argc,char **argv){
     struct fnv_vm_permissions permissions={NULL,permission};struct fnv_guest_memory *vm;
     struct fnv_vm_config v={arena+0x2800000,BASE+0x2800000,vm_bytes,commit_limit,&permissions,fnv_vm_eager_apply};
     assert(!fnv_vm_create(&v,&vm).error);
-    struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;
+    struct fnv_windows_config c={0};c.cpu.cpuid=fnv_guest_cpuid_limits;c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;
     c.cpu.diagnostic=capture_fault;
     c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;c.image_bytes=image.size;c.process_id=0x1711;c.peb_address=BASE+0x2000000;
     c.memory=vm;c.heap_address=BASE+0x2400000;c.heap_bytes=0x400000;c.heap_capacity=65536;c.private_heap_reserve=0x1000000;c.private_heap_limit=8;

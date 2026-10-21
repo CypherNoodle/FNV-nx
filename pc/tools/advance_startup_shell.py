@@ -98,7 +98,10 @@ def refresh(a):
     require_current_proof(kernel_proof, common)
     user32_proof = json.loads(a.user32_test.read_text())
     require_current_proof(user32_proof, [native / 'windows_user32.c', native / 'windows_user32.h', *common])
-    for path in (baseline, a.profile_test.resolve(), a.kernel_test.resolve(), a.user32_test.resolve(), Path(__file__).resolve(), a.exe.resolve()):
+    cpuid = native / 'guest_cpuid.h'
+    require_current_proof(json.loads(a.cpuid_test.read_text()), [cpuid, *common])
+    frozen[str(cpuid.resolve())] = sha(cpuid)
+    for path in (baseline, a.profile_test.resolve(), a.kernel_test.resolve(), a.user32_test.resolve(), a.cpuid_test.resolve(), Path(__file__).resolve(), a.exe.resolve()):
         frozen[str(path)] = sha(path)
     for name, digest in old['generated_files_sha256'].items():
         if Path(name).name != name:
@@ -187,6 +190,6 @@ def refresh(a):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('baseline', 'exe', 'sdk', 'output', 'profile-test', 'kernel-test', 'user32-test', 'file-root'):
+    for name in ('baseline', 'exe', 'sdk', 'output', 'profile-test', 'kernel-test', 'user32-test', 'cpuid-test', 'file-root'):
         parser.add_argument('--' + name, type=Path, required=True)
     refresh(parser.parse_args())

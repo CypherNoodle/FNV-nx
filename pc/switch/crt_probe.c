@@ -8,6 +8,7 @@
 #include <strings.h>
 #include "fnv_sdk_runtime.h"
 #include "windows_thread.h"
+#include "guest_cpuid.h"
 #include "windows_modules.h"
 #include "windows_user32.h"
 #include "windows_system.h"
@@ -62,7 +63,7 @@ static void run_probe(void) {
     struct fnv_vm_config vm_config={arena+0x2800000,image.base+0x2800000,0x1800000,0x1000000,&permissions,fnv_vm_eager_apply};
     struct fnv_guest_memory *vm=NULL;struct fnv_vm_result vr=fnv_vm_create(&vm_config,&vm);
     report("VM error=%u native=%08X\n",(unsigned)vr.error,(unsigned)vr.native_error);NEED(!vr.error,"Horizon VM permissions");
-    struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=image.base;c.cpu.memory_bytes=ARENA;
+    struct fnv_windows_config c={0};c.cpu.cpuid=fnv_guest_cpuid_limits;c.cpu.memory=arena;c.cpu.guest_base=image.base;c.cpu.memory_bytes=ARENA;
     c.cpu.code_low=image.base+0x1000;c.cpu.code_high=image.base+image.size;c.cpu.diagnostic=diagnostic;
     c.image_bytes=image.size;c.process_id=0x1711;c.peb_address=image.base+0x2000000;c.memory=vm;
     c.heap_address=image.base+0x2400000;c.heap_bytes=0x400000;c.heap_capacity=65536;c.private_heap_reserve=0x1000000;c.private_heap_limit=8;

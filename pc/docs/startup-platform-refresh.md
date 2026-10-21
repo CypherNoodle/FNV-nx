@@ -69,3 +69,10 @@ sub_00A5B690/sub_00A5B5A0. Source of that invalid length is not established;
 no function is skipped and no success stub or instruction patch is introduced.
 All cache records are re-evaluated against the exact ARM64 model before reuse.
 This diagnosis is not an engine frame or evidence of hardware performance.
+
+
+The desktop and Switch CRT adapters now select the bounded guest CPUID limit
+callback. Platform refresh requires --cpuid-test, verifies the current
+native/guest_cpuid.h plus common Windows runtime hashes and freezes both the
+header and proof before compiling. The callback does not expose host CPU bits.
+See [guest CPUID contract](guest-cpuid.md) for supported/unsupported leaves.
