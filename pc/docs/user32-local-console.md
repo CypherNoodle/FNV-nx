@@ -42,3 +42,41 @@ structure or guess unlimited processors. SYSTEM_INFO32 layout/pointer validation
 need tests before continuing the engine.
 
 Reference: [Microsoft GetSystemMetrics](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmetrics).
+
+
+FindWindowA now searches a process-owned virtual desktop. The native window
+adapter can register/remove up to16 top-level windows with ASCII class/title
+strings; guest handles never contain a host HWND. Search is case-insensitive,
+NULL class/title are wildcards, and found/missing results preserve LastError.
+Removed handles are not reused during the desktop lifetime. Window creation
+through the guest Win32 API is still unimplemented: a fresh startup desktop
+is empty until the native window adapter registers a window.
+
+Create this singleton desktop before attaching guest threads and destroy it
+after every thread detaches. Runtime token registration makes premature destroy
+return BUSY. The registry is protected by a blocking mutex. Class atoms,
+non-ASCII strings, overlong strings and inaccessible pointers explicitly fault;
+there is no fallback success or unconditional no-window result.
+
+The synthetic translated test checks positive and negative lookups, three
+comparisons with a real Windows top-level window (including case folding and
+NULL class), NULL title, removal/stale handles, capacity exhaustion, singleton
+lifecycle, LastError and stdcall. Eight negative processes cover unsupported
+metrics and query encodings/pointers/atoms/length. USER32 and the Switch CRT
+adapter pass strict devkitA64/libnx syntax checks. This is not a hardware result.
+
+Platform refresh now allows the USER32 source/header only with a fresh current
+USER32 proof covering its source, header and common Windows runtime. Dependency
+reuse still rejects game units that include a changed platform header; the
+extended guard suite has ten tests. Older profile/kernel proofs remain valid
+only while all of their recorded runtime input hashes are unchanged.
+
+Contract: [Microsoft FindWindowA](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-findwindowa).
+
+
+The fresh captured-startup diagnostic passes FindWindowA and next stops at
+ADVAPI32.GetUserNameA (166070 calls,56 exact ARM64 math records/58 hits).
+The earlier copy run counted166083 calls; that is not a regression metric:
+the private profile now already contains FALLOUT.INI, so startup takes its
+existing-config branch. These are bounded desktop diagnostics with captured
+text, not cold EXE startup, a game frame or Switch execution.
