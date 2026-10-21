@@ -63,3 +63,28 @@ Returning a fabricated successful HWND would not prove either requirement.
 
 The existing controlled-stop diagnostic still reports worker failures and a
 busy teardown; this prelude does not claim to repair that separate limitation.
+
+## Nested callback primitive
+
+`fnv_cpu_invoke_stdcall` is now available to native bridges inside an active
+execution boundary. It accepts a prepared guest stack frame below the active
+ESP, invokes a registered translated/native target, validates stdcall cleanup
+and nonvolatile registers, then restores the caller's CPU state and returns the
+callback's EAX. Memory side effects remain. Register restoration includes vectors
+and the selected x87 model, including all 80-bit state in the extended build.
+
+A callback fault propagates to the outer execution boundary with its original
+state; it is not converted into successful window creation. There is no nested
+fault catcher. Guest thread exit likewise unwinds to the existing boundary.
+Frames are limited to 256 argument bytes and nesting to 16. The invoking bridge
+must validate its actual guest stack bounds and VM permissions before preparing
+the frame: the CPU helper checks flat backing bounds, not page permissions.
+No provider lock may be held across guest code execution.
+
+`pc/tests/test_cpu_callbacks.py` exercises 300 invocations with 100 nested pairs,
+checks whole-state restoration after XMM/x87 mutation and checks six fault
+cases (target, frame overlap, return ABI, nonvolatile register, unsupported
+instruction and nesting limit). Pass `--x87-build` with a verified host extended
+core to repeat against the 80-bit state ABI. The extended CPU runtime also
+compiles for libnx with Cortex-A57 and soft-TLS options. This primitive alone
+does not implement CreateWindowExA or Horizon surface creation.

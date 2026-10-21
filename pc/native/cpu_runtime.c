@@ -46,6 +46,7 @@ static RECOMP_TLS struct fnv_cpu_runtime *thread_runtime;
 static RECOMP_TLS jmp_buf *fault_boundary;
 static RECOMP_TLS struct fnv_cpu_fault thread_fault;
 static RECOMP_TLS uint32_t thread_entry;
+static RECOMP_TLS unsigned callback_depth;
 static RECOMP_TLS uint64_t last_timestamp;
 static RECOMP_TLS int has_timestamp;
 static void lock(void) { while(atomic_flag_test_and_set_explicit(&lifecycle,memory_order_acquire)) {} }
@@ -217,7 +218,7 @@ enum fnv_cpu_result fnv_cpu_attach(struct fnv_cpu_runtime *r,const struct fnv_cp
     if(thread_runtime)return FNV_CPU_BUSY;
     lock();if(!r || active!=r || !valid_state(r,s)){unlock();return FNV_CPU_INVALID;}
     if(atomic_load_explicit(&r->faulted,memory_order_acquire)){unlock();return FNV_CPU_FAULTED;}
-    r->users++;r->started=1;thread_runtime=r;unlock();restore_state(s);has_timestamp=0;last_timestamp=0;
+    r->users++;r->started=1;thread_runtime=r;callback_depth=0;unlock();restore_state(s);has_timestamp=0;last_timestamp=0;
     memset(&thread_fault,0,sizeof(thread_fault));fnv_cpu_icall_trace_idx=0;fnv_cpu_icall_count=0;
     for(unsigned i=0;i<16;i++)fnv_cpu_icall_trace[i]=0;
     return FNV_CPU_OK;
@@ -284,6 +285,33 @@ enum fnv_cpu_result fnv_cpu_execute(uint32_t entry,struct fnv_cpu_fault *out) {
     fault_boundary=NULL;if(reason==2)return FNV_CPU_THREAD_EXIT;
     if(out)*out=thread_fault;
     return FNV_CPU_GUEST_FAULT;
+}
+uint32_t fnv_cpu_invoke_stdcall(uint32_t entry,uint32_t frame,uint32_t bytes){
+    if(!thread_runtime || !fault_boundary)
+        fail(FNV_CPU_UNIMPLEMENTED,entry,0,"guest callback outside execution boundary");
+    if(atomic_load_explicit(&thread_runtime->faulted,memory_order_acquire))
+        fail(FNV_CPU_PEER_FAULT,entry,0,"guest callback after peer fault");
+    uint64_t end=(uint64_t)frame+4u+bytes;
+    if((frame&3u) || (bytes&3u) || bytes>256 || end>g_esp || end>UINT32_MAX ||
+       !within(thread_runtime,frame,(size_t)bytes+4u))
+        fail(FNV_CPU_BAD_MEMORY,frame,bytes,"invalid guest callback frame");
+    if(callback_depth>=16)fail(FNV_CPU_UNIMPLEMENTED,entry,callback_depth,"guest callback nesting limit");
+    if(!RECOMP_ICALL_IS_CODE(entry))recomp_icall_not_code_log(entry);
+    recomp_func_t fn=recomp_lookup_manual(entry);
+    if(!fn)fn=recomp_lookup(entry);
+    if(!fn)fn=recomp_lookup_kernel(entry);
+    if(!fn)recomp_icall_fail_log(entry);
+    struct fnv_cpu_state caller;save_state(&caller);
+    callback_depth++;g_esp=frame;
+    fnv_cpu_icall_trace[fnv_cpu_icall_trace_idx++&15]=entry;fnv_cpu_icall_count++;
+    fn();
+    if(g_esp!=(uint32_t)end || g_ebx!=caller.gpr[3] || g_ebp!=caller.gpr[5] ||
+       g_esi!=caller.gpr[6] || g_edi!=caller.gpr[7] || g_fs_base!=caller.fs_base || g_df)
+        fail(FNV_CPU_UNIMPLEMENTED,entry,g_esp,"guest callback stdcall ABI mismatch");
+    uint32_t answer=g_eax;restore_state(&caller);callback_depth--;
+    if(atomic_load_explicit(&thread_runtime->faulted,memory_order_acquire))
+        fail(FNV_CPU_PEER_FAULT,entry,0,"guest callback completed after peer fault");
+    return answer;
 }
 _Noreturn void fnv_cpu_exit_thread(uint32_t code){
     if(!thread_runtime || !fault_boundary)fail(FNV_CPU_UNIMPLEMENTED,0,0,"thread exit outside execution boundary");

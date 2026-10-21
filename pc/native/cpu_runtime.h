@@ -26,6 +26,7 @@
 #define fnv_cpu_get_state fnv_cpu_get_state_x87e1
 #define fnv_cpu_set_state fnv_cpu_set_state_x87e1
 #define fnv_cpu_execute fnv_cpu_execute_x87e1
+#define fnv_cpu_invoke_stdcall fnv_cpu_invoke_stdcall_x87e1
 #define fnv_cpu_exit_thread fnv_cpu_exit_thread_x87e1
 #define fnv_cpu_memory fnv_cpu_memory_x87e1
 #define fnv_cpu_try_memory fnv_cpu_try_memory_x87e1
@@ -126,6 +127,12 @@ enum fnv_cpu_result fnv_cpu_set_state(const struct fnv_cpu_state *);
  * the session. Other threads stop at entry/return boundaries; there is no
  * asynchronous preemption of an already running guest loop. No reentrant call. */
 enum fnv_cpu_result fnv_cpu_execute(uint32_t entry, struct fnv_cpu_fault *);
+/* Native bridge only, inside execute: run a nested guest stdcall on a caller-
+ * prepared frame below the active ESP. Caller validates stack/VM permissions
+ * and supplies return VA + arguments. Restores CPU register/x87/vector state
+ * on success, preserving memory side effects; returns callback EAX. Invalid
+ * frame/ABI or guest faults unwind to the outer execute boundary. */
+uint32_t fnv_cpu_invoke_stdcall(uint32_t entry,uint32_t frame,uint32_t argument_bytes);
 /* Nonfaulting control-flow unwind to the current execute boundary. EAX holds
  * the exit code; caller must detach/complete its thread. Never under a lock. */
 _Noreturn void fnv_cpu_exit_thread(uint32_t code);
