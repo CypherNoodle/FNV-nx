@@ -158,13 +158,14 @@ def run(analysis, sdk, deps=None, stage="all", max_functions=None, generation_na
     for name,digest in scan["files"].items():
         if sha(analysis/"disasm"/name)!=digest: raise ValueError("Modified disassembly: "+name)
     code_data_filter=None
-    if scan.get('code_data_filter'):
+    if 'code_data_filter' in scan or 'indexed_table_filter' in scan:
         if generation_name is None: raise ValueError('Filtered selection requires a separate named generation')
         if deps: sys.path.insert(0,str(deps.resolve()))
         import capstone
-        from aot_code_data import verify_derivation
+        from aot_table_selection import verify_derivation
         decoder=capstone.Cs(capstone.CS_ARCH_X86,capstone.CS_MODE_32);decoder.detail=True
         code_data_filter=verify_derivation(analysis,decoder)
+        if not code_data_filter:raise ValueError('Filtered scan lacks a valid selection proof')
     # No Xbox kernel/RenderWare signatures are assumed to describe FNV PC.
     classifications=paths['classifications']
     classifications.mkdir(exist_ok=True)

@@ -11,7 +11,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from aot_code_data import verify_derivation, address
+from aot_code_data import address
+from aot_table_selection import verify_derivation
 from run_aot_analysis import generation_paths, sdk_identity, sha
 
 
@@ -65,6 +66,20 @@ def matching_generation_inputs(before, after):
             raise ValueError('Unexpected generation input difference: '+field)
     if after.get('normal_frame_helpers') and not after.get('frame_restore_overlay'):
         raise ValueError('Normal-frame helpers require the frame restore overlay')
+    old_x87,new_x87=before.get('x87_extended_overlay'),after.get('x87_extended_overlay')
+    if bool(old_x87)!=bool(new_x87):raise ValueError('Unexpected extended-x87 mode change')
+    if old_x87:
+        if ({k:v for k,v in old_x87.items() if k!='source_sha256'}!=
+            {k:v for k,v in new_x87.items() if k!='source_sha256'}):
+            raise ValueError('Unexpected extended-x87 profile/state change')
+        runner=str(Path(__file__).with_name('run_aot_analysis.py').resolve())
+        old_sources=old_x87.get('source_sha256',{});new_sources=new_x87.get('source_sha256',{})
+        if (runner not in old_sources or runner not in new_sources or
+            {p:h for p,h in old_sources.items() if p!=runner}!=
+            {p:h for p,h in new_sources.items() if p!=runner}):
+            raise ValueError('Extended-x87 translator/runtime source changed')
+        # The runner may gain selection validation. Every retained generated
+        # body is still compared below; arithmetic/codegen inputs must match.
 
 
 def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps, output, jobs, linker=None, nm=None, audit_only=False):
@@ -88,6 +103,10 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
     if sdk_hash!=after['sdk_sha256']: raise ValueError('SDK changed')
     pc=Path(__file__).resolve().parents[1]
     frozen={}
+    for filename,digest in (after.get('x87_extended_overlay') or {}).get('source_sha256',{}).items():
+        path=Path(filename)
+        if sha(path)!=digest:raise ValueError('Changed extended-x87 generation source')
+        frozen[path]=digest
     for field,stem in (('codegen_overlay','simd_bits'),('multiply_overlay','mul_flags')):
         for key,p in (('source_sha256',pc/'tools'/('aot_'+stem+'.py')),
                       ('runtime_header_sha256',pc/'native'/('fnv_'+stem+'.h'))):
@@ -108,7 +127,7 @@ def verify(analysis, name, baseline_analysis, baseline_name, sdk, compiler, deps
         p=pc/'tools/aot_eh3_frames.py'
         if sha(p)!=info['source_sha256']:raise ValueError('EH3 overlay changed')
         frozen[p]=sha(p);p=pc/'tools/audit_eh3_helpers.py';frozen[p]=sha(p)
-    for p in (pc/'tools/aot_code_data.py',pc/'tools/verify_aot_code_data.py',paths['report'],old_paths['report'],analysis/'scan-identity.json'):
+    for p in (pc/'tools/aot_code_data.py',pc/'tools/aot_table_selection.py',pc/'tools/audit_orphan_jump_tables.py',pc/'tools/verify_aot_code_data.py',paths['report'],old_paths['report'],analysis/'scan-identity.json'):
         frozen[p]=sha(p)
     runtime_headers={p:sha(p) for directory in (sdk/'templates/runtime',sdk/'src/kernel') for p in directory.rglob('*.h')}
     frozen.update(runtime_headers)

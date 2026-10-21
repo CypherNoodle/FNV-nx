@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
-from aot_code_data import verify_derivation
+from aot_table_selection import verify_derivation
 from run_aot_analysis import generation_paths, sdk_identity, sha
 from x87_models import MODELS,TRIG_MODEL,model_flags,model_symbols
 

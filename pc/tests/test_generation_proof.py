@@ -34,6 +34,17 @@ def run(output):
     reject(lambda:matching_generation_inputs(incompatible,incompatible))
     legacy={k:v for k,v in report.items() if k not in ('normal_frame_helpers','frame_restore_overlay')}
     matching_generation_inputs(legacy,deepcopy(legacy));checks+=1
+    extended=deepcopy(report)
+    runner=str(Path(__file__).resolve().parents[1]/'tools/run_aot_analysis.py')
+    extended['x87_extended_overlay']={'profile':'fixture','source_sha256':{runner:'old','math.c':'stable'}}
+    routed=deepcopy(extended);routed['x87_extended_overlay']['source_sha256'][runner]='new'
+    matching_generation_inputs(extended,routed);checks+=1
+    for field in ('profile','source_sha256'):
+        bad=deepcopy(routed)
+        if field=='profile':bad['x87_extended_overlay'][field]='different'
+        else:bad['x87_extended_overlay'][field]['math.c']='changed'
+        reject(lambda:matching_generation_inputs(extended,bad))
+    reject(lambda:matching_generation_inputs(report,routed))
     selection={'excluded_entries':[16]};generation={'code_data_filter':selection}
     audit={'status':'PASS','retained_function_bodies_identical':True,
            'variant_report_sha256':'report-hash','selection':selection}
