@@ -56,6 +56,16 @@ class RefreshGuards(unittest.TestCase):
         cpuid.write_text('limits v2')
         with self.assertRaises(ValueError):require_current_proof(proof,[cpuid,self.abi])
 
+    def test_callback_provider_requires_both_sources(self):
+        header=self.pc/'native/steam_callbacks.h';header.write_text('ABI v1')
+        source=self.pc/'native/steam_callbacks.c';source.write_text('registry v1')
+        proof=dict(status='PASS',source_sha256={str(source):sha(source)})
+        with self.assertRaises(ValueError):require_current_proof(proof,[source,header])
+        proof['source_sha256'][str(header)]=sha(header)
+        require_current_proof(proof,[source,header])
+        source.write_text('registry v2')
+        with self.assertRaises(ValueError):require_current_proof(proof,[source,header])
+
     def test_direct_header_dependency_rejected(self):
         self.game.write_text('#include "windows_thread.h"\n')
         with self.assertRaises(ValueError):
