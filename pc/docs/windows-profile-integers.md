@@ -57,9 +57,15 @@ old shared interfaces. Its dependency guard has five synthetic checks. Neither
 tool modifies generated game functions or the EXE. Observations, fixtures,
 generated code, objects and replay records remain private local/ outputs.
 
-Captured startup now reaches SHELL32.SHGetFolderPathA at 166,060 calls. A virtual
-Documents mapping inside the port's authorized storage is the next step. No
-engine frame, cold EXE launch, full profile API coverage or HW result is claimed.
+Captured startup reaches SHELL32.SHGetFolderPathA at 166,060 calls with a null
+window/token, CSIDL 0x1c, and flags 0. Microsoft defines 0x1c as
+CSIDL_LOCAL_APPDATA, not Documents. The shell provider and guest-profile path
+mapping are still unimplemented. Before returning success, the port needs a
+consistent virtual user profile under its authorized storage and file APIs
+that can map that path without exposing host directories. The current file
+provider is read-only. No engine frame, cold EXE launch, full profile API
+coverage, save support, or HW result is claimed.
 
 References: [Microsoft GetPrivateProfileInt](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofileint),
-[Microsoft profile string syntax](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofilestring).
+[Microsoft profile string syntax](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprivateprofilestring),
+[Microsoft CSIDL list](https://learn.microsoft.com/en-us/windows/win32/shell/csidl).
