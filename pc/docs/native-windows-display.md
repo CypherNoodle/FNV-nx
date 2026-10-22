@@ -75,7 +75,8 @@ El replay privado ya supera display enumeration y screen width/height. El runner
 opcional FNV_STARTUP_VULKAN registra ahora nuestro proveedor D3D9 sobre un
 dispositivo Vulkan real offscreen. LoadLibraryA(d3d9.dll) y Direct3DCreate9
 resuelven; GetAdapterIdentifier usa las propiedades del dispositivo seleccionado.
-La traza muestra consultas de modos y GetDeviceCaps HAL/REF sin implementar.
+La traza muestra consultas de modos y GetDeviceCaps HAL con un perfil limitado;
+REF sigue indisponible. Ver [capacidades](native-d3d9-caps.md).
 El motor toma la salida al launcher; no se ejecuta ShellExecute ni se oculta
 ese fallo. Ver [arranque con Vulkan](startup-vulkan-diagnostic.md).
 No hay frame del motor, arranque frio ni nueva prueba en consola.

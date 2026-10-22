@@ -482,6 +482,42 @@ uint32_t fnv_vk_backend_adapter_identifier(struct fnv_vk_backend *d,void *out,ui
     memcpy(candidate+1080,d->properties.pipelineCacheUUID,VK_UUID_SIZE);
     fnv_host_mutex_unlock(&d->guard);memcpy(out,candidate,sizeof(candidate));return 0;
 }
+/* Deliberately limited D3D9 profile: physical limits intersect implemented
+ * bridge operations. Offline shader catalogs do not imply generic SM support. */
+uint32_t fnv_vk_backend_device_caps(struct fnv_vk_backend *d,void *out,uint32_t bytes){
+    if(!d || !out || bytes!=304)return FNV_VK_INVALID;
+    unsigned char packed[304];uint32_t words[76]={0};
+    fnv_host_mutex_lock(&d->guard);
+    if(d->lost || !d->device_refs){fnv_host_mutex_unlock(&d->guard);return FNV_VK_LOST;}
+    const VkPhysicalDeviceLimits *l=&d->properties.limits;
+    words[0]=1; /* HAL; adapter ordinal is zero. */
+    if(d->wsi.chain)words[5]=d->wsi.mode==VK_PRESENT_MODE_FIFO_KHR?1u:0x80000000u;
+    words[7]=0x00080000u; /* HW rasterization, not fixed-function HW T&L. */
+    words[8]=0x000208f0u; /* culling, color mask, blend op, separate alpha. */
+    words[9]=0x01000000u | (d->config.auto_depth?0x10u:0); /* scissor, optional Z. */
+    words[10]=d->config.auto_depth?0xffu:0; /* all eight depth comparisons. */
+    words[11]=words[12]=0x67ffu; /* mapped blend factors; no dual-source. */
+    words[15]=0x00004004u; /* mipmapped 2D textures with alpha; no cube/volume. */
+    VkFormatProperties color;d->v.GetPhysicalDeviceFormatProperties(d->physical,VK_FORMAT_R8G8B8A8_UNORM,&color);
+    words[16]=0x01010100u; /* point min/mag/mip */
+    if(color.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)words[16]|=0x02020200u;
+    words[19]=0x17u; /* wrap/mirror/clamp and independent U/V; no arbitrary border. */
+    words[22]=words[23]=l->maxImageDimension2D<16384?l->maxImageDimension2D:16384;
+    words[25]=1; /* conservative texture-coordinate repetition range */
+    words[26]=words[22];words[27]=1; /* aspect ratio, anisotropy */
+    words[28]=0x3f800000u;words[44]=0x3f800000u; /* MaxVertexW/point size1 */
+    words[45]=65534; /* conservative supported primitive budget, not UINT32_MAX. */
+    words[46]=l->maxDrawIndexedIndexValue<0xffffffu?l->maxDrawIndexedIndexValue:0xffffffu;
+    words[47]=l->maxVertexInputBindings<16?l->maxVertexInputBindings:16;
+    words[48]=l->maxVertexInputBindingStride;
+    words[58]=1; /* one adapter in the group */
+    words[60]=1; /* one color target, not MRT */
+    /* Shader versions/constants, fixed-function stages, lights, stencil,
+     * instancing, clip planes, cube/volume and sRGB remain zero. */
+    fnv_host_mutex_unlock(&d->guard);
+    for(unsigned i=0;i<76;++i)for(unsigned j=0;j<4;++j)packed[i*4+j]=(unsigned char)(words[i]>>(8*j));
+    memcpy(out,packed,sizeof(packed));return 0;
+}
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);

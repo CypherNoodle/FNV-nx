@@ -18,7 +18,8 @@
 static uint32_t startup_graphics_query(void *context,uint32_t kind,const uint32_t *args,uint32_t count,void *out,uint32_t bytes){
     if(kind==2 && count==2 && !args[0] && !(args[1]&~2u))return fnv_vk_backend_adapter_identifier(context,out,bytes);
     if(kind==0 && count==6)return fnv_vk_backend_check_format(context,args[3],args[4],args[5]);
-    /* Complete D3DCAPS9 is not implemented; do not manufacture success. */
+    if(kind==1 && count==2 && !args[0] && args[1]==1)return fnv_vk_backend_device_caps(context,out,bytes);
+    /* Unknown capabilities must not manufacture success. */
     return 0x8876086au;
 }
 #endif

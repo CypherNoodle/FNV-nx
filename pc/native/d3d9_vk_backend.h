@@ -62,6 +62,11 @@ uint32_t fnv_vk_backend_present_sync(struct fnv_vk_backend *,uint64_t wait_timeo
  * DEFAULT resources/implicit targets reject. Lost-device/WSI recovery pending. */
 uint32_t fnv_vk_backend_reset(struct fnv_vk_backend *,uint64_t wait_timeout_ns);
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *,struct fnv_d3d9_shader_backend *);
+/* Conservative 304-byte packed x86 D3DCAPS9 snapshot. This is an incomplete
+ * D3D9 implementation, not general shader-model conformance. Shader versions
+ * and fixed-function stages remain zero even with a prepared shader catalog.
+ * Invalid/lost inputs leave output untouched. No allocations or guest calls. */
+uint32_t fnv_vk_backend_device_caps(struct fnv_vk_backend *,void *,uint32_t bytes);
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *,struct fnv_vk_stats *);
 /* Clear queues owned commands; EndScene does not submit or observe fences.
  * flush never waits or implicitly retires frames: full ring returns BUSY.

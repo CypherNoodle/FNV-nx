@@ -135,3 +135,8 @@ formatos, caps e identificacion en stderr despues de soltar el lock COM. Sirve
 para localizar el rechazo de arranque, no para medir rendimiento.
 
 Referencia: [GetAdapterIdentifier](https://learn.microsoft.com/en-us/windows/win32/api/d3d9helper/nf-d3d9helper-idirect3d9-getadapteridentifier).
+
+
+Estado posterior: [GetDeviceCaps limitado](native-d3d9-caps.md) ya devuelve una
+imagen HAL valida de304 bytes para el proveedor Vulkan propio. No completa la
+cobertura D3D9 ni anuncia Shader Model sin soporte general verificado.

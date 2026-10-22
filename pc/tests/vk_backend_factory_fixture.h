@@ -1,12 +1,12 @@
 enum {F_IMPORT=65,F_COUNT,F_MODE_COUNT,F_ENUM,F_DISPLAY,F_TYPE,F_FORMAT,F_CAPS,F_DEVICE,F_PARENT,F_CREATION,F_DEVICE_CAPS,F_MONITOR,F_UNAVAILABLE,F_MSAA,F_DEPTH_MATCH};
 enum {F_IDENTIFIER=93};
 static uint32_t factory_public;
-static unsigned factory_checks,identifier_failure;
+static unsigned factory_checks,identifier_failure,caps_failure;
 _Static_assert(sizeof(D3DCAPS9)==304,"D3DCAPS9 packed scalar ABI");
 static uint32_t factory_query(void *ctx,uint32_t kind,const uint32_t *args,uint32_t count,void *output,uint32_t bytes){
     if(kind==2){assert(count==2 && bytes==1104);if(identifier_failure){memset(output,0x33,bytes);return 0x8876086au;}return fnv_vk_backend_adapter_identifier(ctx,output,bytes);}
     if(kind==0){assert(count==6 && !output && !bytes);return fnv_vk_backend_check_format(ctx,args[3],args[4],args[5]);}
-    assert(kind==1 && count==2 && bytes==304);memset(output,0x33,bytes);return 0x8876086au; /* Full caps not implemented. */
+    assert(kind==1 && count==2 && bytes==304);if(!caps_failure)return fnv_vk_backend_device_caps(ctx,output,bytes);memset(output,0x33,bytes);return 0x8876086au; /* Full caps not implemented. */
 }
 /* Independent Vulkan query: the bridge must describe a real enumerated device. */
 static void check_adapter_properties(PFN_vkGetInstanceProcAddr gp){
@@ -19,6 +19,18 @@ static void check_adapter_properties(PFN_vkGetInstanceProcAddr gp){
     assert(enumerate(instance,&count,devices)==VK_SUCCESS);unsigned char record[1104];assert(!fnv_vk_backend_adapter_identifier(gpu,record,sizeof(record)));unsigned matches=0;
     for(uint32_t i=0;i<count;++i){VkPhysicalDeviceProperties p;properties(devices[i],&p);uint32_t vendor,device;memcpy(&vendor,record+1064,4);memcpy(&device,record+1068,4);
         if(vendor==p.vendorID && device==p.deviceID && !strcmp((char*)record+512,p.deviceName) && !memcmp(record+1080,p.pipelineCacheUUID,16))matches++;}
+    D3DCAPS9 caps;unsigned char untouched[304];assert(!fnv_vk_backend_device_caps(gpu,&caps,sizeof(caps)));
+    for(uint32_t i=0;i<count;++i){VkPhysicalDeviceProperties p;properties(devices[i],&p);if(strcmp((char*)record+512,p.deviceName))continue;
+        assert(caps.MaxTextureWidth==(p.limits.maxImageDimension2D<16384?p.limits.maxImageDimension2D:16384) && caps.MaxTextureHeight==caps.MaxTextureWidth);
+        assert(caps.MaxStreamStride==p.limits.maxVertexInputBindingStride && caps.MaxStreams==(p.limits.maxVertexInputBindings<16?p.limits.maxVertexInputBindings:16));
+        assert(caps.MaxVertexIndex==(p.limits.maxDrawIndexedIndexValue<0xffffffu?p.limits.maxDrawIndexedIndexValue:0xffffffu));
+    }
+    assert(caps.PrimitiveMiscCaps==(D3DPMISCCAPS_CULLNONE|D3DPMISCCAPS_CULLCW|D3DPMISCCAPS_CULLCCW|D3DPMISCCAPS_COLORWRITEENABLE|D3DPMISCCAPS_BLENDOP|D3DPMISCCAPS_SEPARATEALPHABLEND));
+    assert(caps.TextureAddressCaps==(D3DPTADDRESSCAPS_WRAP|D3DPTADDRESSCAPS_MIRROR|D3DPTADDRESSCAPS_CLAMP|D3DPTADDRESSCAPS_INDEPENDENTUV));
+    assert(caps.TextureCaps==(D3DPTEXTURECAPS_MIPMAP|D3DPTEXTURECAPS_ALPHA) && !caps.CubeTextureFilterCaps && !caps.VolumeTextureFilterCaps);
+    assert(!caps.VertexShaderVersion && !caps.PixelShaderVersion && !caps.MaxVertexShaderConst && !caps.MaxActiveLights && !caps.StencilCaps && !caps.VertexTextureFilterCaps);
+    memset(untouched,0xa5,sizeof(untouched));assert(fnv_vk_backend_device_caps(gpu,untouched,300)==FNV_VK_INVALID && fnv_vk_backend_device_caps(NULL,untouched,304)==FNV_VK_INVALID && fnv_vk_backend_device_caps(gpu,NULL,304)==FNV_VK_INVALID);
+    for(unsigned i=0;i<sizeof(untouched);++i)assert(untouched[i]==0xa5);
     assert(matches);for(unsigned i=1056;i<1064;++i)assert(!record[i]);for(unsigned i=1072;i<1080;++i)assert(!record[i]);for(unsigned i=1096;i<1104;++i)assert(!record[i]);
     free(devices);destroy(instance,NULL);factory_checks++;
 }
@@ -44,8 +56,16 @@ static void exercise_factory(void){
     uint32_t type[]={factory,0,1,21,21,1};assert(!call(F_TYPE,6,type));type[2]=2;assert(call(F_TYPE,6,type)==0x8876086au);factory_checks+=3;
     uint32_t format[]={factory,0,1,21,0,3,21};assert(!call(F_FORMAT,7,format));format[6]=0x31545844;assert(!call(F_FORMAT,7,format));
     format[4]=1;format[5]=1;format[6]=21;assert(!call(F_FORMAT,7,format));format[4]=2;format[6]=75;assert(!call(F_FORMAT,7,format));factory_checks+=4;
-    memset(ptr(DATA),0xa5,320);uint32_t caps[]={factory,0,1,DATA};assert(call(F_CAPS,4,caps)==0x8876086au);
+    caps_failure=1;memset(ptr(DATA),0xa5,320);uint32_t caps[]={factory,0,1,DATA};assert(call(F_CAPS,4,caps)==0x8876086au);
     for(unsigned i=0;i<320;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;
+    caps_failure=0;assert(!call(F_CAPS,4,caps));D3DCAPS9 actual_caps;memcpy(&actual_caps,ptr(DATA),sizeof(actual_caps));
+    assert(actual_caps.DeviceType==D3DDEVTYPE_HAL && !actual_caps.AdapterOrdinal && actual_caps.MaxStreams>0 && actual_caps.MaxStreams<=16 && actual_caps.NumSimultaneousRTs==1);
+    assert(!actual_caps.VertexShaderVersion && !actual_caps.PixelShaderVersion && !actual_caps.TextureOpCaps && !actual_caps.MaxTextureBlendStages && !actual_caps.MaxSimultaneousTextures);
+    assert(!actual_caps.StencilCaps && actual_caps.MaxAnisotropy==1 && !(actual_caps.DevCaps&D3DDEVCAPS_HWTRANSFORMANDLIGHT));factory_checks++;
+    caps[1]=1;memset(ptr(DATA),0xa5,320);assert(call(F_CAPS,4,caps)==FNV_VK_INVALID);for(unsigned i=0;i<320;++i)assert(ptr(DATA)[i]==0xa5);caps[1]=0;factory_checks++;
+    caps[2]=2;assert(call(F_CAPS,4,caps)==0x8876086au);caps[2]=1;factory_checks++;
+    caps[3]=0;assert(call(F_CAPS,4,caps)==FNV_VK_INVALID);caps[3]=DATA;factory_checks++;
+    caps_failure=1;
     uint32_t monitor[]={factory,0};assert(!call(F_MONITOR,2,monitor));uint32_t software[]={factory,0};assert(call(F_UNAVAILABLE,2,software)==0x8876086au);factory_checks+=2;
     uint32_t msaa[]={factory,0,1,21,1,0,DATA};put(DATA,0xa5a5a5a5);put(DATA+4,0xa5a5a5a5);
     assert(!call(F_MSAA,7,msaa) && get(DATA)==1 && get(DATA+4)==0xa5a5a5a5);factory_checks++;
@@ -71,6 +91,7 @@ static void exercise_factory(void){
     uint32_t repeated[14];memcpy(repeated,ptr(DATA),56);assert(call(F_DEVICE,7,create)==FNV_VK_INVALID && !get(GUEST_OUT) && !memcmp(repeated,ptr(DATA),56));factory_checks++;
     uint32_t creation[]={device_at,DATA};memset(ptr(DATA),0xa5,32);assert(!call(F_CREATION,2,creation));assert(get(DATA)==0 && get(DATA+4)==1 && get(DATA+8)==0x1234 && get(DATA+12)==0x46 && get(DATA+16)==0xa5a5a5a5);factory_checks++;
     memset(ptr(DATA),0xa5,320);assert(call(F_DEVICE_CAPS,2,creation)==0x8876086au);for(unsigned i=0;i<320;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;
+    caps_failure=0;assert(!call(F_DEVICE_CAPS,2,creation));assert(!memcmp(ptr(DATA),&actual_caps,sizeof(actual_caps)));for(unsigned i=304;i<320;++i)assert(ptr(DATA)[i]==0xa5);caps_failure=1;factory_checks++;
     assert(release(factory)==1);uint32_t parent[]={device_at,GUEST_OUT};assert(!call(F_PARENT,2,parent) && get(GUEST_OUT)==factory);assert(release(factory)==1);factory_checks++;
     factory_public=call(F_IMPORT,1,&version);assert(factory_public==factory);factory_checks++;
 }
