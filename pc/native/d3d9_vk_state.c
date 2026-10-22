@@ -12,7 +12,7 @@ uint32_t fnv_d3d9_vk_depth(const struct fnv_d3d9_depth *s,VkPipelineDepthStencil
 uint32_t fnv_d3d9_vk_sampler(const struct fnv_d3d9_sampler *s,uint32_t levels,float max_lod_bias,VkSamplerCreateInfo *out){
     if(!s || !out || !levels || levels>32 || !isfinite(max_lod_bias) || max_lod_bias<0 ||
        s->address_u<1 || s->address_u>4 || s->address_v<1 || s->address_v>4 || s->address_w<1 || s->address_w>4 ||
-       s->mag<1 || s->mag>2 || s->min<1 || s->min>2 || s->mip>2 || s->max_mip || s->max_anisotropy!=1)return INVALID;
+       s->mag<1 || s->mag>2 || s->min<1 || s->min>2 || s->mip>2 || s->max_mip>=levels || s->max_anisotropy!=1)return INVALID;
     float bias;memcpy(&bias,&s->lod_bias_bits,4);
     if(!isfinite(bias) || bias < -max_lod_bias || bias>max_lod_bias)return INVALID;
     static const VkSamplerAddressMode address[4]={VK_SAMPLER_ADDRESS_MODE_REPEAT,VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
@@ -26,7 +26,7 @@ uint32_t fnv_d3d9_vk_sampler(const struct fnv_d3d9_sampler *s,uint32_t levels,fl
         .magFilter=s->mag==1?VK_FILTER_NEAREST:VK_FILTER_LINEAR,.minFilter=s->min==1?VK_FILTER_NEAREST:VK_FILTER_LINEAR,
         .mipmapMode=s->mip==2?VK_SAMPLER_MIPMAP_MODE_LINEAR:VK_SAMPLER_MIPMAP_MODE_NEAREST,
         .addressModeU=address[s->address_u-1],.addressModeV=address[s->address_v-1],.addressModeW=address[s->address_w-1],
-        .mipLodBias=bias,.maxAnisotropy=1,.minLod=0,.maxLod=s->mip?(float)(levels-1):0,.borderColor=border};
+        .mipLodBias=bias,.maxAnisotropy=1,.minLod=s->mip?(float)s->max_mip:0,.maxLod=s->mip?(float)(levels-1):0,.borderColor=border};
     *out=result;return 0;
 }
 

@@ -4,7 +4,8 @@
 #include <vulkan/vulkan_core.h>
 /* Raw D3D9 DWORD state. Initial subset: Z buffer (no W), compare/write,
  * point/linear filters and wrap/mirror/clamp/border. No anisotropy, sRGB view,
- * max-mip remapping, stencil, depth bounds or dynamic state management. */
+ * stencil, depth bounds or dynamic state management. MAXMIPLEVEL selects the
+ * most detailed permitted level; it must be inside the bound texture. */
 struct fnv_d3d9_blend {
     uint32_t enable,source,destination,operation,separate_alpha,source_alpha,destination_alpha,operation_alpha,write_mask,constant;
 };

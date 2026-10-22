@@ -52,7 +52,16 @@ int main(int argc,char **argv){
     for(unsigned i=0;i<2;i++){assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));}
     uintptr_t decl,texture,vb;
     assert(!b.create_declaration(gpu,elements,3,&decl) && !b.bind_declaration(gpu,decl));
+#ifdef FNV_CATALOG_MIPS
+    assert(!b.create_texture(gpu,8,8,4,0,21,1,&texture) && !b.bind_texture(gpu,0,texture));
+    for(unsigned level=0;level<4;level++){
+        unsigned char data[256];mip_texels(level,data);unsigned width=8u>>level;
+        assert(!b.upload_texture(gpu,texture,level,0,0,width,width,0,width*4,data));
+        assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
+    }
+#else
     assert(!b.create_texture(gpu,2,2,1,0,21,1,&texture) && !b.bind_texture(gpu,0,texture));
+#endif
     assert(!b.create_buffer(gpu,FNV_D3D9_VB,144,0,0,1,&vb) && !b.bind_stream(gpu,0,vb,0,24));
     uint32_t state[6]={1};assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,22,state,0));state[0]=0;assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,7,state,0));
     const float xy[12]={-1,1,1,1,1,-1,-1,1,1,-1,-1,-1};unsigned checks=0;
@@ -66,6 +75,9 @@ int main(int argc,char **argv){
             vertices[i*6]=xy[i*2];vertices[i*6+1]=xy[i*2+1];vertices[i*6+2]=.5f;vertices[i*6+3]=1;
             vertices[i*6+4]=frame>=4?(xy[i*2]+1)*.5f:((frame&1)?.75f:.25f);
             vertices[i*6+5]=frame>=4?(1-xy[i*2+1])*.5f:((frame&2)?.75f:.25f);
+#ifdef FNV_CATALOG_MIPS
+            if(frame==2 || frame==4){float scale=frame==4?22.627417f:16;vertices[i*6+4]=(xy[i*2]+1)*.5f*scale;vertices[i*6+5]=(1-xy[i*2+1])*.5f*scale;}
+#endif
         }
         unsigned char expected[4096];oracle(frame,code[0],code[1],vertices,texels,vc,pc,expected);
         if(argc==6 && !strcmp(argv[5],"wrong-uv"))for(unsigned i=0;i<6;i++)vertices[i*6+4]=.75f;
@@ -77,7 +89,13 @@ int main(int argc,char **argv){
         assert(b.upload_constants(gpu,FNV_D3D9_VERTEX,FNV_D3D9_FLOAT,0,256,vbits));
         assert(b.upload_constants(gpu,FNV_D3D9_PIXEL,FNV_D3D9_FLOAT,0,224,pbits));
 #endif
-        assert(!b.upload_texture(gpu,texture,0,0,0,2,2,0,8,texels) && !b.update_buffer(gpu,vb,0,144,0,vertices));
+#ifdef FNV_CATALOG_MIPS
+        state[0]=argc==6 && !strcmp(argv[5],"wrong-mip-clamp")?0:mip_clamp[frame];assert(!b.state(gpu,FNV_D3D9_SAMPLER_STATE,0,9,state,0));
+        state[0]=argc==6 && !strcmp(argv[5],"wrong-mip-filter")?0:mip_filter[frame];assert(!b.state(gpu,FNV_D3D9_SAMPLER_STATE,0,7,state,0));
+#else
+        assert(!b.upload_texture(gpu,texture,0,0,0,2,2,0,8,texels));
+#endif
+        assert(!b.update_buffer(gpu,vb,0,144,0,vertices));
         assert(!b.clear(gpu,0,NULL,1,0xff000000,0,0));
         if(frame==5){uint32_t viewport[6]={4,2,24,28,0,0x3f800000};assert(!b.state(gpu,FNV_D3D9_VIEWPORT,0,0,viewport,0));}
         /* This pixel oracle drains transfers deliberately; not engine pacing. */

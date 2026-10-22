@@ -1,5 +1,8 @@
 #ifndef FNV_CATALOG_PAIR_ORACLE_H
 #define FNV_CATALOG_PAIR_ORACLE_H
+#ifdef FNV_CATALOG_MIPS
+#include "catalog_mip_fixture.h"
+#endif
 static unsigned char *load(const char *path,uint32_t *bytes){
     FILE *f=fopen(path,"rb");assert(f && !fseek(f,0,SEEK_END));long n=ftell(f);assert(n>0 && n<1048576);rewind(f);
     unsigned char *p=malloc((size_t)n);assert(p && fread(p,1,(size_t)n,f)==(size_t)n && !fclose(f));*bytes=(uint32_t)n;return p;
@@ -18,10 +21,24 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     assert(!d->lpVtbl->SetVertexShader(d,v) && !d->lpVtbl->SetPixelShader(d,p) && !d->lpVtbl->SetVertexDeclaration(d,decl));
     assert(!d->lpVtbl->SetVertexShaderConstantF(d,0,vc,256) && !d->lpVtbl->SetPixelShaderConstantF(d,0,pc,224));
     assert(!d->lpVtbl->SetRenderState(d,D3DRS_CULLMODE,D3DCULL_NONE) && !d->lpVtbl->SetRenderState(d,D3DRS_ZENABLE,FALSE));
+    D3DLOCKED_RECT lock;
+#ifdef FNV_CATALOG_MIPS
+    (void)texels;
+    assert(!d->lpVtbl->CreateTexture(d,8,8,4,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&texture,NULL));
+    for(unsigned level=0;level<4;level++){
+        unsigned char data[256];mip_texels(level,data);unsigned width=8u>>level;
+        assert(!texture->lpVtbl->LockRect(texture,level,&lock,NULL,0));
+        for(unsigned y=0;y<width;y++)memcpy((unsigned char*)lock.pBits+y*lock.Pitch,data+y*width*4,width*4);
+        assert(!texture->lpVtbl->UnlockRect(texture,level));
+    }
+    assert(!d->lpVtbl->SetTexture(d,0,(IDirect3DBaseTexture9*)texture));
+    assert(!d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MAXMIPLEVEL,mip_clamp[frame]) && !d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MIPFILTER,mip_filter[frame]));
+#else
     assert(!d->lpVtbl->CreateTexture(d,2,2,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&texture,NULL));
-    D3DLOCKED_RECT lock;assert(!texture->lpVtbl->LockRect(texture,0,&lock,NULL,0));
+    assert(!texture->lpVtbl->LockRect(texture,0,&lock,NULL,0));
     for(unsigned y=0;y<2;y++)memcpy((unsigned char*)lock.pBits+y*lock.Pitch,texels+y*8,8);
     assert(!texture->lpVtbl->UnlockRect(texture,0) && !d->lpVtbl->SetTexture(d,0,(IDirect3DBaseTexture9*)texture));
+#endif
     assert(!d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
     assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
     if(frame==5){D3DVIEWPORT9 viewport={4,2,24,28,0,1};assert(!d->lpVtbl->SetViewport(d,&viewport));}

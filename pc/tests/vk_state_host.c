@@ -40,9 +40,13 @@ int main(void){
     for(unsigned i=0;i<3;++i){s.border=borders[i];assert(!fnv_d3d9_vk_sampler(&s,1,0,&d) && d.borderColor==bc[i]);sampler_checks++;}
     s.border=0xff123456;bad_sampler(s,1,4);s.address_u=3;assert(!fnv_d3d9_vk_sampler(&s,1,4,&d));
     for(unsigned i=0;i<10;++i){struct fnv_d3d9_sampler invalid=s;uint32_t fields[10];memcpy(fields,&invalid,sizeof(fields));
-        fields[i]=i==8?1:i==9?2:i==7?0x7fc00000u:i==3?0xff123456u:99;
+        fields[i]=i==8?4:i==9?2:i==7?0x7fc00000u:i==3?0xff123456u:99;
         if(i==3)fields[0]=4;
         memcpy(&invalid,fields,sizeof(fields));bad_sampler(invalid,4,4);
+    }
+    for(unsigned level=0;level<4;level++)for(unsigned mip=0;mip<3;mip++){
+        struct fnv_d3d9_sampler clamp={3,3,3,0,1,1,mip,0,level,1};
+        assert(!fnv_d3d9_vk_sampler(&clamp,4,4,&d) && d.minLod==(mip?level:0) && d.maxLod==(mip?3:0));sampler_checks++;
     }
     s.address_u=0;bad_sampler(s,1,4);s.address_u=3;s.mag=0;bad_sampler(s,1,4);s.mag=1;
     bad_sampler(s,0,4);bad_sampler(s,33,4);bad_sampler(s,1,-1);

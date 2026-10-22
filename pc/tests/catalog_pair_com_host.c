@@ -7,7 +7,7 @@
 #include "catalog_pair_oracle.h"
 enum { CP_VS=20,CP_PS,CP_DECL,CP_BINDDECL,CP_VB,CP_LOCK,CP_UNLOCK,CP_STREAM,
        CP_TEX,CP_TLOCK,CP_TUNLOCK,CP_TBIND,CP_RENDER,CP_CLEAR,CP_VIEWPORT,
-       CP_BEGIN,CP_END,CP_DRAW,CP_GETVS,CP_GETPS };
+       CP_BEGIN,CP_END,CP_DRAW,CP_GETVS,CP_GETPS,CP_SAMPLER,CP_GETSAMPLER };
 int main(int argc,char **argv){
     assert(argc==8);HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
     FARPROC proc=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&proc,sizeof(gp));
@@ -39,7 +39,11 @@ int main(int argc,char **argv){
     binding[1]=decl;assert(!call(CP_BINDDECL,2,binding));
     uint32_t create[]={device_at,144,0,0,1,GUEST_OUT,0};assert(!call(CP_VB,7,create));uint32_t vb=get(GUEST_OUT);
     uint32_t stream[]={device_at,0,vb,0,24};assert(!call(CP_STREAM,5,stream));
-    uint32_t texture_args[]={device_at,2,2,1,0,21,1,GUEST_OUT,0};assert(!call(CP_TEX,9,texture_args));uint32_t texture=get(GUEST_OUT);
+    uint32_t texture_args[]={device_at,2,2,1,0,21,1,GUEST_OUT,0};
+#ifdef FNV_CATALOG_MIPS
+    texture_args[1]=texture_args[2]=8;texture_args[3]=4;
+#endif
+    assert(!call(CP_TEX,9,texture_args));uint32_t texture=get(GUEST_OUT);
     uint32_t texbind[]={device_at,0,texture};assert(!call(CP_TBIND,3,texbind));
     uint32_t render[]={device_at,22,1};assert(!call(CP_RENDER,3,render));render[1]=7;render[2]=0;assert(!call(CP_RENDER,3,render));
     const float xy[12]={-1,1,1,1,1,-1,-1,1,1,-1,-1,-1};unsigned checks=0;
@@ -51,6 +55,9 @@ int main(int argc,char **argv){
         for(unsigned i=0;i<6;i++){
             vertices[i*6]=xy[i*2];vertices[i*6+1]=xy[i*2+1];vertices[i*6+2]=.5f;vertices[i*6+3]=1;
             vertices[i*6+4]=frame>=4?(xy[i*2]+1)*.5f:((frame&1)?.75f:.25f);vertices[i*6+5]=frame>=4?(1-xy[i*2+1])*.5f:((frame&2)?.75f:.25f);
+#ifdef FNV_CATALOG_MIPS
+            if(frame==2 || frame==4){float scale=frame==4?22.627417f:16;vertices[i*6+4]=(xy[i*2]+1)*.5f*scale;vertices[i*6+5]=(1-xy[i*2+1])*.5f*scale;}
+#endif
         }
         unsigned char expected[4096];oracle(frame,code[0],code[1],vertices,texels,vc,pc,expected);
         if(!strcmp(argv[3],"wrong-uv"))for(unsigned i=0;i<6;i++)vertices[i*6+4]=.75f;
@@ -60,13 +67,28 @@ int main(int argc,char **argv){
         memcpy(ptr(DATA),vc,sizeof(vc));uint32_t constants[]={device_at,0,DATA,256};assert(!call(VS_SF,4,constants));
         memcpy(ptr(DATA),pc,sizeof(pc));constants[3]=224;assert(!call(PS_SF,4,constants));memset(ptr(DATA),0,4096);
         uint32_t lock[]={vb,0,144,GUEST_OUT,0};assert(!call(CP_LOCK,5,lock));memcpy(ptr(get(GUEST_OUT)),vertices,144);assert(!call(CP_UNLOCK,1,&vb));
-        uint32_t tlock[]={texture,0,GUEST_OUT,0,0};assert(!call(CP_TLOCK,5,tlock));uint32_t pitch=get(GUEST_OUT),bits=get(GUEST_OUT+4);
+        uint32_t tlock[]={texture,0,GUEST_OUT,0,0};
+#ifdef FNV_CATALOG_MIPS
+        for(unsigned level=0;level<4;level++){
+            tlock[1]=level;assert(!call(CP_TLOCK,5,tlock));uint32_t pitch=get(GUEST_OUT),bits=get(GUEST_OUT+4);unsigned char data[256];mip_texels(level,data);unsigned width=8u>>level;
+            for(unsigned y=0;y<width;y++)memcpy(ptr(bits+y*pitch),data+y*width*4,width*4);
+            uint32_t unlock[]={texture,level};assert(!call(CP_TUNLOCK,2,unlock));assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
+        }
+        uint32_t mip[]={device_at,0,9,!strcmp(argv[3],"wrong-mip-clamp")?0:mip_clamp[frame]};assert(!call(CP_SAMPLER,4,mip));
+        uint32_t getter[]={device_at,0,9,GUEST_OUT};assert(!call(CP_GETSAMPLER,4,getter) && get(GUEST_OUT)==mip[3]);
+        mip[2]=7;mip[3]=!strcmp(argv[3],"wrong-mip-filter")?0:mip_filter[frame];assert(!call(CP_SAMPLER,4,mip));
+#else
+        assert(!call(CP_TLOCK,5,tlock));uint32_t pitch=get(GUEST_OUT),bits=get(GUEST_OUT+4);
         for(unsigned y=0;y<2;y++)memcpy(ptr(bits+y*pitch),texels+y*8,8);
         uint32_t unlock[]={texture,0};assert(!call(CP_TUNLOCK,2,unlock));
+#endif
         uint32_t clear[]={device_at,0,0,1,0xff000000,0,0};assert(!call(CP_CLEAR,7,clear));
         if(frame==5){uint32_t viewport[6]={4,2,24,28,0,0x3f800000};memcpy(ptr(DATA),viewport,24);uint32_t args[]={device_at,DATA};assert(!call(CP_VIEWPORT,2,args));}
         assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
         assert(!call(CP_BEGIN,1,&device_at));uint32_t draw[]={device_at,4,0,2};assert(!call(CP_DRAW,4,draw));assert(!call(CP_END,1,&device_at));
+#ifdef FNV_CATALOG_MIPS
+        uint32_t reset_sampler[]={device_at,0,9,0};assert(!call(CP_SAMPLER,4,reset_sampler));reset_sampler[2]=7;assert(!call(CP_SAMPLER,4,reset_sampler));
+#endif
         /* Change the COM banks after draw: the submitted GPU snapshot survives. */
         memset(ptr(DATA),0,4096);constants[3]=256;assert(!call(VS_SF,4,constants));constants[3]=224;assert(!call(PS_SF,4,constants));
         for(unsigned i=0;i<2;i++){uint32_t getter[]={device_at,GUEST_OUT};assert(!call(i?CP_GETPS:CP_GETVS,2,getter));uint32_t observed=get(GUEST_OUT);assert(observed==(i?ps:vs));assert(release(observed)==1);}

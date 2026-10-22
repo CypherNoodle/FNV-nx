@@ -13,7 +13,7 @@ def run(args):
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();frozen={str(p):sha(p) for p in inputs}
     subprocess.run([*args.cc,'-O2','-std=c11','-Wall','-Wextra','-Werror','-I'+str(pc/'native'),'-I'+str(headers),str(source),str(host),'-o',str(exe)],check=True)
     result=subprocess.run([str(exe)],check=True,capture_output=True,text=True,timeout=30);report=json.loads(result.stdout)
-    assert report['status']=='PASS' and report['depth_checks']==48 and report['sampler_checks']==771
+    assert report['status']=='PASS' and report['depth_checks']==48 and report['sampler_checks']==783
     assert all(sha(Path(p))==h for p,h in frozen.items());report.update(source_sha256=frozen,exe_sha256=sha(exe),game_executed=False)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(result.stdout.strip())
 

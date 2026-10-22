@@ -23,7 +23,7 @@ def run(a):
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     cc=Path(a.cc).resolve();linker=a.linker.resolve();env=os.environ.copy();env['PATH']=str(cc.parent)+os.pathsep+str(linker.parent)+os.pathsep+env['PATH']
     native=['d3d9_vk_backend.c','d3d9_vk_prepared.c','d3d9_geometry.c','d3d9_texture_upload.c','d3d9_uniform_state.c','d3d9_uniform_pack.c','d3d9_vk_state.c','d3d9_constants.c']
-    sources=[Path(__file__).resolve(),pc/'tests/catalog_pair_gpu_host.c',pc/'tests/catalog_pair_oracle.h',Path(compile_hlsl.__code__.co_filename),linker,cc,
+    sources=[Path(__file__).resolve(),pc/'tests/catalog_pair_gpu_host.c',pc/'tests/catalog_pair_oracle.h',pc/'tests/catalog_mip_fixture.h',Path(compile_hlsl.__code__.co_filename),linker,cc,
              *[pc/'native'/n for n in native],*[p for p in (pc/'native').iterdir() if p.suffix in ('.h','.inc')],
              *[(pc/'tools'/n) for n in ('shader_packages.py','translate_d3d9_pair.py','inspect_spirv.py','spirv_uniform_layout.py')]]
     frozen={str(p):sha(p) for p in sources}
@@ -62,6 +62,7 @@ def run(a):
     locations={i['name']:i['location'] for i in pair['stages']['vs']['spirv']['interfaces'] if i['storage']==1 and 'location' in i}
     assert set(locations)=={'vs_v0','vs_v1'}
     header=['#define FNV_CATALOG_CONSTANTS 1'] if a.constants else []
+    if a.mip_clamp:header.append('#define FNV_CATALOG_MIPS 1')
     for stage,name in (('vs','vertex'),('ps','pixel')):
         plan=plans[stage];pointer='NULL'
         if plan['entries']:
@@ -75,12 +76,12 @@ def run(a):
     args=[str(out/'gpu-test.exe'),str(out/'vs.bin'),str(out/'ps.bin'),str(out/'pair/vs.spv'),str(out/'pair/ps.spv')]
     p=subprocess.run(args,capture_output=True,text=True,env=env,timeout=60);(out/'normal.log').write_text(p.stdout+p.stderr);assert not p.returncode,p.stdout+p.stderr
     assert 'PASS catalog pair 6144 pixels' in p.stdout
-    controls=('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants','missing-pixel-center') if a.constants else ('wrong-uv','wrong-texture')
+    controls=('wrong-mip-clamp','wrong-mip-filter') if a.mip_clamp else ('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants','missing-pixel-center') if a.constants else ('wrong-uv','wrong-texture')
     for mode in controls:
         bad=subprocess.run([*args,mode],capture_output=True,text=True,env=env,timeout=60);(out/(mode+'.log')).write_text(bad.stdout+bad.stderr)
         assert bad.returncode and 'catalog pixel mismatch' in bad.stderr
     assert all(sha(Path(n))==h for n,h in frozen.items())
-    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),float_constants=a.constants,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
+    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),mip_clamp=a.mip_clamp,float_constants=a.constants,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
                 shader_sha256={s:sha(out/(s+'.bin')) for s in ('vs','ps')},spirv_sha256={s:sha(out/'pair'/(s+'.spv')) for s in ('vs','ps')},descriptors=descriptors)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ('status','pixel_checks','negative_controls','original_package_used','game_frame')}))
 
@@ -88,5 +89,6 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('output','linker','headers'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',required=True);p.add_argument('--package',type=Path);p.add_argument('--constants',action='store_true')
+    p.add_argument('--mip-clamp',action='store_true')
     for n in ('package-sha256','vertex-sha256','pixel-sha256'):p.add_argument('--'+n)
     run(p.parse_args())
