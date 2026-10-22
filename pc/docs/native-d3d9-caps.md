@@ -38,8 +38,10 @@ las inyecciones de fallos existentes. Compilacion ARM64/libnx con ABI x87
 extendido y Werror PASS; no es enlace de NRO ni nueva ejecucion en consola.
 
 El arranque capturado ya supera GetDeviceCaps HAL y consulta formatos de color
-y profundidad. Aun termina en la peticion al launcher, detenida sin ejecutar
-ShellExecute. No hay un frame del juego y no se ha demostrado arranque frio.
+y profundidad. ShellExecuteA para FalloutNVLauncher.exe devuelve fallo de forma
+deliberada; la inspeccion estatica confirma que el EXE continúa hacia la
+inicializacion de ventana. Esa continuacion aun no se ha reproducido. No hay un
+frame del juego y no se ha demostrado arranque frio.
 
 Auditoria adicional de shaders Steam
 ----------------------------------

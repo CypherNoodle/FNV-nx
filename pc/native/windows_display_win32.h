@@ -14,7 +14,7 @@ static inline int fnv_display_enumerate_win32(void *context,const char *parent,u
 }
 static inline int fnv_display_metrics_win32(void *context,uint32_t index,int32_t *out){
     (void)context;
-    if(index!=0 && index!=1 && (index<76 || index>80))return 0;
+    if(index!=0 && index!=1 && index!=4 && (index<76 || index>80))return 0;
     *out=(int32_t)GetSystemMetrics((int)index);return 1;
 }
 #endif

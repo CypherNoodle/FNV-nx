@@ -24,10 +24,12 @@ int fnv_display_resolution_horizon(void *window,struct fnv_display_resolution *o
 #endif
 }
 int fnv_display_resolution_metrics(void *context,uint32_t index,int32_t *out){
-    if(index!=0 && index!=1 && (index<76 || index>80))return 0;
+    /* SM_CYCAPTION is zero for the borderless guest desktop. */
+    if(index!=0 && index!=1 && index!=4 && (index<76 || index>80))return 0;
     const struct fnv_display_resolution *r=context;if(!out || !valid(r))return -1;
     if(index==0 || index==78)*out=(int32_t)r->surface_width;
     else if(index==1 || index==79)*out=(int32_t)r->surface_height;
+    else if(index==4)*out=0;
     else if(index==80)*out=1;
     else *out=0; /* The one prepared guest desktop begins at0,0. */
     return 1;

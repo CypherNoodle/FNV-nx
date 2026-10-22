@@ -42,8 +42,9 @@ durante la consulta devuelve0 y no publica un snapshot parcial. El query de
 resolucion de applet requiere Horizon3.0.0+ segun libnx; no hay fallback inventado.
 
 fnv_display_resolution_metrics adapta un snapshot publicado a las metricas del
-desktop invitado: usa la superficie preparada, origen0,0 y un monitor. No hace
-IPC dentro de GetSystemMetrics. El host debe retener el snapshot inmutable y
+desktop invitado: usa la superficie preparada, origen0,0, un monitor y
+SM_CYCAPTION=0 porque la ventana del port es borderless. No hace IPC dentro de
+GetSystemMetrics. El host debe retener el snapshot inmutable y
 serializar su publicacion con el guest detenido. changed detecta diferencias de
 modo/salida/superficie. Son hechos observados, no una transaccion global de los
 servicios de Horizon. No hay hook de hot-dock, parada segura de guest/recreacion
@@ -77,9 +78,11 @@ dispositivo Vulkan real offscreen. LoadLibraryA(d3d9.dll) y Direct3DCreate9
 resuelven; GetAdapterIdentifier usa las propiedades del dispositivo seleccionado.
 La traza muestra consultas de modos y GetDeviceCaps HAL con un perfil limitado;
 REF sigue indisponible. Ver [capacidades](native-d3d9-caps.md).
-El motor toma la salida al launcher; no se ejecuta ShellExecute ni se oculta
-ese fallo. Ver [arranque con Vulkan](startup-vulkan-diagnostic.md).
-No hay frame del motor, arranque frio ni nueva prueba en consola.
+ShellExecuteA reconoce solo la solicitud observada para FalloutNVLauncher.exe,
+devuelve ERROR_FILE_NOT_FOUND y la inspeccion estatica sigue la rama directa a
+la inicializacion de ventana. El replay de esa rama aun esta pendiente. Ver
+[arranque con Vulkan](startup-vulkan-diagnostic.md). No hay frame del motor,
+arranque frio ni nueva prueba en consola.
 
 FNV_MODULE_TRACE es una opcion de compilacion diagnostica del namespace de DLL:
 escribe cargas y consultas por nombre/ordinal en stderr, fuera de locks, con
