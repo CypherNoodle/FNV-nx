@@ -52,7 +52,7 @@ controls. Its dedicated boundary fixture checks exact matrix columns, indexed
 arguments, HRESULT propagation and rejection of unsupported FVF, texture
 transform and missing PS. That fixture uses a callback spy and does not execute
 a fixed GPU draw. The native pixel test and translated boundary test are two
-separate proofs; a combined translated fixed-draw pixel fixture is still needed.
+separate proofs; the combined proof below also exercises the complete path.
 `local/uniform-fixed-override02` checks invalid override sizes, immutable copied
 bytes, no implicit VS binding and required PS binding, plus800 concurrent uploads
 and400 snapshots. Strict ARM64 A57/libnx compilation of COM and the backend
@@ -63,5 +63,24 @@ fragment processing remain pending. Arbitrary float rounding, perspective
 cases, Switch/NVK operation and game frames are not established. Hardware T&L
 caps stay disabled; the game's startup rejection has not been bypassed.
 
-Next validate the combined translated fixed GPU draw, then expand lighting
-before claiming the processing required by the game.
+Combined proof: `local/fixed-vertex-com03/validation.json` passes31 synthetic
+translated x86 functions with the actual COM and Vulkan providers. Three draws
+check3072 pixels: programmable identity, fixed WVP rectangle and programmable
+identity again without reuploading its constants. Guest matrix buffers are
+cleared after submission. The fixture uses own shaders from the verified native
+pixel fixture, a synthetic PE, managed VB with FVF0 and SetFVF0x102. It neither
+loads the game nor creates a Windows D3D device. Negative controls ignore the
+matrices (fails frame1) and deliberately overwrite programmable constants (fails
+frame2). Initial attempts hit a Windows path separator in the hash manifest,
+then tried unsupported nonzero CreateVertexBuffer FVF; corrected fixtures pass.
+Nonzero buffer FVF support remains a separate provider gap.
+
+Reproduce after generating the native shader fixture above:
+
+```powershell
+python pc/tests/test_fixed_vertex_com.py --sdk ../sh2-nx/third_party/xboxrecomp --python-deps ../python-deps --headers ../rexglue-upstream/thirdparty/vulkan-headers/include --fixture local/fixed-vertex-new --output local/fixed-vertex-com-new --cc C:/devkitPro/msys2/clang64/bin/clang.exe
+```
+
+The SDK folder is the existing translator dependency; inputs are a synthetic PC
+PE and original shader fixtures. This does not resume the Xbox port. Next expand
+lighting before claiming the processing required by the game.
