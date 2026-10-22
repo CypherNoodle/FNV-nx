@@ -73,3 +73,29 @@ color_format para el modo de escritorio y el backbuffer. Hay que revisar esta
 separacion y los filtros de caps del motor antes de atribuir el error solamente
 a las dimensiones o anunciar capacidades adicionales. El mensaje por si solo
 no identifica la condicion fallida. No hay nueva prueba HW ni frame del motor.
+
+## Resolucion configurada y siguiente requisito del motor
+
+La observacion privada48 del selector confirma que el ancho solicitado es640
+mientras el unico modo preparado es1280x720; la seleccion termina sin un modo
+aceptado. No se deduce la causa solo del mensaje final. La observacion47 de un
+logger no produjo textos utiles y no se usa como prueba del fallo.
+
+La prueba49 usa un root privado sin assets y un FalloutPrefs.ini sintetico con
+[Display], iSize W=1280, iSize H=720 y bFull Screen=1. Conserva el EXE original,
+los objetos con hashes y las caps del proveedor. El error de resolucion desaparece:
+el siguiente MessageBoxA dice "Hardware T&L required but not supported by Adapter".
+Alcanza204418 llamadas;0draws/0submits,1082hits/0misses en la cache aritmetica.
+Los cuatro workers fallidos y cleanup BUSY siguen presentes. No hay CreateDevice
+ni frame del motor. Esto delimita otro bloqueo, no acredita soporte de T&L.
+
+`pc/tools/prepare_startup_display_fixture.py --output local/NEW_ROOT --width 1280
+--height 720` crea un root nuevo con esos ajustes, manifest y hash. Rechaza una
+salida existente. No copia assets ni modifica preferencias de Steam. El helper
+produce LF determinista; sus ajustes coinciden con los del experimento49, cuyo
+INI privado original tenia CRLF. Las dimensiones deben coincidir con el backend
+preparado. No cambia el NRO ni configura un juego jugable.
+
+Siguiente trabajo: determinar que procesamiento de vertices requiere el motor
+antes de ampliar DevCaps. Las caps actuales no anuncian Hardware T&L; no activar
+el bit para esconder el rechazo sin implementar y verificar el contrato.
