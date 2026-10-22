@@ -32,9 +32,8 @@ nativos. Congela los inputs de compilacion y verifica el ELF/NRO resultante.
 El registro distingue cada `combined BEGIN`; `combined PASS` exige todos los
 grupos. `END result=PASS` requiere completar las fases y destruir el proveedor.
 
-No modifica clocks ni mide FPS del juego. El hardware todavia debe validar
-esta revision: una compilacion ARM64 y los pixels de escritorio no demuestran
-su ejecucion en Switch. El bloqueo conocido del arranque del motor por caps
+No modifica clocks ni mide FPS del juego. La compilacion ARM64 y los pixels de escritorio por si solos no demuestran
+su ejecucion en Switch; la evidencia de consola se registra abajo por separado. El bloqueo conocido del arranque del motor por caps
 HWTL/shaders no cambia con este diagnostico.
 
 Validacion local de escritorio: `local/renderer-checks-rt03`, ambos modos y
@@ -43,3 +42,21 @@ AArch64/DYN, sin simbolos fuertes pendientes, NRO con segmentos verificados.
 NRO SHA256: `56de407310a2b325c238291593d6112d5ff2876f7d13af9e99092c1d1f08f758`.
 Enviar el log hw03 tras completar las fases y salir con +; no hace falta
 repetir las pruebas anteriores por separado.
+
+
+## Validacion en Switch: PASS
+
+El registro recibido de hw03 completa los diez grupos, 11.264 pixels y once
+draws de los checks, incluidos render a textura y GetContainer. Las cuatro
+fases visuales suman otros 16 puntos fuente de GPU, todos sin errores. El
+usuario confirmo colores y cuadrados. Termina con `END result=PASS`, 7.306
+llamadas traducidas, 1.195 presentaciones y `destroy=00000000`.
+
+Las ventanas de 180 y 600 frames muestran la misma memoria GPU, 7.930.480 bytes.
+Dos submits pendientes en esas ventanas representan trabajo en vuelo; el cierre
+final termina sin error. Esto no mide el rendimiento del juego ni captura los
+pixels finales del compositor, y no prueba shaders originales en Switch.
+
+Log privado: `local/hardware/pc-renderer-hw03/fnv-pc-renderer-hw03.log`.
+SHA256 del log: `97fe7afded573d655ef31eb772196d769576db4776e3f106e67c29453552f2d0`.
+El NRO asociado es el entregado arriba; el log no informa su hash por si mismo.
