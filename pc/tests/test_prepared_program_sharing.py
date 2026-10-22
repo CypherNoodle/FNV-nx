@@ -16,6 +16,8 @@ from test_d3d9_com import test
 from test_catalog_pair_com import CATALOG_SLOTS
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from emit_prepared_program import emit
+from inspect_spirv import inspect
+from spirv_uniform_layout import reflect
 
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
@@ -35,6 +37,26 @@ def run(a):
         if (fixtures[0]/name).read_bytes()!=(fixtures[1]/name).read_bytes():raise ValueError('Need identical VS code and linked module')
     if proofs[0]['stages']['vs']['uniform_plan']!=proofs[1]['stages']['vs']['uniform_plan']:raise ValueError('VS plans differ')
     if (fixtures[0]/'ps.bin').read_bytes()==(fixtures[1]/'ps.bin').read_bytes():raise ValueError('Need distinct pixel programs')
+    variant_data=None;variant_plan=None
+    if a.relocate_vertex:
+        data=(fixtures[1]/'pair/vs.spv').read_bytes();words=list(struct.unpack('<%dI'%(len(data)//4),data));info=inspect(data)
+        ids={v['id'] for v in info['interfaces'] if v['storage']==1 and 'location' in v}
+        assert len(ids)==2
+        pos=5;locations=[];offsets=[];changed=[]
+        while pos<len(words):
+            n,op=words[pos]>>16,words[pos]&65535
+            if op==71 and n==4 and words[pos+1] in ids and words[pos+2]==30:
+                locations.append(words[pos+3]);words[pos+3]+=2;changed.append(pos+3)
+            if op==72 and n==5 and words[pos+3]==35:
+                offsets.append(words[pos+4]);words[pos+4]+=16;changed.append(pos+4)
+            pos+=n
+        assert sorted(locations)==[0,1] and sorted(offsets)==[0]
+        variant_data=struct.pack('<%dI'%len(words),*words)
+        before=struct.unpack('<%dI'%(len(data)//4),data)
+        assert [i for i,(x,y) in enumerate(zip(before,words)) if x!=y]==sorted(changed)
+        variant_plan=reflect(variant_data,proofs[1]['link']['vertex_uniform_metadata']);assert variant_plan['bytes']==80
+        (out/'relocated.vs.spv').write_bytes(variant_data)
+        (out/'relocation.json').write_text(json.dumps(dict(source_sha256=hashlib.sha256(data).hexdigest(),result_sha256=hashlib.sha256(variant_data).hexdigest(),changed_words=changed,location_delta=2,uniform_offset_delta=16,uniform_plan=variant_plan,original_bytecode_modified=False),indent=2)+'\n')
     def plan(name,p):
         entries=p['entries'];pointer=name+'_entries' if entries else 'NULL'
         body='static const struct fnv_uniform_entry '+pointer+'[]={'+','.join('{'+','.join(str(e[k]) for k in ('kind','first','count','offset','stride'))+'}' for e in entries)+'};\n' if entries else ''
@@ -42,8 +64,13 @@ def run(a):
     header='#define FNV_CATALOG_CONSTANTS 1\n#define FNV_CATALOG_SHARED_PROGRAM 1\n#define FNV_CATALOG_SAMPLER_MASK 1\n'
     header+=plan('vertex_plan',proofs[0]['stages']['vs']['uniform_plan'])+plan('pixel_plan',proofs[0]['stages']['ps']['uniform_plan'])+plan('shared_pixel_plan',proofs[1]['stages']['ps']['uniform_plan'])
     header+='static const struct fnv_vk_vertex_input vertex_inputs[]={{0,0,0},{5,0,1}};\n'
+    if variant_data:
+        header+='#define FNV_CATALOG_PROGRAM_VARIANT 1\n'+plan('shared_vertex_plan',variant_plan)
+        header+='static const struct fnv_vk_vertex_input shared_vertex_inputs[]={{0,0,2},{5,0,3}};\n'
+        header+='static const uint32_t shared_vs_spv[]={'+','.join(hex(w) for w in struct.unpack('<%dI'%(len(variant_data)//4),variant_data))+'};\n'
     for name,file in (('shared_ps','ps.bin'),('shared_ps_spv','pair/ps.spv')):
         data=(fixtures[1]/file).read_bytes();header+='static const uint32_t '+name+'[]={'+','.join(hex(w) for w in struct.unpack('<%dI'%(len(data)//4),data))+'};\n'
+    header+='#define FNV_SHARED_STAGE_COUNT '+('4' if a.relocate_vertex else '3')+'\n'
     (out/'catalog_pair_fixture.h').write_text(header,newline='\n')
     native=[pc/'native'/n for n in ('d3d9_vk_backend.c','d3d9_vk_prepared.c','d3d9_geometry.c','d3d9_texture_upload.c','d3d9_uniform_state.c','d3d9_uniform_pack.c','d3d9_vk_state.c','d3d9_constants.c')]
     files=[Path(__file__).resolve(),Path(emit.__code__.co_filename),pc/'tests/catalog_pair_gpu_host.c',pc/'tests/catalog_pair_oracle.h',pc/'tests/catalog_mip_fixture.h',out/'catalog_pair_fixture.h',a.cc.resolve(),*native,*[p for p in (pc/'native').iterdir() if p.suffix in ('.h','.inc')],*a.headers.resolve().rglob('*.h')]
@@ -54,11 +81,15 @@ def run(a):
     if result.returncode:raise RuntimeError(result.stderr)
     args=[str(out/'gpu-test.exe'),*[str(fixtures[0]/f) for f in ('vs.bin','ps.bin','pair/vs.spv','pair/ps.spv')]]
     controls=('wrong-shared-program','wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants','missing-pixel-center')
+    if a.relocate_vertex:controls=(*controls,'wrong-variant-locations')
     for mode in ('normal',*controls):
         result=subprocess.run(args+([] if mode=='normal' else [mode]),capture_output=True,text=True,env=env,timeout=60)
         (out/(mode+'.log')).write_text(result.stdout+result.stderr)
         if mode=='normal':assert not result.returncode and 'PASS catalog pair 6144 pixels' in result.stdout,result.stdout+result.stderr
         else:assert result.returncode and 'catalog pixel mismatch' in result.stderr,(mode,result.stdout,result.stderr)
+    if a.relocate_vertex:
+        result=subprocess.run([*args,'variant-module-failure'],capture_output=True,text=True,env=env,timeout=60)
+        (out/'module-failure.log').write_text(result.stdout+result.stderr);assert not result.returncode and 'PASS catalog pair 6144 pixels' in result.stdout,result.stdout+result.stderr
     com_report=None
     if bool(a.sdk)!=bool(a.python_deps):raise ValueError('Supply both SDK and Python dependencies')
     if a.sdk:
@@ -70,12 +101,12 @@ def run(a):
         test(opts,host_source='catalog_pair_com_host.c',slots=CATALOG_SLOTS,modes=('normal',),strict_fault_cases=0,extra_args=tuple(fixtures[0]/f for f in ('vs.bin','ps.bin','pair/vs.spv','pair/ps.spv')),
              extra_inputs=files,extra_sources=[p for p in native if p.name!='d3d9_constants.c'],extra_includes=(a.headers.resolve(),out),baseline_lifetime_checks=False)
         com_report=json.loads((out/'com/validation.json').read_text());assert com_report['pixel_checks']==6144 and com_report['synthetic_functions']==40
-        for mode in controls[:-1]:
+        for mode in (m for m in controls if m not in ("missing-pixel-center","wrong-variant-locations")):
             result=subprocess.run([str(out/'com/com-test.exe'),str(out/'com/fixture.exe'),str(out/'com/catalog.bin'),mode,*args[1:]],capture_output=True,text=True,env=env,timeout=60)
             (out/('com-'+mode+'.log')).write_text(result.stdout+result.stderr)
             assert result.returncode and 'translated catalog pixel mismatch' in result.stderr,(mode,result.stdout,result.stderr)
     assert all(sha(Path(p))==h for p,h in frozen.items())
-    report=dict(status='PASS',pixel_checks=6144,negative_controls=list(controls),repeated_preparations=64,unique_stages=3,distinct_programs=2,source_sha256=frozen,original_data_used=all(json.loads((f/'validation.json').read_text())['original_package_used'] for f in fixtures),runtime_pair_observed=False,engine_started=False,switch_hardware_tested=False)
+    report=dict(status='PASS',pixel_checks=6144,negative_controls=list(controls),repeated_preparations=64,unique_stages=4 if a.relocate_vertex else 3,per_pair_variant=a.relocate_vertex,distinct_programs=2,source_sha256=frozen,original_data_used=all(json.loads((f/'validation.json').read_text())['original_package_used'] for f in fixtures),runtime_pair_observed=False,engine_started=False,switch_hardware_tested=False)
     if com_report:report['translated_com']={k:com_report[k] for k in ('synthetic_functions','pixel_checks','exe_sha256','generated_source_sha256')}
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:v for k,v in report.items() if k!='source_sha256'}))
 
@@ -83,4 +114,5 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('first','second','headers','output','cc'):p.add_argument('--'+n,type=Path,required=True)
     for n in ('sdk','python-deps'):p.add_argument('--'+n,type=Path)
+    p.add_argument('--relocate-vertex',action='store_true',help='Test a derived linked VS with relocated inputs and UBO; original bytes unchanged')
     run(p.parse_args())

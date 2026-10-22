@@ -1,4 +1,5 @@
 #include "d3d9_vk_backend.h"
+#include "d3d9_vk_prepared.h"
 #include "d3d9_fvf.h"
 #include "host_mutex.h"
 #include "host_clock.h"
@@ -42,7 +43,7 @@ struct texture_resource {
 };
 struct shader_catalog {
     struct shader_catalog *next;enum fnv_d3d9_stage stage;uint32_t code_bytes,spirv_bytes;
-    unsigned char *code;uint32_t *spirv;struct fnv_uniform_plan plan;struct fnv_uniform_entry *entries;
+    unsigned char *code;uint32_t *spirv;struct fnv_uniform_plan plan;struct fnv_uniform_entry *entries;VkShaderModule variant_module;
 };
 struct shader_resource {uintptr_t id;uint32_t refs,pins;struct shader_catalog *entry;VkShaderModule module;};
 struct declaration_resource {uintptr_t id;uint32_t refs,pins,count;unsigned char elements[65*8];VkFormat formats[64];};
@@ -659,6 +660,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
             release_version(d,b->version);free(b->shadow);}
         if(d->textures)for(uint32_t i=0;i<d->config.resource_capacity;++i){release_texture_version(d,d->textures[i].version);free(d->textures[i].shadow);}
         if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
+        for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->variant_module)d->v.DestroyShaderModule(d->device,e->variant_module,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
     }
     if(d->wsi.surface && d->v.DestroySurfaceKHR)d->v.DestroySurfaceKHR(d->instance,d->wsi.surface,NULL);

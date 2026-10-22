@@ -12,19 +12,19 @@ static void release_draw(struct fnv_vk_backend *d,struct draw_resources *r){
     free(r);
 }
 static void draw_pin(struct fnv_vk_backend *d,struct draw_resources *r,uintptr_t id){if(id){pin(d,id,1);r->ids[r->count++]=id;}}
-static uint32_t link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask,int reuse){
+static uint32_t link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask,int reuse,const struct fnv_vk_prepared_program *variant){
     if(!d || !vertex || !pixel || !inputs || !count || count>32 || mask&~65535u)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct program_entry next={.count=count,.mask=mask};
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     for(struct shader_catalog *e=d->catalog;e;e=e->next){const void *code=e->stage?pixel:vertex;uint32_t bytes=e->stage?pixel_bytes:vertex_bytes;
-        if(e->code_bytes==bytes && !memcmp(e->code,code,bytes))next.stages[e->stage]=e;}
+        if(!next.stages[e->stage] && e->code_bytes==bytes && !memcmp(e->code,code,bytes) && (!variant || shader_payload(e,variant->stages[e->stage].spirv,variant->stages[e->stage].spirv_bytes,&variant->stages[e->stage].plan)))next.stages[e->stage]=e;}
     if(!next.stages[0] || !next.stages[1] || count>d->properties.limits.maxVertexInputAttributes)goto done;
     uint32_t samplers=0;for(unsigned i=0;i<16;++i)samplers+=(mask>>i)&1;
     if(samplers>d->properties.limits.maxPerStageDescriptorSamplers || samplers>d->properties.limits.maxPerStageDescriptorSampledImages)goto done;
     for(uint32_t i=0;i<count;++i){if(inputs[i].usage>13 || inputs[i].index>15 || inputs[i].location>=d->properties.limits.maxVertexInputAttributes)goto done;
         for(uint32_t j=0;j<i;++j)if(inputs[i].location==inputs[j].location || (inputs[i].usage==inputs[j].usage && inputs[i].index==inputs[j].index))goto done;}
-    for(struct program_entry *e=d->programs;e;e=e->next)if(e->stages[0]==next.stages[0] && e->stages[1]==next.stages[1]){
-        if(!reuse || e->count!=count || e->mask!=mask)goto done;
+    for(struct program_entry *e=d->programs;e;e=e->next)if(same_shader_code(e->stages[0],next.stages[0]) && same_shader_code(e->stages[1],next.stages[1])){
+        if(!reuse || (variant && (e->stages[0]!=next.stages[0] || e->stages[1]!=next.stages[1])) || e->count!=count || e->mask!=mask)goto done;
         for(uint32_t i=0;i<count;i++)if(e->inputs[i].usage!=inputs[i].usage || e->inputs[i].index!=inputs[i].index || e->inputs[i].location!=inputs[i].location)goto done;
         hr=0;goto done;
     }
@@ -33,8 +33,38 @@ static uint32_t link_program(struct fnv_vk_backend *d,const void *vertex,uint32_
     memcpy(next.inputs,inputs,count*sizeof(*inputs));next.next=d->programs;*entry=next;d->programs=entry;d->program_count++;hr=0;
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
-uint32_t fnv_vk_backend_link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){return link_program(d,vertex,vertex_bytes,pixel,pixel_bytes,inputs,count,mask,0);}
-uint32_t fnv_vk_backend_ensure_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){return link_program(d,vertex,vertex_bytes,pixel,pixel_bytes,inputs,count,mask,1);}
+uint32_t fnv_vk_backend_link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){return link_program(d,vertex,vertex_bytes,pixel,pixel_bytes,inputs,count,mask,0,NULL);}
+uint32_t fnv_vk_backend_ensure_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){return link_program(d,vertex,vertex_bytes,pixel,pixel_bytes,inputs,count,mask,1,NULL);}
+uint32_t fnv_vk_backend_prepare_variant(struct fnv_vk_backend *d,const struct fnv_vk_prepared_program *p){
+    if(!d || !p || !p->inputs || !p->input_count || p->input_count>32 || p->sampler_mask&~65535u)return FNV_VK_INVALID;
+    for(unsigned i=0;i<2;i++)if(!shader_header((enum fnv_d3d9_stage)i,p->stages[i].code,p->stages[i].code_bytes) || !spirv_header((enum fnv_d3d9_stage)i,p->stages[i].spirv,p->stages[i].spirv_bytes) || (p->stages[i].plan.count && !p->stages[i].plan.entries))return FNV_VK_INVALID;
+    /* Never replace an existing original pair, even during exclusive init. */
+    fnv_host_mutex_lock(&d->guard);
+    if(d->lost || !d->device_refs){fnv_host_mutex_unlock(&d->guard);return FNV_VK_LOST;}
+    for(struct program_entry *e=d->programs;e;e=e->next){
+        int match=1;for(unsigned i=0;i<2;i++)if(e->stages[i]->code_bytes!=p->stages[i].code_bytes || memcmp(e->stages[i]->code,p->stages[i].code,p->stages[i].code_bytes))match=0;
+        if(!match)continue;
+        uint32_t hr=0;
+        if(e->count!=p->input_count || e->mask!=p->sampler_mask)hr=FNV_VK_INVALID;
+        for(unsigned i=0;i<2;i++)if(!shader_payload(e->stages[i],p->stages[i].spirv,p->stages[i].spirv_bytes,&p->stages[i].plan))hr=FNV_VK_INVALID;
+        if(!hr)for(unsigned i=0;i<e->count;i++)if(e->inputs[i].usage!=p->inputs[i].usage || e->inputs[i].index!=p->inputs[i].index || e->inputs[i].location!=p->inputs[i].location)hr=FNV_VK_INVALID;
+        fnv_host_mutex_unlock(&d->guard);return hr;
+    }
+    fnv_host_mutex_unlock(&d->guard);
+    for(unsigned i=0;i<2;i++){
+        const struct fnv_vk_prepared_stage *s=p->stages+i;
+        uint32_t hr=register_shader(d,(enum fnv_d3d9_stage)i,s->code,s->code_bytes,s->spirv,s->spirv_bytes,&s->plan,2);if(hr)return hr;
+    }
+    return link_program(d,p->stages[0].code,p->stages[0].code_bytes,p->stages[1].code,p->stages[1].code_bytes,p->inputs,p->input_count,p->sampler_mask,1,p);
+}
+static uint32_t program_module(struct fnv_vk_backend *d,struct shader_catalog *entry,struct shader_resource *shader,VkShaderModule *out){
+    if(entry==shader->entry){*out=shader->module;return 0;}
+    if(!entry->variant_module){
+        VkShaderModuleCreateInfo ci={.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,.codeSize=entry->spirv_bytes,.pCode=entry->spirv};
+        VkShaderModule module=VK_NULL_HANDLE;uint32_t hr=result(d,d->v.CreateShaderModule(d->device,&ci,NULL,&module));if(hr)return hr;entry->variant_module=module;
+    }
+    *out=entry->variant_module;return 0;
+}
 static uint32_t draw_state(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get,int *handled){
     *handled=0;
     if(kind==FNV_D3D9_TEXTURE_STAGE_STATE){
@@ -124,8 +154,8 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     if(d->viewport[2]>d->properties.limits.maxViewportDimensions[0] || d->viewport[3]>d->properties.limits.maxViewportDimensions[1] ||
        (double)d->viewport[0]+.5<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]+.5<d->properties.limits.viewportBoundsRange[0] ||
        (double)d->viewport[0]+d->viewport[2]+.5>d->properties.limits.viewportBoundsRange[1] || (double)d->viewport[1]+d->viewport[3]+.5>d->properties.limits.viewportBoundsRange[1])goto done;
-    struct program_entry *program=d->programs;while(program && (program->stages[0]!=vs->entry || program->stages[1]!=ps->entry))program=program->next;
-    if(!program)goto done;
+    struct program_entry *program=d->programs;while(program && (!same_shader_code(program->stages[0],vs->entry) || !same_shader_code(program->stages[1],ps->entry)))program=program->next;
+    if(!program || (fixed && (program->stages[0]!=vs->entry || program->stages[1]!=ps->entry)))goto done;
     struct fnv_geometry_input geometry={.elements=decl->elements,.element_count=decl->count,.indexed=(uint32_t)indexed,.primitive=primitive,
         .base_bits=base,.min_vertex=min_vertex,.vertices=vertices,.start=start,.primitives=primitives};
     for(unsigned i=0;i<16;++i){struct buffer_resource *b=up_vertex?(i?NULL:up_vertex):find_buffer(d,streams[i].id);
@@ -170,14 +200,15 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     if(indexed){r->indices=ib->version;r->indices->refs++;draw_pin(d,r,ib->id);}
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
         r->textures[i]=t->version;r->textures[i]->refs++;draw_pin(d,r,t->id);}
-    struct fnv_uniform_draw snapshot;hr=automatic?fnv_uniform_state_prepare_fixed(d->uniforms,fixed,fixed_bytes,&snapshot):fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,fixed_bytes,&snapshot):fnv_uniform_state_prepare(d->uniforms,&snapshot);if(hr)goto rollback;
+    const struct fnv_uniform_plan *plans[2]={&program->stages[0]->plan,&program->stages[1]->plan};
+    struct fnv_uniform_draw snapshot;hr=automatic?fnv_uniform_state_prepare_fixed(d->uniforms,fixed,fixed_bytes,&snapshot):fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,fixed_bytes,&snapshot):fnv_uniform_state_prepare_program(d->uniforms,plans,&snapshot);if(hr)goto rollback;
     for(unsigned i=0;i<2 && !hr;++i)if(snapshot.bytes[i])hr=make_version(d,i?FNV_D3D9_PS:FNV_D3D9_VS,snapshot.bytes[i],snapshot.data[i],r->ubo+i);
     {uint32_t cancel=fnv_uniform_state_cancel(d->uniforms,snapshot.ticket);if(cancel && !hr)hr=cancel;}if(hr)goto rollback;
     hr=draw_descriptors(d,r,program);if(hr)goto rollback;
     VkDescriptorSet descriptors[3];VkDescriptorSetAllocateInfo ai={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,.descriptorPool=r->descriptors,.descriptorSetCount=3,.pSetLayouts=r->sets+1};
     hr=result(d,d->v.AllocateDescriptorSets(d->device,&ai,descriptors));if(hr)goto rollback;
     VkDescriptorBufferInfo buffers[2];VkDescriptorImageInfo images[16];VkWriteDescriptorSet writes[18];uint32_t write_count=0;
-    for(unsigned i=0;i<2;++i)if(r->ubo[i]){buffers[i]=(VkDescriptorBufferInfo){r->ubo[i]->buffer,0,i?ps->entry->plan.bytes:vs->entry->plan.bytes};
+    for(unsigned i=0;i<2;++i)if(r->ubo[i]){buffers[i]=(VkDescriptorBufferInfo){r->ubo[i]->buffer,0,snapshot.bytes[i]};
         writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[i?2:0],.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,.pBufferInfo=buffers+i};}
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){VkSampler sampler=VK_NULL_HANDLE;hr=result(d,d->v.CreateSampler(d->device,sampler_info+i,NULL,&sampler));if(hr)goto rollback;r->samplers[i]=sampler;
         images[i]=(VkDescriptorImageInfo){sampler,r->textures[i]->view,VK_IMAGE_LAYOUT_GENERAL};writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[1],.dstBinding=i,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=images+i};}
@@ -189,8 +220,9 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
      * Keep guest viewport/scissor values and shader constants unchanged. */
     VkViewport viewport={(float)d->viewport[0]+.5f,(float)(d->viewport[1]+d->viewport[3])+.5f,(float)d->viewport[2],-(float)d->viewport[3],min_depth,max_depth};
     VkRect2D scissor={{0,0},{color->width,color->height}};if(d->scissor_enabled)scissor=(VkRect2D){{(int32_t)d->scissor[0],(int32_t)d->scissor[1]},{d->scissor[2]-d->scissor[0],d->scissor[3]-d->scissor[1]}};
-    VkPipelineShaderStageCreateInfo stages[2]={{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs->module,.pName="main"},
-        {.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=ps->module,.pName="main"}};
+    VkShaderModule modules[2];hr=program_module(d,program->stages[0],vs,modules);if(!hr)hr=program_module(d,program->stages[1],ps,modules+1);if(hr)goto rollback;
+    VkPipelineShaderStageCreateInfo stages[2]={{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=modules[0],.pName="main"},
+        {.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=modules[1],.pName="main"}};
     VkPipelineVertexInputStateCreateInfo vi={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=binding_count,.pVertexBindingDescriptions=bindings,.vertexAttributeDescriptionCount=program->count,.pVertexAttributeDescriptions=attributes};
     VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=primitive==4?VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:primitive==5?VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP:VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN};
     VkPipelineViewportStateCreateInfo vp={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.pViewports=&viewport,.scissorCount=1,.pScissors=&scissor};

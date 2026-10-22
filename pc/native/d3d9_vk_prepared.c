@@ -8,10 +8,5 @@ uint32_t fnv_vk_prepare_program(struct fnv_vk_backend *gpu,const struct fnv_vk_p
         for(size_t i=0;i<count;i++)if(catalog[i].bytes && catalog[i].size==s->code_bytes && !memcmp(catalog[i].bytes,s->code,s->code_bytes)){found=1;break;}
         if(!found)return FNV_VK_INVALID;
     }
-    for(unsigned stage=0;stage<2;stage++){
-        const struct fnv_vk_prepared_stage *s=p->stages+stage;
-        uint32_t hr=fnv_vk_backend_ensure_shader(gpu,(enum fnv_d3d9_stage)stage,s->code,s->code_bytes,s->spirv,s->spirv_bytes,&s->plan);
-        if(hr)return hr;
-    }
-    return fnv_vk_backend_ensure_program(gpu,p->stages[0].code,p->stages[0].code_bytes,p->stages[1].code,p->stages[1].code_bytes,p->inputs,p->input_count,p->sampler_mask);
+    return fnv_vk_backend_prepare_variant(gpu,p);
 }

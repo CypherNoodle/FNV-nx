@@ -5,6 +5,10 @@
 #include "d3d9_vk_state.h"
 #include <vulkan/vulkan_core.h>
 struct fnv_vk_backend;
+struct fnv_vk_prepared_program;
+/* Trusted offline pair with optional stage variants. Exclusive init only;
+ * no replacement of an existing original pair. Later failure may be partial. */
+uint32_t fnv_vk_backend_prepare_variant(struct fnv_vk_backend *,const struct fnv_vk_prepared_program *);
 struct fnv_vk_config {
     uint32_t width,height,resource_capacity,frames,commands;
     uint64_t memory_budget;

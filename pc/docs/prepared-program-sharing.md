@@ -5,7 +5,7 @@ pair. Registering a second pair with an already installed VS failed, even when
 its original bytecode, linked SPIR-V and uniform plan were identical. A game
 catalog reuses stages, so preparing each pair independently could not scale.
 
-The helper now uses `fnv_vk_backend_ensure_shader` and
+The exact-reuse APIs are `fnv_vk_backend_ensure_shader` and
 `fnv_vk_backend_ensure_program`. They register missing entries and reuse only
 exact matches. A stage must match its original code, SPIR-V, plan size and each
 plan entry's kind, first register, count, offset and stride. A pair must match
@@ -21,8 +21,9 @@ failed overall initialization rather than retrying an incomplete catalog.
 
 This is exact reuse, not automatic compatibility matching. If linking another
 PS requires different VS SPIR-V or a different plan for the same original VS,
-the preparation fails explicitly. That case still needs per-pair variants;
-it must not silently use the earlier module. No shader model or HWTL caps change.
+the exact-reuse API fails explicitly. The preparation helper now also supports
+[per-pair variants](prepared-program-variants.md); it selects the pair's own
+payload rather than silently using the earlier module. No caps change.
 
 ## Validation
 

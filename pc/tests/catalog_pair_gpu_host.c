@@ -14,6 +14,16 @@ static PFN_vkGetInstanceProcAddr real_gpa;
 static PFN_vkGetDeviceProcAddr real_gdpa;
 static PFN_vkCreateGraphicsPipelines real_pipelines;
 static PFN_vkWaitForFences real_fence_wait;
+static PFN_vkCreateShaderModule real_shader_module;
+static PFN_vkDestroyShaderModule real_destroy_shader_module;
+static unsigned live_shader_modules,fail_variant_module,skip_variant_locations;
+static VKAPI_ATTR VkResult VKAPI_CALL test_shader_module(VkDevice d,const VkShaderModuleCreateInfo *info,const VkAllocationCallbacks *allocator,VkShaderModule *out){
+    if(fail_variant_module){fail_variant_module=0;return VK_ERROR_OUT_OF_DEVICE_MEMORY;}
+    VkResult r=real_shader_module(d,info,allocator,out);if(r==VK_SUCCESS)live_shader_modules++;return r;
+}
+static VKAPI_ATTR void VKAPI_CALL test_destroy_shader_module(VkDevice d,VkShaderModule module,const VkAllocationCallbacks *allocator){
+    assert(module && live_shader_modules);live_shader_modules--;real_destroy_shader_module(d,module,allocator);
+}
 static unsigned skip_pixel_center;
 static unsigned force_draw_timeout;
 static VKAPI_ATTR VkResult VKAPI_CALL test_fence_wait(VkDevice d,uint32_t count,const VkFence *fences,VkBool32 all,uint64_t timeout){
@@ -21,16 +31,22 @@ static VKAPI_ATTR VkResult VKAPI_CALL test_fence_wait(VkDevice d,uint32_t count,
     return real_fence_wait(d,count,fences,all,timeout);
 }
 static VKAPI_ATTR VkResult VKAPI_CALL test_pipelines(VkDevice d,VkPipelineCache cache,uint32_t count,const VkGraphicsPipelineCreateInfo *info,const VkAllocationCallbacks *allocator,VkPipeline *out){
-    if(!skip_pixel_center)return real_pipelines(d,cache,count,info,allocator,out);
+    if(!skip_pixel_center && !skip_variant_locations)return real_pipelines(d,cache,count,info,allocator,out);
     assert(count==1 && info->pViewportState && info->pViewportState->viewportCount==1);
     VkGraphicsPipelineCreateInfo next=*info;VkPipelineViewportStateCreateInfo state=*info->pViewportState;VkViewport viewport=*state.pViewports;
-    viewport.x-=.5f;viewport.y-=.5f;state.pViewports=&viewport;next.pViewportState=&state;
+    if(skip_pixel_center){viewport.x-=.5f;viewport.y-=.5f;}state.pViewports=&viewport;next.pViewportState=&state;
+    VkPipelineVertexInputStateCreateInfo vertex=*info->pVertexInputState;VkVertexInputAttributeDescription attributes[32];
+    if(skip_variant_locations){assert(vertex.vertexAttributeDescriptionCount<=32);memcpy(attributes,vertex.pVertexAttributeDescriptions,vertex.vertexAttributeDescriptionCount*sizeof(*attributes));
+        for(unsigned i=0;i<vertex.vertexAttributeDescriptionCount;i++)if(attributes[i].location>=2)attributes[i].location-=2;
+        vertex.pVertexAttributeDescriptions=attributes;next.pVertexInputState=&vertex;}
     return real_pipelines(d,cache,count,&next,allocator,out);
 }
 static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL test_gdpa(VkDevice d,const char *name){
     PFN_vkVoidFunction p=real_gdpa(d,name);
     if(!strcmp(name,"vkCreateGraphicsPipelines")){assert(p);memcpy(&real_pipelines,&p,sizeof(p));return (PFN_vkVoidFunction)test_pipelines;}
     if(!strcmp(name,"vkWaitForFences")){assert(p);memcpy(&real_fence_wait,&p,sizeof(p));return (PFN_vkVoidFunction)test_fence_wait;}
+    if(!strcmp(name,"vkCreateShaderModule")){assert(p);memcpy(&real_shader_module,&p,sizeof(p));return (PFN_vkVoidFunction)test_shader_module;}
+    if(!strcmp(name,"vkDestroyShaderModule")){assert(p);memcpy(&real_destroy_shader_module,&p,sizeof(p));return (PFN_vkVoidFunction)test_destroy_shader_module;}
     return p;
 }
 static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL test_gpa(VkInstance instance,const char *name){
@@ -43,6 +59,7 @@ int main(int argc,char **argv){
     assert(argc==5 || argc==6);HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
     FARPROC proc=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&proc,sizeof(gp));
     real_gpa=gp;gp=test_gpa;skip_pixel_center=argc==6 && !strcmp(argv[5],"missing-pixel-center");
+    skip_variant_locations=argc==6 && !strcmp(argv[5],"wrong-variant-locations");
     struct fnv_vk_config cfg={32,32,32,2,16,16u<<20,0};struct fnv_vk_backend *gpu;VkResult failure;
     assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));struct fnv_d3d9_shader_backend b;fnv_vk_backend_callbacks(gpu,&b);
 #if defined(FNV_CATALOG_TWO_TEXTURES) || defined(FNV_CATALOG_RENDER_TEXTURE)
@@ -76,12 +93,15 @@ int main(int argc,char **argv){
 #ifdef FNV_CATALOG_SHARED_PROGRAM
     struct fnv_vk_prepared_program other=prepared;
     other.stages[1]=(struct fnv_vk_prepared_stage){shared_ps,shared_ps_spv,sizeof(shared_ps),sizeof(shared_ps_spv),shared_pixel_plan};
+#ifdef FNV_CATALOG_PROGRAM_VARIANT
+    other.stages[0].spirv=shared_vs_spv;other.stages[0].spirv_bytes=sizeof(shared_vs_spv);other.stages[0].plan=shared_vertex_plan;other.inputs=shared_vertex_inputs;
+#endif
     struct fnv_d3d9_shader_code all[3]={catalog[0],catalog[1],{shared_ps,sizeof(shared_ps)}};
     assert(fnv_vk_prepare_program(gpu,&other,catalog,2)==FNV_VK_INVALID);
     assert(!fnv_vk_backend_stats(gpu,&stats) && stats.shader_catalog_entries==2);
     assert(!fnv_vk_prepare_program(gpu,&other,all,3));
     for(unsigned i=0;i<32;i++)assert(!fnv_vk_prepare_program(gpu,&prepared,all,3) && !fnv_vk_prepare_program(gpu,&other,all,3));
-    assert(!fnv_vk_backend_stats(gpu,&stats) && stats.shader_catalog_entries==3);
+    assert(!fnv_vk_backend_stats(gpu,&stats) && stats.shader_catalog_entries==FNV_SHARED_STAGE_COUNT);
     struct fnv_vk_prepared_program conflict=prepared;
     unsigned char *changed=malloc(sb[0]);assert(changed);memcpy(changed,spv[0],sb[0]);changed[8]^=1;conflict.stages[0].spirv=changed;
     assert(fnv_vk_prepare_program(gpu,&conflict,all,3)==FNV_VK_INVALID);free(changed);
@@ -91,8 +111,10 @@ int main(int argc,char **argv){
     struct fnv_vk_vertex_input wrong_inputs[2]={vertex_inputs[0],vertex_inputs[1]};wrong_inputs[0].usage=1;conflict=prepared;conflict.inputs=wrong_inputs;
     assert(fnv_vk_prepare_program(gpu,&conflict,all,3)==FNV_VK_INVALID);
     assert(!fnv_vk_prepare_program(gpu,&prepared,all,3) && !fnv_vk_prepare_program(gpu,&other,all,3));
+    assert(!fnv_vk_backend_stats(gpu,&stats) && stats.shader_catalog_entries==FNV_SHARED_STAGE_COUNT && !live_shader_modules);
     assert(fnv_vk_backend_register_shader(gpu,0,code[0],cb[0],spv[0],sb[0],&vertex_plan)==FNV_VK_INVALID);
     assert(fnv_vk_backend_link_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,2,1)==FNV_VK_INVALID);
+    assert(!fnv_vk_backend_ensure_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,2,1));
     uintptr_t other_shader;assert(!b.create(gpu,1,shared_ps,sizeof(shared_ps),&other_shader));
 #endif
     for(unsigned i=0;i<2;i++){assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));}
@@ -173,6 +195,12 @@ int main(int argc,char **argv){
 #endif
         assert(!b.scene(gpu,1));
         force_draw_timeout=argc==6 && !strcmp(argv[5],"draw-timeout");
+#ifdef FNV_CATALOG_PROGRAM_VARIANT
+        if(!frame && argc==6 && !strcmp(argv[5],"variant-module-failure")){
+            fail_variant_module=1;unsigned before=live_shader_modules;
+            assert(b.draw(gpu,0,4,0,0,0,0,2)==FNV_VK_OOM && !fail_variant_module && live_shader_modules==before);
+        }
+#endif
         uint32_t draw_result=b.draw(gpu,0,4,0,0,0,0,2);
 #ifdef FNV_CATALOG_TWO_TEXTURES
         if(argc==6 && !strcmp(argv[5],"draw-timeout")){
@@ -217,5 +245,5 @@ int main(int argc,char **argv){
     assert(!fnv_vk_backend_wait(gpu,10000000000ull) && !fnv_vk_backend_stats(gpu,&stats));
     assert(stats.allocated_bytes==baseline.allocated_bytes && stats.live_surfaces==baseline.live_surfaces && !stats.live_textures && !stats.texture_versions && !stats.live_buffers && !stats.live_shaders && !stats.live_declarations && !stats.pending_frames);
 #endif
-    b.device_release(gpu);assert(!fnv_vk_backend_destroy(gpu));FreeLibrary(loader);printf("PASS catalog pair %u pixels\n",checks);return 0;
+    b.device_release(gpu);assert(!fnv_vk_backend_destroy(gpu) && !live_shader_modules);FreeLibrary(loader);printf("PASS catalog pair %u pixels\n",checks);return 0;
 }

@@ -38,6 +38,9 @@ uint32_t fnv_uniform_state_bind_batch(struct fnv_uniform_state *,uint32_t mask,c
  * or a valid completion releases its ticket. Busy never spins or waits.
  */
 uint32_t fnv_uniform_state_prepare(struct fnv_uniform_state *,struct fnv_uniform_draw *);
+/* Snapshot an explicitly linked program using live banks, without changing
+ * either bound plan. Both plans required, output unchanged on failure. */
+uint32_t fnv_uniform_state_prepare_program(struct fnv_uniform_state *,const struct fnv_uniform_plan *const plans[2],struct fnv_uniform_draw *);
 /* Temporary fixed VS bytes plus the live PS plan. Does not alter bindings or
  * programmable banks. Output/ticket semantics match prepare. */
 /* Explicit fixed PS with no uniforms: copied VS payload, empty PS snapshot;

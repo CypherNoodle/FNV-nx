@@ -85,6 +85,22 @@ def test(args):
     # No hidden vertex binding is installed by the override.
     assert prepare(state,C.byref(draw))==0x8876086c and bytes(draw)==before
     assert bind(state,1,None)==0
+    program=lib.fnv_uniform_state_prepare_program
+    program.argtypes=[C.c_void_p,C.POINTER(C.POINTER(Plan)),C.POINTER(Draw)];program.restype=U32
+    relocated_entries=(Entry*1)(Entry(0,9,1,16,16));relocated=Plan(32,1,relocated_entries)
+    pixel_entries=(Entry*1)(Entry(0,4,1,0,16));pixel=Plan(16,1,pixel_entries)
+    plans=(C.POINTER(Plan)*2)(C.pointer(relocated),C.pointer(pixel))
+    bad_plans=(C.POINTER(Plan)*2)(C.pointer(relocated),None)
+    assert program(state,None,C.byref(draw))==0x8876086c and bytes(draw)==before
+    assert program(state,bad_plans,C.byref(draw))==0x8876086c and bytes(draw)==before
+    assert program(state,plans,C.byref(d))==0
+    assert d.bytes[0]==32 and C.string_at(d.data[0],16)==bytes(16) and C.string_at(d.data[0]+16,16)==bytes(other_value)
+    assert d.bytes[1]==16 and C.string_at(d.data[1],16)==bytes((U32*4)(7,8,9,10)) and cancel(state,d.ticket)==0
+    # An explicit program snapshot never installs bindings or changes banks.
+    assert prepare(state,C.byref(draw))==0x8876086c and bytes(draw)==before
+    relocated.bytes=128
+    assert program(state,plans,C.byref(draw))==0x8876086c and bytes(draw)==before
+    relocated.bytes=32
     assert override(state,columns,64,C.byref(draw))==0x8876086c and bytes(draw)==before
     fixed=lib.fnv_uniform_state_prepare_fixed
     fixed.argtypes=[C.c_void_p,C.c_void_p,U32,C.POINTER(Draw)];fixed.restype=U32

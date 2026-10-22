@@ -14,8 +14,9 @@ struct fnv_vk_prepared_program {
     uint32_t input_count,sampler_mask;
 };
 /* Call during exclusive initialization of a fresh backend, before COM create.
- * Identical stages/pairs may be shared by subsequent preparations; conflicting
- * SPIR-V/plans/maps reject. Missing membership fails before registration. A later failure
+ * Identical payloads are shared; distinct original pairs may select different
+ * linked payloads for the same original stage. An existing pair is immutable.
+ * Missing membership fails before registration. A later failure
  * can leave partial registrations: destroy the backend, do not retry on it.
  * Success copies all consumed storage, creates no shader objects or draws. */
 uint32_t fnv_vk_prepare_program(struct fnv_vk_backend *,const struct fnv_vk_prepared_program *,const struct fnv_d3d9_shader_code *,size_t catalog_count);

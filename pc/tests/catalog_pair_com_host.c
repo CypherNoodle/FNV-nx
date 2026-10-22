@@ -32,8 +32,11 @@ int main(int argc,char **argv){
 #ifdef FNV_CATALOG_SHARED_PROGRAM
     catalog[2]=(struct fnv_d3d9_shader_code){shared_ps,sizeof(shared_ps)};
     struct fnv_vk_prepared_program other=prepared;other.stages[1]=(struct fnv_vk_prepared_stage){shared_ps,shared_ps_spv,sizeof(shared_ps),sizeof(shared_ps_spv),shared_pixel_plan};
+#ifdef FNV_CATALOG_PROGRAM_VARIANT
+    other.stages[0].spirv=shared_vs_spv;other.stages[0].spirv_bytes=sizeof(shared_vs_spv);other.stages[0].plan=shared_vertex_plan;other.inputs=shared_vertex_inputs;
+#endif
     assert(!fnv_vk_prepare_program(gpu,&other,catalog,catalog_count) && !fnv_vk_prepare_program(gpu,&prepared,catalog,catalog_count));
-    struct fnv_vk_stats prepared_stats;assert(!fnv_vk_backend_stats(gpu,&prepared_stats) && prepared_stats.shader_catalog_entries==3);
+    struct fnv_vk_stats prepared_stats;assert(!fnv_vk_backend_stats(gpu,&prepared_stats) && prepared_stats.shader_catalog_entries==FNV_SHARED_STAGE_COUNT);
 #endif
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(!fnv_native_load_image(argv[1],arena,ARENA,&image));

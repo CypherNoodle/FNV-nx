@@ -17,19 +17,26 @@ static int spirv_header(enum fnv_d3d9_stage stage,const void *bytes,uint32_t cou
     }
     return entries==1;
 }
+static int same_shader_code(const struct shader_catalog *a,const struct shader_catalog *b){return a==b || (a->stage==b->stage && a->code_bytes==b->code_bytes && !memcmp(a->code,b->code,a->code_bytes));}
+static int shader_payload(const struct shader_catalog *e,const void *spirv,uint32_t bytes,const struct fnv_uniform_plan *plan){
+    if(!plan || (plan->count && !plan->entries) || e->spirv_bytes!=bytes || memcmp(e->spirv,spirv,bytes) || e->plan.bytes!=plan->bytes || e->plan.count!=plan->count)return 0;
+    for(uint32_t i=0;i<plan->count;i++){
+        const struct fnv_uniform_entry *a=e->entries+i,*b=plan->entries+i;
+        if(a->kind!=b->kind || a->first!=b->first || a->count!=b->count || a->offset!=b->offset || a->stride!=b->stride)return 0;
+    }
+    return 1;
+}
 static uint32_t register_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *plan,int reuse){
     if(!d || !shader_header(stage,code,code_bytes) || !spirv_header(stage,spirv,spirv_bytes) || !plan || (plan->count && !plan->entries))return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(!reuse && d->catalog_count>=4096){hr=FNV_VK_OOM;goto done;}
+    int duplicate=0;
     for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->stage==stage && e->code_bytes==code_bytes && !memcmp(e->code,code,code_bytes)){
-        if(!reuse || e->spirv_bytes!=spirv_bytes || memcmp(e->spirv,spirv,spirv_bytes) || e->plan.bytes!=plan->bytes || e->plan.count!=plan->count)goto done;
-        for(uint32_t i=0;i<plan->count;i++){
-            const struct fnv_uniform_entry *a=e->entries+i,*b=plan->entries+i;
-            if(a->kind!=b->kind || a->first!=b->first || a->count!=b->count || a->offset!=b->offset || a->stride!=b->stride)goto done;
-        }
-        hr=0;goto done;
+        duplicate=1;if(!reuse)goto done;
+        if(shader_payload(e,spirv,spirv_bytes,plan)){hr=0;goto done;}
     }
+    if(duplicate && reuse!=2)goto done;
     if(d->catalog_count>=4096){hr=FNV_VK_OOM;goto done;}
     if(plan->bytes>d->properties.limits.maxUniformBufferRange || plan->bytes>65536 || plan->count>512)goto done;
     uint32_t zeros[1024]={0};struct fnv_uniform_banks banks={{zeros,zeros,zeros},{stage?224:256,16,16}};

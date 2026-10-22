@@ -18,6 +18,10 @@ Subsequent preparations may reuse exactly identical stages and pairs; see
 [prepared program sharing](prepared-program-sharing.md) for conflict checks,
 same-device pixel tests and remaining per-pair variant limitations.
 
+For different linked payloads of the same original stage, the helper now uses
+[per-pair variants](prepared-program-variants.md), including a per-draw constant
+snapshot without altering public bindings. Existing original pairs are immutable.
+
 The shader pixel test now uses this same helper, checks that a missing pixel
 shader in the catalog installs neither stage, and then verifies creation,
 binding and rendering. Both the own-input and explicitly selected original
