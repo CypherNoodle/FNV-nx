@@ -91,7 +91,7 @@ struct fnv_windows_process {
     char *file_root;
     uint32_t file_free,file_tail,file_bits,file_mask,file_generation_max;
     struct fnv_windows_file_stats file_stats;
-    uint64_t worker_created,worker_reaped,worker_failures;
+    uint64_t worker_created,worker_reaped,worker_failures,worker_peer_stops;
     uint32_t command_a,command_w;
     char image_path[1024];
     char *environment;

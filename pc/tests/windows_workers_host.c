@@ -49,6 +49,11 @@ static void strict_case(const char *mode,uint32_t tls){
     }
     assert(fnv_windows_thread_detach()==FNV_CPU_OK);settle();
 cleanup:
+    {struct fnv_windows_worker_stats ws=stats();
+        if(!strcmp(mode,"--strict-peer") || !strcmp(mode,"--strict-peer-suspended"))assert(!ws.failures && ws.peer_stops==1);
+        else if(!strcmp(mode,"--strict-bad-stack") || !strcmp(mode,"--strict-start"))assert(ws.failures==1 && !ws.peer_stops);
+        else assert(!ws.failures && !ws.peer_stops);
+    }
     assert(fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));puts("strict PASS");
 }
 int main(int argc,char **argv){
@@ -95,7 +100,7 @@ int main(int argc,char **argv){
     ULONGLONG before=GetTickCount64();call(SLEEP,25,0,0,0);assert(GetTickCount64()-before>=24);call(SLEEP,0,0,0,0);
     write32(OUTPUT,0x99887766);assert(!call(CODE,handle,OUTPUT,0,0) && call(GET_ERROR,0,0,0,0)==6 && read32(OUTPUT)==0x99887766);
     struct fnv_windows_handle_stats hs;assert(fnv_windows_handle_stats(process,&hs)==FNV_CPU_OK && !hs.live_handles && !hs.waiting_threads);
-    struct fnv_windows_worker_stats ws=stats();assert(!ws.active && !ws.failures && ws.created==285 && ws.reaped+ws.finished==ws.created);
+    struct fnv_windows_worker_stats ws=stats();assert(!ws.active && !ws.failures && !ws.peer_stops && ws.created==285 && ws.reaped+ws.finished==ws.created);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
     printf("{\"status\":\"PASS\",\"managed_threads\":%llu,\"windows_oracle_comparisons\":%u,\"explicit_exit_threads\":100,\"nested_thread_rounds\":25,\"close_while_running\":34,\"suspend_resume\":true,\"tls_isolated\":true,\"abandoned_mutex\":true,\"native_engine_started\":false}\n",(unsigned long long)ws.created,oracle);return 0;
 }

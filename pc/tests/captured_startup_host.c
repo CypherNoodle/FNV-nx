@@ -375,8 +375,8 @@ int main(int argc,char **argv){
         (unsigned long long)files.syncs,(unsigned long long)files.sync_ns,(unsigned long long)files.sync_errors,
         (unsigned long long)files.closes,(unsigned long long)files.close_ns,(unsigned long long)files.close_errors);
     message_box(&fault);exception_request(&fault);profile_request(&fault);shell_folder_request(&fault);file_delete_request(&fault);shell_execute_request(&fault);import_call_arguments(&fault);guest_stack_words(&fault);
-    printf(",\"worker_stats\":{\"capacity\":%u,\"active\":%u,\"finished\":%u,\"created\":%llu,\"reaped\":%llu,\"failures\":%llu},\"origin_host_thread\":%u",
-        workers.capacity,workers.active,workers.finished,(unsigned long long)workers.created,(unsigned long long)workers.reaped,(unsigned long long)workers.failures,first_fault_thread);
+    printf(",\"worker_stats\":{\"capacity\":%u,\"active\":%u,\"finished\":%u,\"created\":%llu,\"reaped\":%llu,\"failures\":%llu,\"peer_stops\":%llu},\"origin_host_thread\":%u",
+        workers.capacity,workers.active,workers.finished,(unsigned long long)workers.created,(unsigned long long)workers.reaped,(unsigned long long)workers.failures,(unsigned long long)workers.peer_stops,first_fault_thread);
 #ifdef FNV_CPU_X87_QUAD_MATH
     printf(",\"math_replay\":{\"schema\":\"fnv-x87-exact-replay-v1\",\"hits\":%u,\"misses\":%u}",fnv_probe_math_hits,fnv_probe_math_misses);
     if(first_math_kind!=UINT32_MAX && !strncmp(fault.text,"Target ARM64 x87 ",sizeof("Target ARM64 x87 ")-1)){

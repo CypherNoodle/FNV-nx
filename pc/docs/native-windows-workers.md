@@ -88,3 +88,28 @@ controles negativos. Las salidas derivadas permanecen privadas.
 Contratos: [CreateThread](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread),
 [ExitThread](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-exitthread),
 [esperas](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitformultipleobjects).
+
+
+## Fallo propio frente a parada por otro hilo
+
+`fnv_windows_worker_stats.failures` cuenta fallos propios de creacion, attach,
+ejecucion, ABI o detach. El nuevo `peer_stops` cuenta trabajadores detenidos
+porque otro hilo ya habia invalidado el runtime, incluidos inicio suspendido,
+rechazo antes de ejecutar y `FNV_CPU_PEER_FAULT` durante la ejecucion. Un retorno
+normal o ExitThread no se convierte en fallo si otro hilo falla justo despues.
+Si un trabajador tambien tiene un fallo propio de limpieza, prevalece failures.
+No cambia el fail-stop, la senalizacion, los locks ni el codigo de salida guest.
+
+Antes se consultaba solamente el bit global al publicar FINISHED: un unico
+fallo principal podia contarse de nuevo como fallo de todos sus trabajadores.
+Las pruebas negativas ahora exigen cero fallos propios y una parada de peer
+cuando el fallo nace en el principal; una entrada desconocida o ABI rota en
+ThreadProc exige un fallo propio y cero paradas de peer. Los 285 trabajadores
+normales siguen terminando sin ninguno de esos dos contadores. El ejecutable
+de prueba reserva 16 MiB de stack principal host para sus estructuras de
+configuracion/imports; no altera el stack de los trabajadores ni el de Switch.
+
+La repeticion privada de arranque54 observa cuatro paradas por el rechazo
+HWTL del principal y cero fallos propios. No demuestra que los trabajadores
+completaran su trabajo ni que el motor arrancara. Su proceso aun conserva un
+heap privado al detenerse y la limpieza devuelve BUSY; no se fuerza su borrado.

@@ -99,3 +99,20 @@ preparado. No cambia el NRO ni configura un juego jugable.
 Siguiente trabajo: determinar que procesamiento de vertices requiere el motor
 antes de ampliar DevCaps. Las caps actuales no anuncian Hardware T&L; no activar
 el bit para esconder el rechazo sin implementar y verificar el contrato.
+
+
+## Clasificacion de trabajadores al detener el arranque
+
+La repeticion privada54 usa el runtime y COM actuales, sin cambiar las caps.
+Conserva el mismo rechazo HWTL, 204.418 llamadas y cero draws/submits. El nuevo
+contador distingue `failures=0` de `peer_stops=4`: los cuatro trabajadores se
+pararon por el fallo del principal. La cifra anterior de cuatro failures era
+un contador global repetido, no evidencia de cuatro errores independientes.
+Las pruebas sinteticas tambien distinguen fallos propios de ThreadProc frente
+a paradas de peer. La cache aritmetica conserva 1.082 hits y cero misses.
+
+La limpieza del proceso aun devuelve BUSY. En este punto hay dos heaps vivos,
+incluido uno privado, y destroy rechaza expresamente private_heaps no vacio.
+Esto explica una condicion suficiente para BUSY en el diagnostico detenido;
+no demuestra que la ruta normal del juego libere todo ni acredita una fuga.
+No se fuerza la liberacion de recursos de un motor interrumpido.

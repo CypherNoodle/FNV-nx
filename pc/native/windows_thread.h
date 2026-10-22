@@ -107,6 +107,7 @@ enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *,struct f
 struct fnv_windows_worker_stats {
     uint32_t active,finished,capacity;
     uint64_t created,reaped,failures;
+    uint64_t peer_stops; /* Stopped because another guest thread faulted. */
 };
 enum fnv_cpu_result fnv_windows_worker_stats(struct fnv_windows_process *,struct fnv_windows_worker_stats *);
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *,

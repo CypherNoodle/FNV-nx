@@ -34,6 +34,7 @@ def test_workers(a,extra_inputs=()):
                   'WaitForMultipleObjects','TlsAlloc']
     shared.ARGS=[6,1,2,2,1,0,1,0,1,1,1,0,2,1,3,4,0]
     shared.test(a,host_source='windows_workers_host.c',extra_inputs=(Path(__file__).resolve(),*extra_inputs),
+                linker_options=('-Wl,--stack,16777216',),
                 wrapper_stride=64,guest_programs=programs,
                 strict_modes=('--strict-flags','--strict-disabled','--strict-peer','--strict-start',
                               '--strict-bad-stack','--strict-peer-suspended','--strict-exit','--strict-static-tls'))

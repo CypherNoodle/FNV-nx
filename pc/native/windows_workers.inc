@@ -50,7 +50,7 @@ enum fnv_cpu_result fnv_windows_worker_stats(struct fnv_windows_process *p,struc
     struct fnv_windows_worker_stats s={0};s.capacity=p->config.worker_capacity;
     if(p->workers){fnv_host_mutex_lock(&p->worker_guard);
         for(uint32_t i=0;i<s.capacity;++i){uint32_t phase=p->workers[i].phase;s.active+=phase==1 || phase==2;s.finished+=phase==3;}
-        s.created=p->worker_created;s.reaped=p->worker_reaped;s.failures=p->worker_failures;fnv_host_mutex_unlock(&p->worker_guard);
+        s.created=p->worker_created;s.reaped=p->worker_reaped;s.failures=p->worker_failures;s.peer_stops=p->worker_peer_stops;fnv_host_mutex_unlock(&p->worker_guard);
     }
     *out=s;return FNV_CPU_OK;
 }
@@ -61,30 +61,34 @@ static void worker_poison(struct managed_worker *w,const char *text){
 static void worker_entry(void *context){
     struct managed_worker *w=context;struct fnv_windows_process *p=w->process;managed_current=w;
     enum fnv_cpu_result result=fnv_windows_thread_attach(p,&w->config);uint32_t code=0xc0000001u;
+    unsigned local_failure=0,peer_stop=0;
     if(result==FNV_CPU_OK){
         fnv_host_mutex_lock(&p->worker_guard);
         while(w->suspended && !fnv_cpu_is_faulted(p->cpu)){
             if(fnv_host_condition_wait_ms(&w->condition,&p->worker_guard,250)<0){
-                fnv_host_mutex_unlock(&p->worker_guard);worker_poison(w,"Windows suspended worker host wait failed");fnv_host_mutex_lock(&p->worker_guard);break;
+                local_failure=1;fnv_host_mutex_unlock(&p->worker_guard);worker_poison(w,"Windows suspended worker host wait failed");fnv_host_mutex_lock(&p->worker_guard);break;
             }
         }
         w->phase=2;fnv_host_mutex_unlock(&p->worker_guard);
         if(!fnv_cpu_is_faulted(p->cpu)){
             uint32_t stack=w->config.state.gpr[4];write32(memory(p,stack),0);write32(memory(p,stack+4),w->parameter);
-            struct fnv_cpu_fault fault;result=fnv_cpu_execute(w->entry,&fault);
+            struct fnv_cpu_fault fault={0};result=fnv_cpu_execute(w->entry,&fault);
             if(result==FNV_CPU_OK || result==FNV_CPU_THREAD_EXIT){struct fnv_cpu_state state={0};
                 if(fnv_cpu_get_state(&state)==FNV_CPU_OK)code=state.gpr[0];
-                if(result==FNV_CPU_OK && state.gpr[4]!=stack+8)worker_poison(w,"Windows ThreadProc violated stdcall stack ABI");
-            }
-        }
-        if(fnv_windows_thread_detach()!=FNV_CPU_OK){worker_poison(w,"Windows worker exited with owned critical section");
+                if(result==FNV_CPU_OK && state.gpr[4]!=stack+8){local_failure=1;worker_poison(w,"Windows ThreadProc violated stdcall stack ABI");}
+            }else if(result==FNV_CPU_FAULTED || (result==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_PEER_FAULT))peer_stop=1;
+            else local_failure=1;
+        }else peer_stop=1;
+        if(fnv_windows_thread_detach()!=FNV_CPU_OK){local_failure=1;worker_poison(w,"Windows worker exited with owned critical section");
             if(fnv_windows_thread_detach()!=FNV_CPU_OK)abort();
         }
-    }else if(!fnv_cpu_is_faulted(p->cpu))worker_poison(w,"Windows managed worker attach failed");
+    }else if(result==FNV_CPU_FAULTED)peer_stop=1;
+    else {local_failure=1;if(!fnv_cpu_is_faulted(p->cpu))worker_poison(w,"Windows managed worker attach failed");}
     /* Detach (including mutex abandonment) precedes the signaled thread handle. */
     fnv_host_mutex_lock(&p->kernel_guard);struct kernel_object *o=w->object;o->state->maximum=code;o->state->signaled=1;
     kernel_dispatch(p);o->waiters--;if(!o->live && !o->waiters)event_recycle(p,o);fnv_host_mutex_unlock(&p->kernel_guard);
-    fnv_host_mutex_lock(&p->worker_guard);w->phase=3;if(fnv_cpu_is_faulted(p->cpu))p->worker_failures++;
+    fnv_host_mutex_lock(&p->worker_guard);w->phase=3;
+    if(local_failure)p->worker_failures++;else if(peer_stop)p->worker_peer_stops++;
     fnv_host_mutex_unlock(&p->worker_guard);managed_current=NULL;
 }
 static void api_thread_create(void){
