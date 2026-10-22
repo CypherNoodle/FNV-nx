@@ -9,6 +9,16 @@
 enum {RT=20,DS,DESC,SET_RT,GET_RT,SET_DS,GET_DS,CLEAR,TYPE,SET_VIEW,GET_VIEW,SET_SCISSOR,GET_SCISSOR,SET_RENDER,GET_RENDER,BEGIN,END};
 static struct fnv_vk_backend *gpu;
 static struct fnv_d3d9_shader_backend provider;
+static int fixed_probe_active;
+static unsigned fixed_probe_calls;
+static uint32_t (*real_fixed_draw)(void *,int,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,const float *);
+static uint32_t fixed_probe(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t minimum,uint32_t vertices,uint32_t start,uint32_t count,const float *columns){
+    if(!fixed_probe_active)return real_fixed_draw(ctx,indexed,primitive,base,minimum,vertices,start,count,columns);
+    const float expected[16]={.25f,0,0,0, 0,.5f,0,.25f, 0,0,1,0, 0,0,0,1};
+    assert(ctx==gpu && primitive==4 && !memcmp(columns,expected,64));
+    assert(indexed ? (base==3 && minimum==2 && vertices==6 && start==1 && count==2) : (!base && !minimum && !vertices && start==1 && count==2));
+    fixed_probe_calls++;return indexed?FNV_VK_INVALID:0;
+}
 static unsigned pixels_checked;
 static struct fnv_vk_stats stats(void){struct fnv_vk_stats s;assert(!fnv_vk_backend_stats(gpu,&s));return s;}
 static uint32_t surface(int depth,unsigned size){
@@ -52,6 +62,7 @@ int FNV_VK_HOST_MAIN(int argc,char **argv){
         assert(!fnv_vk_backend_create_window(gp,&cfg,&window,&gpu,&failure));}
     else assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));
     force_noncoherent=0;fnv_vk_backend_callbacks(gpu,&provider);check_adapter_properties(gp);
+    real_fixed_draw=provider.draw_fixed_unlit;provider.draw_fixed_unlit=fixed_probe;
     load_shader_catalog(argv[2]);register_shader_files(argv[4],argv[5]);
     original_declaration_create=provider.create_declaration;provider.create_declaration=capture_declaration;
     original_texture_create=provider.create_texture;provider.create_texture=capture_texture;

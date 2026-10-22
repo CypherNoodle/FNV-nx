@@ -60,10 +60,10 @@ uint32_t fnv_uniform_state_bind(struct fnv_uniform_state *s,enum fnv_d3d9_stage 
     if((unsigned)stage>1)return FNV_D3D9_INVALIDCALL;
     const struct fnv_uniform_plan *plans[2]={0};plans[stage]=plan;return fnv_uniform_state_bind_batch(s,1u<<stage,plans,0);
 }
-uint32_t fnv_uniform_state_prepare(struct fnv_uniform_state *s,struct fnv_uniform_draw *out){
-    if(!s || !out)return FNV_D3D9_INVALIDCALL;
+static uint32_t prepare_draw(struct fnv_uniform_state *s,const void *vertex,uint32_t bytes,struct fnv_uniform_draw *out){
+    if(!s || !out || (vertex && (!bytes || bytes>s->max_bytes)))return FNV_D3D9_INVALIDCALL;
     fnv_host_mutex_lock(&s->lock);
-    if(!s->bindings[0].bound || !s->bindings[1].bound){fnv_host_mutex_unlock(&s->lock);return FNV_D3D9_INVALIDCALL;}
+    if((!vertex && !s->bindings[0].bound) || !s->bindings[1].bound){fnv_host_mutex_unlock(&s->lock);return FNV_D3D9_INVALIDCALL;}
     uint32_t index=s->slots;
     for(uint32_t i=0;i<s->slots;++i){uint32_t at=(s->next_slot+i)%s->slots;if(!s->versions[at].phase){index=at;break;}}
     if(index==s->slots){fnv_host_mutex_unlock(&s->lock);return FNV_UNIFORM_BUSY;}
@@ -71,6 +71,7 @@ uint32_t fnv_uniform_state_prepare(struct fnv_uniform_state *s,struct fnv_unifor
     struct fnv_uniform_draw draw={0};
     for(unsigned stage=0;stage<2;++stage){
         unsigned char *data=s->storage+((size_t)index*2+stage)*s->max_bytes;
+        if(!stage && vertex){memcpy(data,vertex,bytes);draw.bytes[0]=bytes;draw.data[0]=data;continue;}
         struct fnv_uniform_banks b=view(&s->banks[stage]);
         uint32_t r=fnv_d3d9_uniform_pack(&s->bindings[stage].plan,&b,data,s->max_bytes);
         if(r){fnv_host_mutex_unlock(&s->lock);return r;}
@@ -79,6 +80,11 @@ uint32_t fnv_uniform_state_prepare(struct fnv_uniform_state *s,struct fnv_unifor
     draw.ticket=++s->next_ticket;s->versions[index]=(struct version){draw.ticket,0,1};
     s->next_slot=(index+1)%s->slots;s->stats.prepared++;*out=draw;
     fnv_host_mutex_unlock(&s->lock);return 0;
+}
+uint32_t fnv_uniform_state_prepare(struct fnv_uniform_state *s,struct fnv_uniform_draw *out){return prepare_draw(s,NULL,0,out);}
+uint32_t fnv_uniform_state_prepare_vertex(struct fnv_uniform_state *s,const void *data,uint32_t bytes,struct fnv_uniform_draw *out){
+    if(!data)return FNV_D3D9_INVALIDCALL;
+    return prepare_draw(s,data,bytes,out);
 }
 static struct version *find(struct fnv_uniform_state *s,uint64_t ticket){
     if(ticket)for(uint32_t i=0;i<s->slots;++i)if(s->versions[i].phase && s->versions[i].ticket==ticket)return s->versions+i;

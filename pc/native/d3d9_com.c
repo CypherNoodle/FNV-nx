@@ -4,6 +4,7 @@
 #include "host_mutex.h"
 #include "d3d9_fvf.h"
 #include "d3d9_transform_state.h"
+#include "d3d9_fixed_vertex.h"
 #include <stdlib.h>
 
 enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FACTORY_OBJECT=1016,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4,BLOCK_VTABLE=(119+5+14+5+22+17)*4 };
@@ -716,7 +717,15 @@ static void draw(int indexed) {
     if(indexed && c->indices>=0 && c->resources[c->indices].locked)locked=1;
     uint32_t result=FNV_D3D9_INVALIDCALL;
     if(c->in_scene && !locked){result=fnv_d3d9_constants_flush(c->constants,c->config.backend.upload_constants,c->config.backend.context);
-        if(!result)result=c->config.backend.draw(c->config.backend.context,indexed,primitive,base,min_vertex,vertices,start,primitives);}
+        if(!result){
+            if(c->shaders[0]<0 && c->config.backend.draw_fixed_unlit){
+                int supported=c->declaration>=0 && c->resources[c->declaration].fvf==0x102 && c->shaders[1]>=0;
+                for(unsigned r=0;r<4;r++)for(unsigned col=0;col<4;col++)if(c->transforms.matrices[2][r*4+col]!=(r==col?1.0f:0.0f))supported=0;
+                if(!supported)result=0x8876086au;
+                else {float columns[16];result=fnv_fixed_vertex_columns(&c->transforms,columns);
+                    if(!result)result=c->config.backend.draw_fixed_unlit(c->config.backend.context,indexed,primitive,base,min_vertex,vertices,start,primitives,columns);}
+            }else result=c->config.backend.draw(c->config.backend.context,indexed,primitive,base,min_vertex,vertices,start,primitives);
+        }}
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,indexed?28:16);
 }
 #include "d3d9_up.inc"

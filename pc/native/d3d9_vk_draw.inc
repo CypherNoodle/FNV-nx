@@ -31,6 +31,10 @@ done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
 static uint32_t draw_state(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get,int *handled){
     *handled=0;
+    if(kind==FNV_D3D9_RENDER_STATE && name==137){
+        *handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;
+        if(get)values[0]=d->lighting;else d->lighting=values[0]!=0;return 0;
+    }
     if(kind==FNV_D3D9_RENDER_STATE && (name==7 || name==14 || name==23 || name==22)){
         *handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;
         uint32_t *field=name==7?&d->depth_state.enable:name==14?&d->depth_state.write:name==23?&d->depth_state.compare:&d->cull_mode;
@@ -73,12 +77,13 @@ static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources 
     VkDescriptorPool pool=VK_NULL_HANDLE;hr=result(d,d->v.CreateDescriptorPool(d->device,&pci,NULL,&pool));if(hr)return hr;r->descriptors=pool;
     return 0;
 }
-static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride){
+static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed){
     uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;struct stream_binding streams[16];memcpy(streams,d->streams,sizeof(streams));
     if(up_vertex){memset(streams,0,sizeof(streams));streams[0].stride=up_stride;}
-    struct shader_resource *vs=find_shader(d,d->bound_shaders[0]),*ps=find_shader(d,d->bound_shaders[1]);
+    struct shader_resource *vs=find_shader(d,fixed?d->fixed_vertex:d->bound_shaders[0]),*ps=find_shader(d,d->bound_shaders[1]);
     struct declaration_resource *decl=find_declaration(d,d->declaration);struct surface *color=find(d,d->color),*depth=find(d,d->depth);
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(fixed && (d->bound_shaders[0] || d->lighting))goto done;
     if(!d->in_scene || !vs || !ps || !decl || !color || (primitive<4 || primitive>6) || (d->depth_state.enable && !depth))goto done;
     if(d->viewport[2]>d->properties.limits.maxViewportDimensions[0] || d->viewport[3]>d->properties.limits.maxViewportDimensions[1] ||
        (double)d->viewport[0]<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]<d->properties.limits.viewportBoundsRange[0] ||
@@ -124,7 +129,7 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     if(indexed){r->indices=ib->version;r->indices->refs++;draw_pin(d,r,ib->id);}
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
         r->textures[i]=t->version;r->textures[i]->refs++;draw_pin(d,r,t->id);}
-    struct fnv_uniform_draw snapshot;hr=fnv_uniform_state_prepare(d->uniforms,&snapshot);if(hr)goto rollback;
+    struct fnv_uniform_draw snapshot;hr=fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,64,&snapshot):fnv_uniform_state_prepare(d->uniforms,&snapshot);if(hr)goto rollback;
     for(unsigned i=0;i<2 && !hr;++i)if(snapshot.bytes[i])hr=make_version(d,i?FNV_D3D9_PS:FNV_D3D9_VS,snapshot.bytes[i],snapshot.data[i],r->ubo+i);
     {uint32_t cancel=fnv_uniform_state_cancel(d->uniforms,snapshot.ticket);if(cancel && !hr)hr=cancel;}if(hr)goto rollback;
     hr=draw_descriptors(d,r,program);if(hr)goto rollback;
@@ -174,7 +179,32 @@ done:return hr;
 
 static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives){
     struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);
-    uint32_t hr=draw_locked(d,indexed,primitive,base,min_vertex,vertices,start,primitives,NULL,NULL,0);
+    uint32_t hr=draw_locked(d,indexed,primitive,base,min_vertex,vertices,start,primitives,NULL,NULL,0,NULL);
     fnv_host_mutex_unlock(&d->guard);return hr;
 }
 #include "d3d9_vk_up.inc"
+
+static uint32_t draw_fixed_unlit(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t minimum,uint32_t vertices,uint32_t start,uint32_t primitives,const float columns[16]){
+    struct fnv_vk_backend *d=ctx;if(!d || !columns)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);
+    uint32_t hr=draw_locked(d,indexed,primitive,base,minimum,vertices,start,primitives,NULL,NULL,0,columns);
+    fnv_host_mutex_unlock(&d->guard);return hr;
+}
+uint32_t fnv_vk_backend_fixed_vertex(struct fnv_vk_backend *d,uintptr_t id){
+    if(!d)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
+    struct shader_resource *s=find_shader(d,id);
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(id){
+        if(!s || s->entry->stage!=FNV_D3D9_VERTEX || s->entry->plan.bytes!=64)goto done;
+        uint32_t mask=0;
+        for(unsigned i=0;i<s->entry->plan.count;i++){
+            const struct fnv_uniform_entry *e=s->entry->plan.entries+i;
+            if(e->kind || !e->count || e->first>=4 || e->count>4-e->first || e->offset!=e->first*16 || e->stride!=16)goto done;
+            for(unsigned j=0;j<e->count;j++){uint32_t bit=1u<<(e->first+j);if(mask&bit)goto done;mask|=bit;}
+        }
+        if(mask!=15)goto done;
+    }
+    pin(d,id,1);uintptr_t old=d->fixed_vertex;d->fixed_vertex=id;pin(d,old,0);hr=0;
+done:fnv_host_mutex_unlock(&d->guard);return hr;
+}

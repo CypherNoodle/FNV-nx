@@ -73,6 +73,21 @@ def test(args):
     d=Draw();assert prepare(state,C.byref(d))==0 and C.string_at(d.data[0],16)==bytes(other_value)
     assert commit(state,d.ticket,1)==0x8876086c and cancel(state,d.ticket)==0
     assert bind(state,0,None)==0 and prepare(state,C.byref(draw))==0x8876086c
+    override=lib.fnv_uniform_state_prepare_vertex
+    override.argtypes=[C.c_void_p,C.c_void_p,U32,C.POINTER(Draw)];override.restype=U32
+    columns=(U32*16)(*range(16));original=bytes(columns)
+    for data,size in ((None,64),(columns,0),(columns,65)):
+        assert override(state,data,size,C.byref(draw))==0x8876086c and bytes(draw)==before
+    assert override(state,columns,64,C.byref(d))==0
+    columns[0]=999
+    assert d.bytes[0]==64 and C.string_at(d.data[0],64)==original
+    assert C.string_at(d.data[1],16)==bytes((U32*4)(7,8,9,10)) and cancel(state,d.ticket)==0
+    # No hidden vertex binding is installed by the override.
+    assert prepare(state,C.byref(draw))==0x8876086c and bytes(draw)==before
+    assert bind(state,1,None)==0
+    assert override(state,columns,64,C.byref(draw))==0x8876086c and bytes(draw)==before
+    entries[0].first=4
+    assert bind(state,1,C.byref(plan))==0
     zero=Plan(0,0,None);assert bind(state,0,C.byref(zero))==0
     assert prepare(state,C.byref(d))==0 and d.bytes[0]==0 and d.data[0] is None
     assert cancel(state,d.ticket)==0

@@ -13,7 +13,7 @@ static uint32_t draw_up(void *ctx,int indexed,uint32_t primitive,uint32_t minimu
     if((uint64_t)vertex_bytes+index_bytes>d->config.memory_budget){hr=FNV_VK_OOM;goto done;}
     hr=make_version(d,FNV_D3D9_VB,vertex_bytes,data,&vb.version);if(hr)goto done;
     if(indexed){hr=make_version(d,FNV_D3D9_IB,index_bytes,indices,&ib.version);if(hr)goto done;}
-    hr=draw_locked(d,indexed,primitive,0,minimum,vertices,0,primitives,&vb,indexed?&ib:NULL,stride);
+    hr=draw_locked(d,indexed,primitive,0,minimum,vertices,0,primitives,&vb,indexed?&ib:NULL,stride,NULL);
 done:
     release_version(d,vb.version);release_version(d,ib.version);
     uintptr_t old=d->streams[0].id;d->streams[0]=(struct stream_binding){0};pin(d,old,0);

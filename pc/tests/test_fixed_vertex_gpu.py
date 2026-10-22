@@ -58,9 +58,9 @@ def run(a):
         assert bad.returncode and 'fixed vertex pixel mismatch' in bad.stderr
         controls[mode]=True
     assert all(sha(Path(p))==h for p,h in frozen.items())
-    result=dict(status='PASS',pixel_checks=2048,negative_controls=controls,source_sha256=frozen,
+    result=dict(status='PASS',pixel_checks=4096,negative_controls=controls,source_sha256=frozen,
                 compiler_command=command,output_sha256={str(p.relative_to(out)):sha(p) for p in [out/'vs.bin',out/'ps.bin',out/'pair/vs.spv',out/'pair/ps.spv',out/'fixed_vertex_fixture.h',out/'gpu-test.exe',out/'pair/translation.json']},translated_callers=False,automatic_fixed_pipeline=False,game_frame=False,switch_hardware_tested=False)
-    (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print('PASS fixed vertex GPU2048 pixels; both negative controls detected')
+    (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print('PASS fixed vertex GPU4096 pixels; both negative controls detected')
 
 
 if __name__=='__main__':

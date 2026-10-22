@@ -24,25 +24,44 @@ own compiled fixture shaders only in the private output. Input/output hashes,
 compiler invocation, reflection and logs are recorded there. The test compiles
 with strict warnings and uses the Vulkan loader from Windows System32.
 
-Passing private proof: `local/fixed-vertex-gpu04/validation.json`. Two GPU draws
-check2048 pixels: identity covers the32x32 target; noncommuting world/view/
-projection matrices cover the independently specified pixel rectangle x12..19,
-y4..19. Constant UV .25/.75 yields its expected color within one UNORM unit.
-Changing the original matrix bank and upload arrays after draw submission does
-not alter readback. Wrong-transpose and reversed-order controls each fail with
-a pixel mismatch. Earlier attempts failed strict indentation compilation, then
-draw validation because depth was enabled without a depth target; the passing
-fixture explicitly disables depth. These are not passing results for those
-earlier attempts.
+Passing private proof: `local/fixed-vertex-dispatch03/validation.json`. Four GPU
+draws check4096 pixels: programmable identity; unlit transformed geometry;
+programmable identity again without another constant upload; unlit identity
+after Reset. Noncommuting world/view/projection matrices cover the independently
+specified rectangle x12..19,y4..19. Constant UV .25/.75 yields expected color
+within one UNORM unit. Source mutations cannot alter queued uniforms.
+Wrong-transpose and reversed-order controls both fail with a pixel mismatch.
+The return to the programmable shader proves the fixed matrix override did not
+replace its register bank. Reset retains the prepared shader even after its
+public reference has been released. Lighting defaults on after Reset, rejects
+unlit draws, and rolls back if a state transaction subsequently fails.
 
-This proof uses explicit shader bindings and native callbacks, not translated
-COM draw callers or automatic SetVertexShader(NULL) selection. The COM matrix
-bank is not yet wired to this shader's constants. Lighting, normals, vertex
-blending, XYZRHW, texture transform stages and fixed fragment processing remain
-pending. Arbitrary float rounding, perspective cases, Switch/NVK operation and
-game frames are not established. No Hardware T&L caps are enabled by this proof.
+The host registers the trusted original shader with
+`fnv_vk_backend_fixed_vertex`; the provider validates its c0..3 column layout
+and retains an internal pin. This does not change the visible shader binding.
+COM buffered DrawPrimitive/DrawIndexedPrimitive select the bounded path only
+with no programmable VS, FVF XYZ|TEX1 (0x102), identity texture0 matrix and an
+explicit pixel shader. The backend additionally requires LIGHTING=FALSE and a
+prepared linked shader pair. The matrix snapshot bypasses programmable VS
+uniform packing without modifying its bank or binding. Unsupported variants
+fail explicitly. UP draws do not use this path yet.
 
-Next connect a strict supported variant to the COM draw path without overwriting
-the application's programmable constants/bindings, then validate switching and
-stateblocks with translated callers. Expand lighting before claiming the game's
-required processing contract.
+`local/vulkan-fixed-dispatch02` separately passes97 translated synthetic COM
+callers and the previous46 real GPU draws,251/256 submissions and pixel-negative
+controls. Its dedicated boundary fixture checks exact matrix columns, indexed
+arguments, HRESULT propagation and rejection of unsupported FVF, texture
+transform and missing PS. That fixture uses a callback spy and does not execute
+a fixed GPU draw. The native pixel test and translated boundary test are two
+separate proofs; a combined translated fixed-draw pixel fixture is still needed.
+`local/uniform-fixed-override02` checks invalid override sizes, immutable copied
+bytes, no implicit VS binding and required PS binding, plus800 concurrent uploads
+and400 snapshots. Strict ARM64 A57/libnx compilation of COM and the backend
+passes; this is not hardware execution.
+
+Lighting, normals, vertex blending, XYZRHW, texture transform stages and fixed
+fragment processing remain pending. Arbitrary float rounding, perspective
+cases, Switch/NVK operation and game frames are not established. Hardware T&L
+caps stay disabled; the game's startup rejection has not been bypassed.
+
+Next validate the combined translated fixed GPU draw, then expand lighting
+before claiming the processing required by the game.

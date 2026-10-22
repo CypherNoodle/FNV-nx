@@ -29,6 +29,7 @@ static void draw_pixels(unsigned channel,const unsigned char gray[4],int patch){
 #include "vk_backend_up_fixture.h"
 #include "vk_backend_fvf_fixture.h"
 #include "vk_backend_stateblocks_fixture.h"
+#include "vk_backend_fixed_dispatch_fixture.h"
 static void exercise_draws(void){
     unsigned stage_index[2]={0};for(unsigned i=0;i<catalog_count;++i)stage_index[((const uint32_t*)catalog[i].bytes)[0]>>16==0xffff]=i;
     struct fnv_vk_vertex_input map[2]={{0,0,0},{5,0,1}};
@@ -43,6 +44,7 @@ static void exercise_draws(void){
     const unsigned char first[4]={255,128,64,192},second[4]={21,67,139,233};draw_texture(texture,first);texture_ready(texture);
     uint32_t render[]={device_at,22,1};assert(!call(SET_RENDER,3,render));
     uint32_t clear[]={device_at,0,0,7,0xff000000,0x3f800000,0};assert(!call(CLEAR,7,clear));assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
+    exercise_fixed_dispatch(vs,ps,decl);
     draw_constants(0,.75f);uint32_t draw_args[]={device_at,4,UINT32_MAX,1,4,2,2};
     assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID);assert(!call(BEGIN,1,&device_at));
     draw_args[3]=2;assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID && !stats().draws);draw_args[3]=1;

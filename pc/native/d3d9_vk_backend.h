@@ -95,6 +95,10 @@ uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *,uintptr_t,uint32_t 
  * substitute for spirv-val, reflection or pair-interface validation offline.
  * Duplicate stage/tokens reject; copies remain owned until backend destroy. */
 uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *,enum fnv_d3d9_stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *);
+/* Trusted original XYZ/UV fixed VS only; host validates semantic contract.
+ * Retains an internal shader pin through Reset; id0 clears. Plan must be four
+ * float column registers c0..3,64 bytes. No binding/caps changes. */
+uint32_t fnv_vk_backend_fixed_vertex(struct fnv_vk_backend *,uintptr_t);
 /* Supported logical D3D9 resource/usage -> actual Vulkan format query.
  * Unsupported capabilities return D3DERR_NOTAVAILABLE; never allocate here. */
 uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *,uint32_t usage,uint32_t resource_type,uint32_t format);

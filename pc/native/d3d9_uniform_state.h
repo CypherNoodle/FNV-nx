@@ -38,6 +38,9 @@ uint32_t fnv_uniform_state_bind_batch(struct fnv_uniform_state *,uint32_t mask,c
  * or a valid completion releases its ticket. Busy never spins or waits.
  */
 uint32_t fnv_uniform_state_prepare(struct fnv_uniform_state *,struct fnv_uniform_draw *);
+/* Temporary fixed VS bytes plus the live PS plan. Does not alter bindings or
+ * programmable banks. Output/ticket semantics match prepare. */
+uint32_t fnv_uniform_state_prepare_vertex(struct fnv_uniform_state *,const void *,uint32_t,struct fnv_uniform_draw *);
 /* For ONE ordered queue. Commit only after a successful real submission,
  * with a unique strictly increasing serial for each submission. Use the
  * atomic batch method when one submission consumes several versions;
