@@ -43,7 +43,8 @@ static void stateblock_operation(uint32_t operation){
     if(index>=0 && !c->recording){struct state_block *b=c->resources[index].snapshot;
         /* All mask validation precedes the numeric transaction. Under the
          * module lock, the following constant commit cannot fail validation. */
-        hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,2);
+        hr=fnv_light_block_prepare(&c->lights,&b->lights,operation==1);
+        if(!hr)hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,2);
         struct fnv_d3d9_state_value entries[274];uint32_t count=b->count;memcpy(entries,b->entries,count*sizeof(*entries));
         if(operation==0)for(unsigned i=0;i<18;++i)if(b->binding_mask&(1u<<i))entries[count++]=binding_entry(c,i,b->bindings[i]);
         if(!hr)hr=c->config.backend.state_batch(c->config.backend.context,entries,count,operation);
@@ -55,6 +56,7 @@ static void stateblock_operation(uint32_t operation){
             }else for(unsigned i=0;i<18;++i)if(b->binding_mask&(1u<<i))change_binding(c,block_slot(c,i),b->bindings[i]);
         }
         if(!hr)hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,operation);
+        if(!hr)fnv_light_block_commit(&c->lights,&b->lights,operation==1);
         if(!hr && b->material_set){
             if(operation==1)memcpy(b->material,c->material,68);
             else memcpy(c->material,b->material,68);
