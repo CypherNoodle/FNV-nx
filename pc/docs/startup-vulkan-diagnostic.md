@@ -34,9 +34,8 @@ buffer de salida de esa consulta queda sin inicializar. Esto explica el prefijo
 de la ruta, pero no demuestra por que el juego eligio el fallback. ShellExecuteA
 ahora reconoce unicamente esa solicitud del launcher, informa ERROR_FILE_NOT_FOUND
 y devuelve fallo. El analisis estatico muestra que el EXE comprueba cero y
-entra por su rama de inicializacion de ventana. Esa rama se ha confirmado por
-inspeccion estatica; reproducirla sigue pendiente. No se ejecuta un proceso
-externo ni se finge un lanzamiento.
+entra por su rama de inicializacion de ventana. El replay de esa continuacion
+aun esta pendiente; no se ejecuta un proceso externo ni se finge un lanzamiento.
 El siguiente bloqueo grafico que se debe resolver es por que el motor pasa de
 las consultas HAL validas a REF sin llegar a CreateDevice; revisar el control de
 enumeracion/caps y los formatos solicitados antes de anunciar shader versions
