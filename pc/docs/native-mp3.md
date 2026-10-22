@@ -40,8 +40,29 @@ Stats source_frames incluyen lookahead; output_frames cuenta frames convertidos,
 incluido el bloque pendiente, no audio reproducido por el dispositivo.
 
 La aplicacion puede bombear desde su hilo de decodificacion mientras el worker
-audout consume PCM. Aun no hay ese reproductor del motor, DirectSound/DirectShow
-COM, controles de volumen/pause desde el juego, mixer 3D, Bink o Vorbis.
+audout consume PCM. Aun no hay ese reproductor del motor ni un puente desde sus
+APIs de MP3/DirectShow. Existe un [primer proveedor DirectSound8 PCM](native-directsound.md),
+con volumen/pan y buffers, pero el juego todavia pide un listener3D pendiente.
+Bink y Vorbis tambien siguen pendientes en esta ruta.
+
+## Relacion con DirectSound
+
+El decoder se conserva como modulo opcional probado; no lo llama aun el motor.
+DirectSound recibe PCM y no reemplaza un decoder MP3. fnv_mp3_read ya ofrece el
+formato de salida48000Hz stereo s16 que puede consumir la ruta de audio propia.
+Falta identificar y conectar la API real con la que el motor abre/controla MP3.
+No basta con enlazar el decoder para anunciar musica funcional.
+
+No bombear fnv_mp3_pump y DirectSound sobre una misma cola de salida: escribir
+ambos consecutivamente intercalaria audio en vez de mezclarlo. El futuro puente
+debe entregar PCM decodificado a una voz/buffer del mezclador, o usar una cola
+independiente para una prueba de reproduccion aislada. No hacer E/S SD y
+busquedas MP3 dentro del callback de mezcla de audout.
+
+pcm_convert conserva lookahead y estado de un stream/EOF. El resampler de
+DirectSound opera sobre buffers circulares con seek, looping y cambio de
+frecuencia. Son contratos distintos; el conversor existente sigue usandose en
+MP3 y no se elimina como duplicado por semejanza de formulas.
 
 ## Verificacion y limites
 

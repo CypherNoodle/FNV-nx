@@ -15,6 +15,11 @@ enum fnv_cpu_result fnv_horizon_pad_close(struct fnv_horizon_pad *);
  * queue until close. No other audout owner may run concurrently. No decoding,
  * resampling or DirectSound ABI is implied by this PCM output backend. */
 uint32_t fnv_horizon_audio_open(struct fnv_pcm_queue *,struct fnv_horizon_audio **);
+/* Optional pull producer runs on the audio worker before each 512-frame read
+ * (and during open). Returns zero or a visible error; no guest callbacks.
+ * Producer/context retained by caller until close, no separate producer thread.
+ * For DirectSound: queue dedicated to provider; producer=fnv_dsound8_produce. */
+uint32_t fnv_horizon_audio_open_source(struct fnv_pcm_queue *,uint32_t (*produce)(void *,uint32_t),void *,struct fnv_horizon_audio **);
 uint32_t fnv_horizon_audio_error(struct fnv_horizon_audio *);
 /* Nonzero close result retains object/queue ownership; caller must not free it. */
 uint32_t fnv_horizon_audio_close(struct fnv_horizon_audio *);

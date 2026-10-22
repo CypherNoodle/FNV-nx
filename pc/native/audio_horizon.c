@@ -5,10 +5,11 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 enum {BUFFERS=3,FRAMES=512};
-struct fnv_horizon_audio {struct fnv_pcm_queue *queue;AudioOutBuffer buffers[BUFFERS];fnv_host_thread worker;atomic_uint stop,error;int started;};
+struct fnv_horizon_audio {struct fnv_pcm_queue *queue;AudioOutBuffer buffers[BUFFERS];fnv_host_thread worker;atomic_uint stop,error;int started;uint32_t (*produce)(void *,uint32_t);void *context;};
 static struct fnv_horizon_audio *active_audio; /* Host serializes setup/teardown. */
-static void fill(struct fnv_horizon_audio *a,AudioOutBuffer *b){
-    (void)fnv_pcm_read(a->queue,b->buffer,FRAMES);armDCacheFlush(b->buffer,FRAMES*4);
+static uint32_t fill(struct fnv_horizon_audio *a,AudioOutBuffer *b){
+    if(a->produce){uint32_t rc=a->produce(a->context,FRAMES);if(rc)return rc;}
+    (void)fnv_pcm_read(a->queue,b->buffer,FRAMES);armDCacheFlush(b->buffer,FRAMES*4);return 0;
 }
 static void worker(void *context){
     struct fnv_horizon_audio *a=context;
@@ -19,20 +20,22 @@ static void worker(void *context){
         if(!count)continue;
         int known=0;for(unsigned i=0;i<BUFFERS;i++)if(released==a->buffers+i)known=1;
         if(!known || count!=1){atomic_store(&a->error,MAKERESULT(Module_Libnx,LibnxError_BadInput));break;}
-        fill(a,released);rc=audoutAppendAudioOutBuffer(released);
+        rc=fill(a,released);
+        if(R_FAILED(rc)){atomic_store(&a->error,rc);break;}
+        rc=audoutAppendAudioOutBuffer(released);
         if(R_FAILED(rc)){atomic_store(&a->error,rc);break;}
     }
 }
-uint32_t fnv_horizon_audio_open(struct fnv_pcm_queue *queue,struct fnv_horizon_audio **out){
+uint32_t fnv_horizon_audio_open_source(struct fnv_pcm_queue *queue,uint32_t (*produce)(void *,uint32_t),void *context,struct fnv_horizon_audio **out){
     if(!out || !queue)return MAKERESULT(Module_Libnx,LibnxError_BadInput);
     *out=NULL;if(active_audio)return MAKERESULT(Module_Libnx,LibnxError_AlreadyInitialized);
     struct fnv_horizon_audio *a=calloc(1,sizeof(*a));if(!a)return MAKERESULT(Module_Libnx,LibnxError_OutOfMemory);
-    a->queue=queue;atomic_init(&a->stop,0);atomic_init(&a->error,0);
+    a->queue=queue;a->produce=produce;a->context=context;atomic_init(&a->stop,0);atomic_init(&a->error,0);
     Result rc=audoutInitialize();if(R_FAILED(rc)){free(a);return rc;}
     if(audoutGetSampleRate()!=48000 || audoutGetChannelCount()!=2 || audoutGetPcmFormat()!=PcmFormat_Int16){rc=MAKERESULT(Module_Libnx,LibnxError_BadInput);goto fail;}
     for(unsigned i=0;i<BUFFERS;i++){
         AudioOutBuffer *b=a->buffers+i;b->buffer=memalign(4096,4096);if(!b->buffer){rc=MAKERESULT(Module_Libnx,LibnxError_OutOfMemory);goto fail;}
-        b->buffer_size=4096;b->data_size=FRAMES*4;fill(a,b);
+        b->buffer_size=4096;b->data_size=FRAMES*4;rc=fill(a,b);if(R_FAILED(rc))goto fail;
         rc=audoutAppendAudioOutBuffer(b);if(R_FAILED(rc))goto fail;
     }
     rc=audoutStartAudioOut();if(R_FAILED(rc))goto fail;
@@ -40,6 +43,9 @@ uint32_t fnv_horizon_audio_open(struct fnv_pcm_queue *queue,struct fnv_horizon_a
     a->started=1;active_audio=a;*out=a;return 0;
 fail:
     (void)audoutStopAudioOut();audoutExit();for(unsigned i=0;i<BUFFERS;i++)free(a->buffers[i].buffer);free(a);return rc;
+}
+uint32_t fnv_horizon_audio_open(struct fnv_pcm_queue *queue,struct fnv_horizon_audio **out){
+    return fnv_horizon_audio_open_source(queue,NULL,NULL,out);
 }
 uint32_t fnv_horizon_audio_error(struct fnv_horizon_audio *a){return a?atomic_load(&a->error):MAKERESULT(Module_Libnx,LibnxError_BadInput);}
 uint32_t fnv_horizon_audio_close(struct fnv_horizon_audio *a){
