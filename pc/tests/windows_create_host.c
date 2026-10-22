@@ -83,7 +83,7 @@ int main(int argc,char **argv){
     for(size_t i=0;i<n;i++)if(!strcmp(e[i].name,"DefWindowProcA"))default_proc=e[i].function;assert(default_proc);
     exports[n++]=(struct fnv_cpu_export){"test-ui.dll","Observe",0,0,observe};
     size_t count; e=fnv_windows_user32_exports(&count);memcpy(exports+n,e,count*sizeof(*e));n+=count;
-    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==13);
+    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==14);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;
     t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1c000;fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);
     if(argc==3 && !strcmp(argv[2],"--strict-stack"))t.stack_low=BASE+0x1be70;
@@ -119,7 +119,18 @@ int main(int argc,char **argv){
                 assert(!fnv_windows_boot_ui_input_focus(ui,0xdead));
                 uint32_t find[]={NAME,TITLE};assert(call(6,find,2,0)==hwnd);
                 uint32_t unreg[]={NAME,BASE};assert(!call(3,unreg,2,0) && call(4,NULL,0,0)==ERROR_CLASS_HAS_WINDOWS);
+                uint32_t bounds[]={hwnd,BASE+0x83000};RECT expected;
+                assert(GetClientRect(backing,&expected));
+                uint32_t last_error=call(4,NULL,0,0);
+                assert(call(13,bounds,2,0) && call(4,NULL,0,0)==last_error);
+                assert(!memcmp(arena+bounds[1]-BASE,&expected,16));
                 uint32_t destroy[]={hwnd};assert(call(2,destroy,1,0));assert(DestroyWindow(other));
+                memset(arena+bounds[1]-BASE,0xa5,16);
+                assert(!call(13,bounds,2,0) && call(4,NULL,0,0)==ERROR_INVALID_WINDOW_HANDLE);
+                for(unsigned i=0;i<16;i++)assert(arena[bounds[1]-BASE+i]==0xa5);
+                bounds[0]=0;
+                assert(!call(13,bounds,2,0) && call(4,NULL,0,0)==ERROR_INVALID_WINDOW_HANDLE);
+                for(unsigned i=0;i<16;i++)assert(arena[bounds[1]-BASE+i]==0xa5);
                 void *native=(void *)1;assert(fnv_windows_boot_ui_presentation(ui,hwnd,&native)==FNV_CPU_INVALID && !native);
                 assert(!call(6,find,2,0));
             }

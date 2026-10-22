@@ -31,7 +31,9 @@ USER32 or a successful engine launch. The Xbox route remains paused.
   including during creation callbacks. Invalid/destroyed handles return error
   1400 without changing the output. Successful calls preserve LastError.
   Dimensions belong to the guest window, not the physical dock display.
-  Resize remains unsupported. This addition has not yet been compiled or run.
+  Resize remains unsupported. The translated desktop lifecycle suite checks
+  client bounds against the native backing window, LastError preservation,
+  and unchanged output for destroyed/null handles. This is desktop validation.
 - `DefWindowProcA`: handles those four creation/destruction messages only.
   Other messages remain explicit unsupported cases.
 - `DestroyWindow`: owner-thread live windows receive WM_DESTROY and

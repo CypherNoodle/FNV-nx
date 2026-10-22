@@ -55,3 +55,21 @@ EXE, capturas, codigo generado, caches y reportes privados no se publican.
 
 Ver [capacidades limitadas](native-d3d9-caps.md) para el contrato actual,
 pruebas y diferencia entre traduccion aceptada y shaders listos para dibujar.
+
+## Continuacion privada tras el rechazo del launcher
+
+El replay privado43 recompila el proveedor de ventanas y el runtime actual,
+comprueba la identidad del EXE original y reutiliza los objetos privados
+con sus hashes. Supera la solicitud ShellExecuteA y alcanza204624 llamadas
+indirectas. El nuevo stop es MessageBoxA: "Failed to initialize renderer. Your
+display doesn't support the selected resolution". No se implementa una respuesta
+exitosa para ocultar ese error. CreateDevice no se alcanza; draws y submits
+siguen en cero. La cache aritmetica registra1082 hits y0 misses; los cuatro
+workers fallidos y cleanup BUSY siguen pendientes.
+
+La traza enumera un modo A8R8G8B8(21), pero cero modos X8R8G8B8(22),
+A1R5G5B5(25), X1R5G5B5(24) y R5G6B5(23). El perfil actual usa el mismo
+color_format para el modo de escritorio y el backbuffer. Hay que revisar esta
+separacion y los filtros de caps del motor antes de atribuir el error solamente
+a las dimensiones o anunciar capacidades adicionales. El mensaje por si solo
+no identifica la condicion fallida. No hay nueva prueba HW ni frame del motor.
