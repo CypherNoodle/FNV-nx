@@ -99,7 +99,9 @@ struct fnv_d3d9_shader_backend {
 };
 /* Optional single prepared virtual-adapter factory. Dimensions/formats must
  * match the provider's real implicit targets. No swapchain/caps are invented.
- * Query callback runs under COM lock; 0=CheckDeviceFormat, 1=GetDeviceCaps.
+ * Query callback runs under COM lock; 0=CheckDeviceFormat, 1=GetDeviceCaps,
+ * 2=GetAdapterIdentifier (args adapter/flags; exactly 1104 x86 bytes).
+ * Unknown query kinds must return D3DERR_NOTAVAILABLE.
  * Output caps, when supported, are exactly 304 packed x86 D3DCAPS9 bytes. */
 struct fnv_d3d9_factory_profile {
     uint32_t width,height,color_format,depth_format,refresh_hz;

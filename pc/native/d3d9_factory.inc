@@ -1,3 +1,9 @@
+#ifdef FNV_D3D9_FACTORY_TRACE
+#include <stdio.h>
+#define FACTORY_TRACE(...) ((void)fprintf(stderr,"FNV_D3D9_FACTORY " __VA_ARGS__))
+#else
+#define FACTORY_TRACE(...) ((void)0)
+#endif
 /* Single prepared virtual-adapter factory. All methods registered before attach. */
 #define NOT_AVAILABLE 0x8876086au
 static uint32_t factory_address(const struct fnv_d3d9_com *c){return c->config.objects_address+FACTORY_OBJECT;}
@@ -10,14 +16,14 @@ static void api_direct3d9(void){
 static void api_adapter_count(void){struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);fnv_host_mutex_lock(&c->guard);factory_this(c,self);fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(1,4);}
 static void api_mode_count(void){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),format=fnv_cpu_argument_u32(2);struct fnv_d3d9_com *c=module();
-    fnv_host_mutex_lock(&c->guard);factory_this(c,self);uint32_t result=!adapter && format==c->factory.color_format;fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,12);
+    fnv_host_mutex_lock(&c->guard);factory_this(c,self);uint32_t result=!adapter && format==c->factory.color_format;fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("GetAdapterModeCount adapter=%u format=%u count=%u\n",adapter,format,result);fnv_cpu_return_u32(result,12);
 }
 static void display_mode(int enumerate){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),format=enumerate?fnv_cpu_argument_u32(2):0,index=enumerate?fnv_cpu_argument_u32(3):0;
     struct fnv_d3d9_com *c=module();unsigned char *out=range(c,fnv_cpu_argument_u32(enumerate?4:2),16,1);uint32_t result=FNV_D3D9_INVALIDCALL;
     fnv_host_mutex_lock(&c->guard);factory_this(c,self);
     if(out && !adapter && !index && (!enumerate || format==c->factory.color_format)){const uint32_t values[4]={c->factory.width,c->factory.height,c->factory.refresh_hz,c->factory.color_format};for(unsigned i=0;i<4;++i)write32(out+i*4,values[i]);result=0;}
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,enumerate?20:12);
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("DisplayMode enumerate=%d adapter=%u format=%u index=%u hr=%08x\n",enumerate,adapter,format,index,result);fnv_cpu_return_u32(result,enumerate?20:12);
 }
 static void api_enum_modes(void){display_mode(1);}
 static void api_display_mode(void){display_mode(0);}
@@ -25,14 +31,14 @@ static void api_check_type(void){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),type=fnv_cpu_argument_u32(2),display=fnv_cpu_argument_u32(3),back=fnv_cpu_argument_u32(4),windowed=fnv_cpu_argument_u32(5);
     struct fnv_d3d9_com *c=module();fnv_host_mutex_lock(&c->guard);factory_this(c,self);
     uint32_t result=adapter?FNV_D3D9_INVALIDCALL:type==1 && display==c->factory.color_format && (back==c->factory.color_format || (windowed && !back))?0:NOT_AVAILABLE;
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,24);
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CheckDeviceType adapter=%u type=%u display=%u back=%u windowed=%u hr=%08x\n",adapter,type,display,back,windowed,result);fnv_cpu_return_u32(result,24);
 }
 static void api_check_format(void){
     struct fnv_d3d9_com *c=module();uint32_t args[6];for(unsigned i=0;i<6;++i)args[i]=fnv_cpu_argument_u32(i+1);
     uint32_t self=fnv_cpu_argument_u32(0);fnv_host_mutex_lock(&c->guard);factory_this(c,self);uint32_t result=NOT_AVAILABLE;
     if(args[0])result=FNV_D3D9_INVALIDCALL;
     else if(args[1]==1 && args[2]==c->factory.color_format && c->factory.query)result=c->factory.query(c->factory.context,0,args,6,NULL,0);
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,28);
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CheckDeviceFormat adapter=%u type=%u adapter_format=%u usage=%u resource=%u check=%u hr=%08x\n",args[0],args[1],args[2],args[3],args[4],args[5],result);fnv_cpu_return_u32(result,28);
 }
 static void get_caps(int factory){
     struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0),args[2]={factory?fnv_cpu_argument_u32(1):0,factory?fnv_cpu_argument_u32(2):1};
@@ -40,15 +46,25 @@ static void get_caps(int factory){
     fnv_host_mutex_lock(&c->guard);if(factory)factory_this(c,self);else (void)object(c,self,1);
     if(out && !args[0]){result=NOT_AVAILABLE;if(args[1]==1 && c->factory.query)result=c->factory.query(c->factory.context,1,args,2,candidate,sizeof(candidate));
         if(!result)memcpy(out,candidate,sizeof(candidate));}
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,factory?16:8);
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("GetDeviceCaps factory=%d adapter=%u type=%u hr=%08x\n",factory,args[0],args[1],result);fnv_cpu_return_u32(result,factory?16:8);
 }
 static void api_factory_caps(void){get_caps(1);}
 static void api_device_caps(void){get_caps(0);}
 static void unavailable(unsigned count,int monitor){
-    struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);fnv_host_mutex_lock(&c->guard);factory_this(c,self);fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(monitor?0:NOT_AVAILABLE,count*4);
+    struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);fnv_host_mutex_lock(&c->guard);factory_this(c,self);fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("Unsupported argument_count=%u monitor=%d hr=%08x\n",count,monitor,monitor?0:NOT_AVAILABLE);fnv_cpu_return_u32(monitor?0:NOT_AVAILABLE,count*4);
 }
 static void api_unavailable2(void){unavailable(2,0);}
-static void api_unavailable4(void){unavailable(4,0);}
+static void api_adapter_identifier(void){
+    struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0),args[2]={fnv_cpu_argument_u32(1),fnv_cpu_argument_u32(2)};
+    unsigned char *out=range(c,fnv_cpu_argument_u32(3),1104,1),candidate[1104]={0};uint32_t hr=FNV_D3D9_INVALIDCALL;
+    fnv_host_mutex_lock(&c->guard);factory_this(c,self);
+    if(out && args[0])memset(out,0,1104);
+    else if(out && !(args[1]&~2u)){
+        hr=c->factory.query?c->factory.query(c->factory.context,2,args,2,candidate,sizeof(candidate)):NOT_AVAILABLE;
+        if(!hr)memcpy(out,candidate,sizeof(candidate));
+    }
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("GetAdapterIdentifier adapter=%u flags=%u hr=%08x\n",args[0],args[1],hr);fnv_cpu_return_u32(hr,16);
+}
 static void api_unavailable5(void){unavailable(5,0);}
 static uint32_t factory_surface_format(struct fnv_d3d9_com *c,uint32_t format,uint32_t usage){
     uint32_t args[6]={0,1,c->factory.color_format,usage,1,format};
@@ -122,3 +138,5 @@ static int factory_prepared(const struct fnv_d3d9_com_config *cfg,const struct f
     }
     return 1;
 }
+
+#undef FACTORY_TRACE

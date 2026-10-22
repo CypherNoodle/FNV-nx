@@ -71,13 +71,14 @@ con Werror y enlace parcial; verifica llamadas/exports reales de libnx para modo
 resolucion applet y dimensiones de NWindow. No enlaza NRO ni ejecuta en consola.
 La regresion USER32 sin backend mantiene sus diagnosticos y ventanas virtuales.
 
-El replay privado ya supera display enumeration y screen width/height. Ahora
-llega al aviso del motor: Failed to initialize renderer / No D3D Device description
-found. FNV_MODULE_TRACE confirma LoadLibraryA(d3d9.dll) fallido con126: el runner
-aun no registra el proveedor D3D9/Vulkan existente. Es el siguiente trabajo,
-junto con descripcion del adaptador/caps que realmente soporte. No ocultar el
-aviso devolviendo OK ni anunciar un frame del motor. El renderer sintetico y
-este arranque capturado siguen siendo pruebas distintas del arranque frio.
+El replay privado ya supera display enumeration y screen width/height. El runner
+opcional FNV_STARTUP_VULKAN registra ahora nuestro proveedor D3D9 sobre un
+dispositivo Vulkan real offscreen. LoadLibraryA(d3d9.dll) y Direct3DCreate9
+resuelven; GetAdapterIdentifier usa las propiedades del dispositivo seleccionado.
+La traza muestra consultas de modos y GetDeviceCaps HAL/REF sin implementar.
+El motor toma la salida al launcher; no se ejecuta ShellExecute ni se oculta
+ese fallo. Ver [arranque con Vulkan](startup-vulkan-diagnostic.md).
+No hay frame del motor, arranque frio ni nueva prueba en consola.
 
 FNV_MODULE_TRACE es una opcion de compilacion diagnostica del namespace de DLL:
 escribe cargas y consultas por nombre/ordinal en stderr, fuera de locks, con

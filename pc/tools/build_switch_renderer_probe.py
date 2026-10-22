@@ -16,7 +16,7 @@ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def build(a):
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve();proof=json.loads(a.fixture_validation.read_text());fixture=a.fixture_validation.resolve().parent
     if out.exists():raise ValueError('Use a fresh output directory')
-    if proof['status']!='PASS' or proof['native_engine_started'] or proof['synthetic_functions']!=93:raise ValueError('Require accepted 93-caller own fixture')
+    if proof['status']!='PASS' or proof['native_engine_started'] or proof['synthetic_functions']!=94:raise ValueError('Require accepted 94-caller own fixture')
     if not proof.get('shared_probe_checks') or proof.get('probe_groups')!=9 or proof.get('probe_pixels')!=10240 or proof.get('probe_draws')!=9:raise ValueError('Require accepted combined probe checks')
     if proof.get('translated_com_present',{}).get('com_wsi_presents')!=4:raise ValueError('Require accepted translated COM Present')
     if proof.get('generated_source_sha256')!=sha(fixture/'generated.c') or proof.get('fixture_sha256')!=sha(fixture/'fixture.exe'):raise ValueError('Synthetic callers differ from tested inputs')

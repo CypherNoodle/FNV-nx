@@ -49,7 +49,7 @@ int FNV_VK_HOST_MAIN(int argc,char **argv){
     if(!strcmp(argv[3],"present")){prepare_present_window();struct fnv_vk_window window={VK_KHR_WIN32_SURFACE_EXTENSION_NAME,present_window,com_window_surface,1};
         assert(!fnv_vk_backend_create_window(gp,&cfg,&window,&gpu,&failure));}
     else assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));
-    force_noncoherent=0;fnv_vk_backend_callbacks(gpu,&provider);
+    force_noncoherent=0;fnv_vk_backend_callbacks(gpu,&provider);check_adapter_properties(gp);
     load_shader_catalog(argv[2]);register_shader_files(argv[4],argv[5]);
     original_declaration_create=provider.create_declaration;provider.create_declaration=capture_declaration;
     original_texture_create=provider.create_texture;provider.create_texture=capture_texture;

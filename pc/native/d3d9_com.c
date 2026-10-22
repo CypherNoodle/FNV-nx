@@ -757,7 +757,7 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
     api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
     api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
-    api_unavailable2,api_unavailable4,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock};
+    api_unavailable2,api_adapter_identifier,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->recording);free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);

@@ -36,6 +36,7 @@ static void api_open(void){
 }
 static void api_close(void){
     uint32_t h=fnv_cpu_argument_u32(0);
+    if(!h){fnv_cpu_return_u32(6,4);return;} /* ERROR_INVALID_HANDLE, not an unimplemented operation. */
     if(!root_key(h)){recomp_unimpl("Windows registry close handle pending",h);return;}
     fnv_cpu_return_u32(0,4); /* Predefined keys are not closed. */
 }

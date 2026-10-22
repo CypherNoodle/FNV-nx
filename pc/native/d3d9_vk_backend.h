@@ -93,6 +93,12 @@ uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *,enum fnv_d3d9_st
 /* Supported logical D3D9 resource/usage -> actual Vulkan format query.
  * Unsupported capabilities return D3DERR_NOTAVAILABLE; never allocate here. */
 uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *,uint32_t usage,uint32_t resource_type,uint32_t format);
+/* Packed x86 D3DADAPTER_IDENTIFIER9 (1104 bytes), derived from the selected
+ * Vulkan physical device. Own shim driver identity/version, no Windows driver
+ * version encoding, PCI subsystem/revision or WHQL certificate is claimed.
+ * DeviceIdentifier is the opaque Vulkan pipeline-cache UUID, not a serial ID.
+ * Output untouched on invalid arguments; caller prevents concurrent teardown. */
+uint32_t fnv_vk_backend_adapter_identifier(struct fnv_vk_backend *,void *,uint32_t bytes);
 struct fnv_vk_vertex_input {uint32_t usage,index,location;};
 /* Trusted offline pair contract: descriptor set 1/3 binding 0 are VS/PS UBOs,
  * set 2 contains combined pixel samplers at their D3D sampler binding numbers.

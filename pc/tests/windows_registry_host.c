@@ -53,13 +53,16 @@ int main(int argc,char **argv){
             assert(result==ERROR_FILE_NOT_FOUND && native==NULL && GetLastError()==0x12345678);
             put(args[4],0x12345678);assert(call(0,args,&answer)==FNV_CPU_OK && answer==(uint32_t)result && get(args[4])==0);
         }
+        for(unsigned i=0;i<1000;++i){uint32_t null_key=0;SetLastError(0x12345678);
+            LSTATUS result=RegCloseKey(NULL);assert(result==ERROR_INVALID_HANDLE && GetLastError()==0x12345678);
+            assert(call(1,&null_key,&answer)==FNV_CPU_OK && answer==(uint32_t)result);}
         uint32_t roots[]={0x80000000u,0x80000001u,0x80000002u,0x80000003u,0x80000005u};
         for(unsigned i=0;i<5;i++)for(unsigned empty=0;empty<2;empty++){
             args[0]=roots[i];args[1]=empty?BASE+0x80000:0;arena[0x80000]=0;args[3]=KEY_READ;
             assert(call(0,args,&answer)==FNV_CPU_OK && answer==0 && get(args[4])==roots[i]);
             assert(call(1,args,&answer)==FNV_CPU_OK && answer==0);
         }
-        puts("{\"status\":\"PASS\",\"windows_missing_key_comparisons\":1000,\"virtual_root_checks\":20,\"engine_started\":false}");
+        puts("{\"status\":\"PASS\",\"windows_missing_key_comparisons\":1000,\"invalid_close_comparisons\":1000,\"virtual_root_checks\":20,\"engine_started\":false}");
     }
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK);
     assert(VirtualFree(arena,0,MEM_RELEASE));return 0;

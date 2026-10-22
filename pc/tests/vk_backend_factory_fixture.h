@@ -1,13 +1,39 @@
 enum {F_IMPORT=65,F_COUNT,F_MODE_COUNT,F_ENUM,F_DISPLAY,F_TYPE,F_FORMAT,F_CAPS,F_DEVICE,F_PARENT,F_CREATION,F_DEVICE_CAPS,F_MONITOR,F_UNAVAILABLE,F_MSAA,F_DEPTH_MATCH};
+enum {F_IDENTIFIER=93};
 static uint32_t factory_public;
-static unsigned factory_checks;
+static unsigned factory_checks,identifier_failure;
 _Static_assert(sizeof(D3DCAPS9)==304,"D3DCAPS9 packed scalar ABI");
 static uint32_t factory_query(void *ctx,uint32_t kind,const uint32_t *args,uint32_t count,void *output,uint32_t bytes){
+    if(kind==2){assert(count==2 && bytes==1104);if(identifier_failure){memset(output,0x33,bytes);return 0x8876086au;}return fnv_vk_backend_adapter_identifier(ctx,output,bytes);}
     if(kind==0){assert(count==6 && !output && !bytes);return fnv_vk_backend_check_format(ctx,args[3],args[4],args[5]);}
     assert(kind==1 && count==2 && bytes==304);memset(output,0x33,bytes);return 0x8876086au; /* Full caps not implemented. */
 }
+/* Independent Vulkan query: the bridge must describe a real enumerated device. */
+static void check_adapter_properties(PFN_vkGetInstanceProcAddr gp){
+    PFN_vkCreateInstance create=(PFN_vkCreateInstance)gp(VK_NULL_HANDLE,"vkCreateInstance");assert(create);
+    VkInstanceCreateInfo ci={.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};VkInstance instance;assert(create(&ci,NULL,&instance)==VK_SUCCESS);
+    PFN_vkEnumeratePhysicalDevices enumerate=(PFN_vkEnumeratePhysicalDevices)gp(instance,"vkEnumeratePhysicalDevices");
+    PFN_vkGetPhysicalDeviceProperties properties=(PFN_vkGetPhysicalDeviceProperties)gp(instance,"vkGetPhysicalDeviceProperties");
+    PFN_vkDestroyInstance destroy=(PFN_vkDestroyInstance)gp(instance,"vkDestroyInstance");assert(enumerate && properties && destroy);
+    uint32_t count=0;assert(enumerate(instance,&count,NULL)==VK_SUCCESS && count);VkPhysicalDevice *devices=calloc(count,sizeof(*devices));assert(devices);
+    assert(enumerate(instance,&count,devices)==VK_SUCCESS);unsigned char record[1104];assert(!fnv_vk_backend_adapter_identifier(gpu,record,sizeof(record)));unsigned matches=0;
+    for(uint32_t i=0;i<count;++i){VkPhysicalDeviceProperties p;properties(devices[i],&p);uint32_t vendor,device;memcpy(&vendor,record+1064,4);memcpy(&device,record+1068,4);
+        if(vendor==p.vendorID && device==p.deviceID && !strcmp((char*)record+512,p.deviceName) && !memcmp(record+1080,p.pipelineCacheUUID,16))matches++;}
+    assert(matches);for(unsigned i=1056;i<1064;++i)assert(!record[i]);for(unsigned i=1072;i<1080;++i)assert(!record[i]);for(unsigned i=1096;i<1104;++i)assert(!record[i]);
+    free(devices);destroy(instance,NULL);factory_checks++;
+}
 static void exercise_factory(void){
     uint32_t version=31;assert(!call(F_IMPORT,1,&version));version=32;factory_public=call(F_IMPORT,1,&version);assert(factory_public && factory_public!=device_at);
+    _Static_assert(sizeof(D3DADAPTER_IDENTIFIER9)==1104,"adapter identifier x86-compatible layout");
+    _Static_assert(offsetof(D3DADAPTER_IDENTIFIER9,VendorId)==1064 && offsetof(D3DADAPTER_IDENTIFIER9,WHQLLevel)==1096,"adapter identifier offsets");
+    uint32_t ident[]={factory_public,0,0,DATA};unsigned char expected[1104];assert(!fnv_vk_backend_adapter_identifier(gpu,expected,sizeof(expected)));
+    assert(!strcmp((char*)expected,"FNV-nx Vulkan") && expected[512] && !strcmp((char*)expected+1024,"\\\\.\\DISPLAY1"));
+    for(unsigned flags=0;flags<=2;flags+=2){ident[2]=flags;memset(ptr(DATA),0xa5,1120);assert(!call(F_IDENTIFIER,4,ident));assert(!memcmp(ptr(DATA),expected,1104));for(unsigned i=1104;i<1120;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;}
+    ident[1]=1;assert(call(F_IDENTIFIER,4,ident)==FNV_VK_INVALID);for(unsigned i=0;i<1104;++i)assert(!ptr(DATA)[i]);factory_checks++;
+    ident[1]=0;ident[2]=1;memset(ptr(DATA),0xa5,1120);assert(call(F_IDENTIFIER,4,ident)==FNV_VK_INVALID);for(unsigned i=0;i<1120;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;
+    identifier_failure=1;ident[2]=0;assert(call(F_IDENTIFIER,4,ident)==0x8876086au);for(unsigned i=0;i<1120;++i)assert(ptr(DATA)[i]==0xa5);identifier_failure=0;factory_checks++;
+    ident[2]=0;ident[3]=0;assert(call(F_IDENTIFIER,4,ident)==FNV_VK_INVALID);factory_checks++;
+    memset(expected,0xa5,sizeof(expected));assert(fnv_vk_backend_adapter_identifier(gpu,expected,1100)==FNV_VK_INVALID);for(unsigned i=0;i<sizeof(expected);++i)assert(expected[i]==0xa5);factory_checks++;
     uint32_t factory=factory_public;assert(call(F_COUNT,1,&factory)==1);factory_checks++;
     const unsigned char iid[16]={0xca,0xcb,0xbd,0x81,0xd4,0x64,0x6d,0x42,0xae,0x8d,0xad,0x01,0x47,0xf4,0x27,0x5c};memcpy(ptr(DATA),iid,16);
     uint32_t query[]={factory,DATA,GUEST_OUT};assert(!call(QUERY,3,query) && get(GUEST_OUT)==factory);assert(release(factory)==2);

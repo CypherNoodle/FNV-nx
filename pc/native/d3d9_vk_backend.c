@@ -470,6 +470,18 @@ void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_ba
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
         .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.state_batch=state_batch,.resource_pin=resource_pin,.clear=clear,.scene=scene,.draw=draw,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
 }
+uint32_t fnv_vk_backend_adapter_identifier(struct fnv_vk_backend *d,void *out,uint32_t bytes){
+    if(!d || !out || bytes!=1104)return FNV_VK_INVALID;
+    unsigned char candidate[1104]={0};const char driver[]="FNV-nx Vulkan",display[]="\\\\.\\DISPLAY1";
+    fnv_host_mutex_lock(&d->guard);
+    memcpy(candidate,driver,sizeof(driver));
+    size_t n=0;while(n<sizeof(d->properties.deviceName) && d->properties.deviceName[n])++n;
+    memcpy(candidate+512,d->properties.deviceName,n);memcpy(candidate+1024,display,sizeof(display));
+    uint32_t vendor=d->properties.vendorID,device=d->properties.deviceID;
+    for(unsigned i=0;i<4;++i){candidate[1064+i]=(unsigned char)(vendor>>(i*8));candidate[1068+i]=(unsigned char)(device>>(i*8));}
+    memcpy(candidate+1080,d->properties.pipelineCacheUUID,VK_UUID_SIZE);
+    fnv_host_mutex_unlock(&d->guard);memcpy(out,candidate,sizeof(candidate));return 0;
+}
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);

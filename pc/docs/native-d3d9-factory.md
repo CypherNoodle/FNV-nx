@@ -99,3 +99,39 @@ Referencias primarias: [Direct3DCreate9](https://learn.microsoft.com/en-us/windo
 [D3DPRESENT_PARAMETERS](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dpresent-parameters),
 [CheckDeviceMultiSampleType](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3d9-checkdevicemultisampletype),
 [CheckDepthStencilMatch](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3d9-checkdepthstencilmatch).
+
+
+Actualizacion: identificacion real del adaptador Vulkan
+-----------------------------------------------------
+
+GetAdapterIdentifier deja de ser un metodo indisponible. Consulta kind=2 de
+factory_profile recibe adapter/flags y una imagen x86 D3DADAPTER_IDENTIFIER9
+de1104 bytes; los offsets se verifican con el header de Windows. Flags 0/2,
+adapter0; adapter fuera de rango limpia la estructura y devuelve INVALIDCALL.
+Flags invalidos o salida invalida devuelven INVALIDCALL. Un proveedor ausente
+o fallido no publica su salida parcial ni inventa una descripcion.
+
+fnv_vk_backend_adapter_identifier usa deviceName/vendorID/deviceID reales del
+VkPhysicalDevice seleccionado. Driver identifica nuestra capa FNV-nx Vulkan;
+DriverVersion0 representa esa version inicial, no convierte driverVersion de
+Vulkan a una version de Windows. SubSysId, Revision y WHQLLevel quedan0 porque
+no se conocen/no hay certificacion. DeviceName es el monitor virtual DISPLAY1;
+DeviceIdentifier conserva el UUID opaco de cache Vulkan del driver/dispositivo,
+no un numero de serie ni un identificador PCI de la consola.
+
+local/vulkan-adapter-identity03/validation.json:94 callers,65 checks de fabrica,
+46 draws y251 submissions/completions, controles negativos de pixeles y fallos
+inyectados. La identidad se coteja contra una enumeracion Vulkan independiente;
+se verifica rollback ante proveedor fallido, flags, adapter, NULL, tamano y
+canarios. No usa D3D9 de Windows como renderer. GetDeviceCaps sigue devolviendo
+NOTAVAILABLE y su salida se conserva: aun no anunciamos capacidades completas.
+local/renderer-adapter-shared01 conserva9 grupos/10240 pixeles y4 Present COM
+sobre WSI de escritorio. El builder del probe exige ahora94 callers; esto no
+constituye una nueva ejecucion en Switch. Tres unidades propias vuelven a
+compilar ARM64/libnx con Werror y ABI x87 extendido.
+
+FNV_D3D9_FACTORY_TRACE es opcional, apagado por defecto: registra modos, tipo,
+formatos, caps e identificacion en stderr despues de soltar el lock COM. Sirve
+para localizar el rechazo de arranque, no para medir rendimiento.
+
+Referencia: [GetAdapterIdentifier](https://learn.microsoft.com/en-us/windows/win32/api/d3d9helper/nf-d3d9helper-idirect3d9-getadapteridentifier).
