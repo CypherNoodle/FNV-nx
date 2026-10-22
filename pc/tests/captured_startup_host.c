@@ -15,7 +15,16 @@
 #include "dsound8.h"
 #ifdef FNV_STARTUP_VULKAN
 #include "d3d9_vk_backend.h"
+#ifdef FNV_STARTUP_SDP
+#include "d3d9_sdp.h"
+#endif
+#include <stdio.h>
 static uint32_t startup_graphics_query(void *context,uint32_t kind,const uint32_t *args,uint32_t count,void *out,uint32_t bytes){
+#ifdef FNV_STARTUP_GRAPHICS_TRACE
+    struct fnv_cpu_state state;uint32_t caller=0;
+    if(fnv_cpu_get_state(&state)==FNV_CPU_OK){const unsigned char *p=fnv_cpu_try_memory(state.gpr[4],4);if(p)for(unsigned i=0;i<4;++i)caller|=(uint32_t)p[i]<<(8*i);}
+    fprintf(stderr,"FNV_STARTUP_GRAPHICS kind=%u caller=%08x count=%u bytes=%u\n",kind,caller,count,bytes);
+#endif
     if(kind==2 && count==2 && !args[0] && !(args[1]&~2u))return fnv_vk_backend_adapter_identifier(context,out,bytes);
     if(kind==0 && count==6)return fnv_vk_backend_check_format(context,args[3],args[4],args[5]);
     if(kind==1 && count==2 && !args[0] && args[1]==1)return fnv_vk_backend_device_caps(context,out,bytes);
@@ -281,7 +290,20 @@ int main(int argc,char **argv){
     graphics_com_config.resource_capacity=128;graphics_com_config.vertex_floats=256;graphics_com_config.pixel_floats=224;graphics_com_config.memory=vm;
     graphics_com_config.buffer_address=graphics_buffers.value;graphics_com_config.buffer_bytes=16u<<20;graphics_com_config.factory=&graphics_profile;
     fnv_vk_backend_callbacks(graphics,&graphics_com_config.backend);
+#ifdef FNV_STARTUP_SDP
+    /* Optional original user package, never a substitute for prepared SPIR-V.
+     * The bytecode whitelist does not enable shader caps or backend programs. */
+    const char *sdp_path=getenv("FNV_STARTUP_SDP_PATH");struct fnv_d3d9_sdp *sdp=NULL;
+    if(sdp_path){
+        assert(fnv_sdp_load(sdp_path,16u<<20,&sdp)==FNV_SDP_OK);
+        graphics_com_config.catalog=fnv_sdp_entries(sdp,&graphics_com_config.catalog_count);
+        fprintf(stderr,"FNV_STARTUP_SDP records=%zu translated=0\n",graphics_com_config.catalog_count);
+    }
+#endif
     struct fnv_d3d9_com *graphics_com;assert(fnv_d3d9_com_create(fnv_windows_runtime(process),&graphics_com_config,&graphics_com)==FNV_CPU_OK);
+#ifdef FNV_STARTUP_SDP
+    fnv_sdp_destroy(sdp);
+#endif
 #endif
     struct fnv_cpu_export catalog[256],extras[FNV_NATIVE_MAX_IMPORTS];size_t known=0,extra_count=0,n;
     const struct fnv_cpu_export *e=fnv_windows_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;
