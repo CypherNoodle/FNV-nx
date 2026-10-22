@@ -57,3 +57,38 @@ python pc/tools/emit_prepared_program.py --fixture local/private-pair-fixture --
 
 Input mappings in the second command are examples, not automatic semantic
 inference. Use the locations reflected from the particular linked vertex module.
+
+## Translated COM creation and draws
+
+`test_catalog_pair_com.py` now takes the validated constant-bearing private
+pixel fixture through forty SDK-translated synthetic x86 COM callers. Both an
+own shader pair and the explicitly selected original pair pass 6,144 pixels
+against the same Windows D3D9 reference. This verifies a longer path than the
+direct backend test: original code -> CreateVertex/PixelShader -> COM shader
+binding -> register-bank setters -> resource locks/uploads -> DrawPrimitive
+-> native Vulkan provider. It does not execute original game call sites.
+
+The test creates a vertex declaration, managed VB and texture through COM,
+fills their guest lock buffers, and changes matrices, tint, texels and viewport
+over six frames. Guest shader-source buffers are poisoned after creation;
+GetFunction still returns both exact originals. GetVertexShader/GetPixelShader
+return the expected guest objects and their acquired references are released.
+Constant source buffers and post-draw COM banks are also overwritten, proving
+that copied state and submitted GPU snapshots survive those changes.
+
+Four controls detect incorrect UV, texture channels, VS constants and PS
+constants. The offline pair is installed by the same startup helper, while
+all shader/resource/state/draw operations under test traverse translated COM.
+Only provider initialization, explicit diagnostic transfer waits and readback
+use host-native calls. The shared reference oracle is also used by the direct
+backend test, whose pixel and five-control regression still passes after its
+extraction into a common test header.
+
+```powershell
+python pc/tests/test_catalog_pair_com.py --sdk ../sh2-nx/third_party/xboxrecomp --python-deps ../python-deps --headers ../rexglue-upstream/thirdparty/vulkan-headers/include --fixture local/private-validated-constant-pair --output local/catalog-com-new --cc C:/devkitPro/msys2/clang64/bin/clang.exe
+```
+
+The fixture directory must have a passing `test_catalog_pair_gpu.py --constants`
+report with matching original and SPIR-V hashes. Original bytecode, translated
+modules and generated caller output remain private. This adds no Switch test,
+capability advertisement or evidence of an actual game frame.
