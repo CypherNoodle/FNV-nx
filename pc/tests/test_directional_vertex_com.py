@@ -13,11 +13,14 @@ def run(a):
     pc=Path(__file__).resolve().parents[1];fixture=a.fixture.resolve();out=a.output.resolve()
     proof=json.loads((fixture/'validation.json').read_text())
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
-    assert proof['status']=='PASS' and proof['negative_controls']=={'wrong-normal':True,'wrong-direction':True}
+    textured=proof.get('textured',False)
+    expected_controls={'wrong-normal':True,'wrong-direction':True}
+    if textured:expected_controls.update({'wrong-uv':True,'wrong-texture-alpha':True})
+    assert proof['status']=='PASS' and proof['negative_controls']==expected_controls
     output_hashes={k.replace('\\','/'):v for k,v in proof['output_sha256'].items()}
     for name in ('vs.bin','ps.bin','pair/vs.spv','pair/ps.spv','directional_vertex_fixture.h'):
         assert sha(fixture/name)==output_hashes[name]
-    for name in ('shaders/fixed_directional.vs.hlsl','tests/fixed_directional_color.ps.hlsl'):
+    for name in (('shaders/fixed_directional_textured.vs.hlsl','shaders/fixed_directional_modulate.ps.hlsl') if textured else ('shaders/fixed_directional.vs.hlsl','tests/fixed_directional_color.ps.hlsl')):
         assert sha(pc/name)==proof['source_sha256'][str(pc/name)]
     out.mkdir(parents=True,exist_ok=False);shaders=out/'shaders';shaders.mkdir()
     records=[]
@@ -30,21 +33,25 @@ def run(a):
            *[p for p in (pc/'native').iterdir() if p.suffix in ('.h','.inc')],*headers.rglob('*.h')]
     args=SimpleNamespace(sdk=a.sdk,python_deps=a.python_deps,output=out/'com',shaders=shaders,cc=a.cc)
     slots=SLOTS+[(107,2),(89,2),(26,7),(11,5),(12,1),(100,5),(57,3),(41,1),(42,1),(81,4),(44,3),(49,2),(51,3),(53,3)]
+    if textured:slots.extend([(23,9),(19,5),(20,2),(65,3)])
     shader_args=tuple(fixture/n for n in ('vs.bin','ps.bin','pair/vs.spv','pair/ps.spv'))
     test(args,host_source='directional_vertex_com_host.c',slots=slots,modes=('normal',),strict_fault_cases=0,
          extra_args=shader_args,extra_inputs=extra,extra_sources=sources,extra_includes=(headers,fixture),baseline_lifetime_checks=False)
     report=json.loads((out/'com/validation.json').read_text())
-    assert report['translated_directional_draw'] and report['pixel_checks']==4096 and report['synthetic_functions']==34
+    assert report['translated_directional_draw'] and report['pixel_checks']==(5120 if textured else 4096) and report['synthetic_functions']==(38 if textured else 34)
     controls={}
-    for mode,frame in (('ignore-matrices',1),('clobber-constants',2),('ignore-material',1)):
+    modes=[('ignore-matrices',1),('clobber-constants',2),('ignore-material',1)]
+    if textured:modes.extend([('wrong-uv',0),('wrong-texture-alpha',0)])
+    for mode,frame in modes:
         command=[str(out/'com/com-test.exe'),str(out/'com/fixture.exe'),str(out/'com/catalog.bin'),mode,*map(str,shader_args)]
         bad=subprocess.run(command,capture_output=True,text=True,timeout=60)
         (out/(mode+'.log')).write_text(bad.stdout+bad.stderr)
         assert bad.returncode and ('translated directional pixel mismatch frame='+str(frame)) in bad.stderr
         controls[mode]=True
     report['negative_controls']=controls
+    report['textured']=textured
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n')
-    print('PASS translated COM directional draw:4096 pixels; matrix and constant-isolation controls detected')
+    print('PASS translated COM directional draw:%d pixels; all %d controls detected'%(report['pixel_checks'],len(controls)))
 
 
 if __name__=='__main__':

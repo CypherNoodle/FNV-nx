@@ -87,3 +87,5 @@ Next add texture coordinates and a supported texture/color fragment combination,
 then point/multiple lights and required color sources. Hardware T&L caps remain
 disabled. No new game startup replay, engine frame, NRO or hardware trial is
 claimed by this change.
+
+The optional textured pair now forwards TEXCOORD0 and modulates RGBA; see [directional texture rendering](directional-texture-rendering.md). The original color-only pair and its limits remain unchanged.
