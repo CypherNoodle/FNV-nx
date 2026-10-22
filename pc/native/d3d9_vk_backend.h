@@ -99,6 +99,8 @@ uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *,enum fnv_d3d9_st
  * Retains an internal shader pin through Reset; id0 clears. Plan must be four
  * float column registers c0..3,64 bytes. No binding/caps changes. */
 uint32_t fnv_vk_backend_fixed_vertex(struct fnv_vk_backend *,uintptr_t);
+/* Trusted directional XYZ/NORMAL shader with ten contiguous float registers. */
+uint32_t fnv_vk_backend_fixed_directional(struct fnv_vk_backend *,uintptr_t);
 /* Supported logical D3D9 resource/usage -> actual Vulkan format query.
  * Unsupported capabilities return D3DERR_NOTAVAILABLE; never allocate here. */
 uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *,uint32_t usage,uint32_t resource_type,uint32_t format);

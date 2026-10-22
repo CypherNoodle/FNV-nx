@@ -96,8 +96,10 @@ struct fnv_d3d9_shader_backend {
      * Called only with a live ID; pin counts are bounded by COM block capacity.
      * Releasing a pin is allowed during teardown after the device closes. */
     void (*resource_pin)(void *,uintptr_t,int add);
-    /* Optional unlit XYZ/UV fixed vertex draw with explicit pixel shader.
-     * Copies four column registers without changing programmable bindings/banks. */
+    /* Optional XYZ/NORMAL material lighting, explicit pixel shader. Copies ten
+     * column/color registers without changing programmable bindings/banks. */
+    uint32_t (*draw_fixed_directional)(void *,int,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,const float constants[40]);
+    /* Optional unlit XYZ/UV fixed vertex draw, four column registers. */
     uint32_t (*draw_fixed_unlit)(void *,int,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,const float columns[16]);
 };
 /* Optional single prepared virtual-adapter factory. Dimensions/formats must

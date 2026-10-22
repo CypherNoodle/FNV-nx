@@ -66,3 +66,5 @@ Next connect supported directional lights/materials and normal registers to a
 lit shader, with actual pixel comparisons and explicit unsupported variants.
 The unlit shader still ignores materials/lights. No Hardware T&L capability,
 engine boot, game frame, Switch execution or updated NRO is established here.
+
+A bounded lit path is now connected and pixel-verified; see [directional vertex rendering](directional-vertex-rendering.md). The unlit path remains separate.

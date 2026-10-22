@@ -6,6 +6,7 @@
 #include "d3d9_transform_state.h"
 #include "d3d9_fixed_vertex.h"
 #include "d3d9_light_state.h"
+#include "d3d9_directional_vertex.h"
 #include <stdlib.h>
 
 enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FACTORY_OBJECT=1016,OBJECT_OFFSET=1024,BUFFER_VTABLE=(119+5)*4,DECL_VTABLE=(119+5+14)*4,TEXTURE_VTABLE=(119+5+14+5)*4,SURFACE_VTABLE=(119+5+14+5+22)*4,BLOCK_VTABLE=(119+5+14+5+22+17)*4 };
@@ -719,7 +720,16 @@ static void draw(int indexed) {
     uint32_t result=FNV_D3D9_INVALIDCALL;
     if(c->in_scene && !locked){result=fnv_d3d9_constants_flush(c->constants,c->config.backend.upload_constants,c->config.backend.context);
         if(!result){
-            if(c->shaders[0]<0 && c->config.backend.draw_fixed_unlit){
+            if(c->shaders[0]<0 && c->declaration>=0 && c->resources[c->declaration].fvf==0x112 && c->config.backend.draw_fixed_directional){
+                result=0x8876086au;int supported=c->shaders[1]>=0 && c->config.backend.state;
+                for(unsigned r=0;r<4;r++)for(unsigned col=0;col<4;col++)if(c->transforms.matrices[2][r*4+col]!=(r==col?1.0f:0.0f))supported=0;
+                if(supported){uint32_t ambient[6]={0},normal[6]={0};
+                    result=c->config.backend.state(c->config.backend.context,FNV_D3D9_RENDER_STATE,0,139,ambient,1);
+                    if(!result)result=c->config.backend.state(c->config.backend.context,FNV_D3D9_RENDER_STATE,0,143,normal,1);
+                    float constants[40];if(!result)result=fnv_fixed_directional_columns(&c->transforms,c->material,&c->lights,ambient[0],normal[0]!=0,constants);
+                    if(!result)result=c->config.backend.draw_fixed_directional(c->config.backend.context,indexed,primitive,base,min_vertex,vertices,start,primitives,constants);
+                }
+            }else if(c->shaders[0]<0 && c->config.backend.draw_fixed_unlit){
                 int supported=c->declaration>=0 && c->resources[c->declaration].fvf==0x102 && c->shaders[1]>=0;
                 for(unsigned r=0;r<4;r++)for(unsigned col=0;col<4;col++)if(c->transforms.matrices[2][r*4+col]!=(r==col?1.0f:0.0f))supported=0;
                 if(!supported)result=0x8876086au;

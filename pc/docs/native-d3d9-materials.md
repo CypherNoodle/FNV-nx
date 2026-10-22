@@ -44,3 +44,5 @@ Next light API semantics use official documentation for reference:
 [LightEnable](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-lightenable).
 Their documented defaults and limits still require tests against the supported
 Windows path before extending the lit shader contract.
+
+The bounded directional shader now consumes these materials; see [directional vertex rendering](directional-vertex-rendering.md) for its explicit limits and pixel evidence.
