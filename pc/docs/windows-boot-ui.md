@@ -27,6 +27,11 @@ USER32 or a successful engine launch. The Xbox route remains paused.
   and an opaque guest create parameter. Builds CREATESTRUCTA32 on the trusted
   guest stack and sends WM_NCCREATE then WM_CREATE synchronously. Rejection
   sends the corresponding destruction messages and releases native backing.
+- `GetClientRect`: returns the registered guest client bounds (0,0,width,height),
+  including during creation callbacks. Invalid/destroyed handles return error
+  1400 without changing the output. Successful calls preserve LastError.
+  Dimensions belong to the guest window, not the physical dock display.
+  Resize remains unsupported. This addition has not yet been compiled or run.
 - `DefWindowProcA`: handles those four creation/destruction messages only.
   Other messages remain explicit unsupported cases.
 - `DestroyWindow`: owner-thread live windows receive WM_DESTROY and

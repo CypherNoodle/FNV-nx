@@ -9,8 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 struct icon_record {uint32_t handle;uint16_t id;struct fnv_pe_resource group;};
-#define UI_EXPORTS 12
-struct boot_window {uint32_t hwnd,atom,procedure,owner,phase;void *native;};
+#define UI_EXPORTS 13
+struct boot_window {uint32_t hwnd,atom,procedure,owner,phase;void *native;uint32_t width,height;};
 struct fnv_windows_boot_ui {
     struct fnv_cpu_runtime *cpu;struct fnv_native_image image;fnv_host_mutex guard;
     struct fnv_windows_user32 *desktop;struct fnv_boot_window_backend backend;
@@ -136,7 +136,7 @@ static void api_create_window(void){
     fnv_host_mutex_lock(&active->guard);
     for(unsigned i=0;i<32;i++){struct fnv_boot_class *c=active->classes+i;
         if(c->atom && (a[1]<=65535?c->atom==a[1]:equal(c->name,classname))){cls=*c;break;}}
-    if(cls.atom)for(unsigned i=0;i<16;i++)if(!active->windows[i].phase){w=active->windows+i;*w=(struct boot_window){0,cls.atom,cls.procedure,id,1,NULL};break;}
+    if(cls.atom)for(unsigned i=0;i<16;i++)if(!active->windows[i].phase){w=active->windows+i;*w=(struct boot_window){0,cls.atom,cls.procedure,id,1,NULL,a[6],a[7]};break;}
     fnv_host_mutex_unlock(&active->guard);
     if(!cls.atom || !w){fnv_windows_set_last_error(cls.atom?8:1407);fnv_cpu_return_u32(0,48);return;}
     struct fnv_boot_window_request request={a[6],a[7],a[3],0,0,title};void *native=NULL;
@@ -175,6 +175,24 @@ static void api_destroy_window(void){
     if(!w){fnv_windows_set_last_error(1400);fnv_cpu_return_u32(0,4);return;}
     (void)message(w,2,0,0);(void)message(w,0x82,0,0);release_window(active,w);fnv_cpu_return_u32(1,4);
 }
+/* Client bounds are guest geometry, not the physical TV output extent.
+ * The current window subset cannot resize. Copy under guard before touching
+ * guest memory, which may fault and unwind the native import. */
+static void api_client_rect(void){
+    uint32_t hwnd=fnv_cpu_argument_u32(0),output=fnv_cpu_argument_u32(1);
+    if(!ready())return;
+    uint32_t width=0,height=0;int found=0;
+    fnv_host_mutex_lock(&active->guard);
+    for(unsigned i=0;i<16;i++){
+        const struct boot_window *w=active->windows+i;
+        if(w->phase && w->hwnd && w->hwnd==hwnd){width=w->width;height=w->height;found=1;break;}
+    }
+    fnv_host_mutex_unlock(&active->guard);
+    if(!found){fnv_windows_set_last_error(1400);fnv_cpu_return_u32(0,8);return;}
+    unsigned char *p=checked(output,16,1);if(!p)return;
+    write_u32(p,0);write_u32(p+4,0);write_u32(p+8,width);write_u32(p+12,height);
+    fnv_cpu_return_u32(1,8);
+}
 static void api_get_active(void){
     if(!ready())return;
     uint32_t low,high,id;fnv_windows_current_stack_bounds(&low,&high,&id);(void)low;(void)high;
@@ -205,7 +223,8 @@ static const struct fnv_cpu_export exports[]={
     {"user32.dll","AdjustWindowRect",0,0,api_adjust},
     {"user32.dll","CreateWindowExA",0,0,api_create_window},{"user32.dll","DefWindowProcA",0,0,api_def_window},
     {"user32.dll","DestroyWindow",0,0,api_destroy_window},{"user32.dll","GetActiveWindow",0,0,api_get_active},{"user32.dll","SwapMouseButton",0,0,api_swap_mouse},
-    {"user32.dll","GetDoubleClickTime",0,0,api_double_click},{"user32.dll","SetDoubleClickTime",0,0,api_set_double_click}
+    {"user32.dll","GetDoubleClickTime",0,0,api_double_click},{"user32.dll","SetDoubleClickTime",0,0,api_set_double_click},
+    {"user32.dll","GetClientRect",0,0,api_client_rect}
 };
 const struct fnv_cpu_export *fnv_windows_boot_ui_exports(size_t *n){if(n)*n=UI_EXPORTS;return exports;}
 enum fnv_cpu_result fnv_windows_boot_ui_create(struct fnv_windows_process *process,const struct fnv_native_image *image,struct fnv_windows_boot_ui **out){
@@ -218,7 +237,7 @@ enum fnv_cpu_result fnv_windows_boot_ui_create(struct fnv_windows_process *proce
     struct fnv_windows_boot_ui *u=calloc(1,sizeof(*u));if(!u)return FNV_CPU_NO_MEMORY;
     if(!fnv_host_mutex_init(&u->guard)){free(u);return FNV_CPU_NO_MEMORY;}
     u->cpu=fnv_windows_runtime(process);u->image=*image;u->next_atom=0xc000;
-    fnv_cpu_function functions[UI_EXPORTS]={api_icon,api_stock,api_register,api_unregister,api_adjust,api_create_window,api_def_window,api_destroy_window,api_get_active,api_swap_mouse,api_double_click,api_set_double_click};
+    fnv_cpu_function functions[UI_EXPORTS]={api_icon,api_stock,api_register,api_unregister,api_adjust,api_create_window,api_def_window,api_destroy_window,api_get_active,api_swap_mouse,api_double_click,api_set_double_click,api_client_rect};
     enum fnv_cpu_result r=fnv_cpu_register_native(u->cpu,functions,UI_EXPORTS,u->tokens);
     if(r!=FNV_CPU_OK){fnv_host_mutex_destroy(&u->guard);free(u);return r;}active=u;*out=u;return FNV_CPU_OK;
 }
