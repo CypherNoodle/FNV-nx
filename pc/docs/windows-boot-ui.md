@@ -66,7 +66,7 @@ suite passes with the extended x87 state ABI.
 
 The private captured-code startup diagnostic now passes actual guest window
 creation and a verified current-thread naming event. It reaches
-`DINPUT8.dll!DirectInput8Create` after 202911 indirect calls, with 1082 arithmetic
+`USER32.dll!GetActiveWindow` after 202916 indirect calls, with 1082 arithmetic
 replay hits and no misses. It uses the original PC executable identity and a
 hidden native desktop window. This remains captured-code validation, not cold
 startup from the disk EXE. There is no engine frame, new NRO or new HW result.
@@ -92,8 +92,9 @@ Windows creation-message transcript.
 
 The existing controlled-stop diagnostic still reports worker failures and a
 busy teardown. This change does not claim to repair that separate limitation.
-The next observed engine import is DirectInput8Create; the existing XInput
-provider does not replace DirectInput's keyboard/mouse COM interfaces.
+The next observed engine import is GetActiveWindow. A [bounded DirectInput8A
+provider](native-directinput.md) now covers the factory/enumeration calls that
+precede it; activation and focus notifications remain window-layer work.
 
 ## Nested callback primitive
 

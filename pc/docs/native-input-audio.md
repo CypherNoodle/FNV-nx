@@ -1,9 +1,11 @@
 # Controles y salida PCM nativos
 
 Implementados como proveedores opcionales. No hay motor PC arrancado ni audio
-del juego por este cambio. DirectInput, DirectSound COM, Vorbis/Bink y las
+del juego por este cambio. DirectSound COM, Vorbis/Bink y las
 interfaces de reproduccion Windows siguen pendientes; no se anuncian exports
 exitosos ficticios para ocultar esas dependencias.
+DirectInput8A tiene ahora un [subconjunto COM de teclado/raton](native-directinput.md),
+con enumeracion y snapshots; no implica que la entrada del motor este completa.
 El [decoder MP3](native-mp3.md) ya entrega PCM, separado del puente del motor.
 
 ## XInput
