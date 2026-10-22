@@ -139,11 +139,15 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i))bindings[binding_count++]=(VkVertexInputBindingDescription){i,streams[i].stride,VK_VERTEX_INPUT_RATE_VERTEX};
     VkSamplerCreateInfo sampler_info[16];
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
+        if(t && t->usage==1){
+            if(color->parent_texture==t->id){hr=FNV_VK_INVALID;goto done;}
+            if(d->count){hr=draw_slot(d,&watch);if(hr)goto done;hr=flush_locked(d);if(hr)goto done;}
+        }
         if(t && t->dirty){hr=draw_slot(d,&watch);if(hr)goto done;hr=texture_flush(d,t);if(hr)goto done;}
         if(!t || !t->version->initialized){hr=FNV_VK_INVALID;goto done;}
         hr=fnv_d3d9_vk_sampler(d->sampler_state+i,t->levels,d->properties.limits.maxSamplerLodBias,sampler_info+i);if(hr)goto done;
         if(sampler_info[i].magFilter==VK_FILTER_LINEAR || sampler_info[i].minFilter==VK_FILTER_LINEAR || sampler_info[i].mipmapMode==VK_SAMPLER_MIPMAP_MODE_LINEAR){
-            VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,bc_format(t->format)?bc_format(t->format):VK_FORMAT_R8G8B8A8_UNORM,&props);
+            VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,bc_format(t->format)?bc_format(t->format):t->usage==1?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_R8G8B8A8_UNORM,&props);
             if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)){hr=FNV_VK_INVALID;goto done;}}
     }
     VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&d->depth_state,&depth_info);if(hr)goto done;
@@ -205,7 +209,7 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     if(indexed){d->v.CmdBindIndexBuffer(f->cmd,r->indices->buffer,0,ib->format==101?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32);
         int64_t signed_base=base&0x80000000u?(int64_t)base-0x100000000ll:base;d->v.CmdDrawIndexed(f->cmd,access.count,1,start,(int32_t)signed_base,0);}
     else d->v.CmdDraw(f->cmd,access.count,1,start,0);
-    d->v.CmdEndRenderPass(f->cmd);hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}d->draws++;goto done;
+    d->v.CmdEndRenderPass(f->cmd);hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}if(color->texture)color->texture->initialized=1;d->draws++;goto done;
 rollback:
     if(!d->lost && f)retire_frame(d,f);
 done:return hr;

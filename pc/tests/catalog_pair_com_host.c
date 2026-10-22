@@ -7,13 +7,14 @@
 #include "catalog_pair_oracle.h"
 enum { CP_VS=20,CP_PS,CP_DECL,CP_BINDDECL,CP_VB,CP_LOCK,CP_UNLOCK,CP_STREAM,
        CP_TEX,CP_TLOCK,CP_TUNLOCK,CP_TBIND,CP_RENDER,CP_CLEAR,CP_VIEWPORT,
-       CP_BEGIN,CP_END,CP_DRAW,CP_GETVS,CP_GETPS,CP_SAMPLER,CP_GETSAMPLER };
+       CP_BEGIN,CP_END,CP_DRAW,CP_GETVS,CP_GETPS,CP_SAMPLER,CP_GETSAMPLER,
+       CP_RT_SURFACE,CP_RT_SET,CP_RT_GET,CP_RT_CONTAINER,CP_RT_DESC };
 int main(int argc,char **argv){
     assert(argc==8);HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
     FARPROC proc=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&proc,sizeof(gp));
     struct fnv_vk_config cfg={32,32,32,2,16,16u<<20,0};struct fnv_vk_backend *gpu;VkResult failure;
     assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));struct fnv_d3d9_shader_backend b;fnv_vk_backend_callbacks(gpu,&b);
-#ifdef FNV_CATALOG_TWO_TEXTURES
+#if defined(FNV_CATALOG_TWO_TEXTURES) || defined(FNV_CATALOG_RENDER_TEXTURE)
     assert(!fnv_vk_backend_draw_wait(gpu,10000000000ull));
 #endif
     catalog_count=2;catalog=calloc(2,sizeof(*catalog));assert(catalog);
@@ -47,6 +48,17 @@ int main(int argc,char **argv){
     texture_args[1]=texture_args[2]=8;texture_args[3]=4;
 #endif
     assert(!call(CP_TEX,9,texture_args));uint32_t texture=get(GUEST_OUT);
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+    uint32_t rt_create[]={device_at,32,32,1,1,21,0,GUEST_OUT,0};assert(!call(CP_TEX,9,rt_create));uint32_t rt_texture=get(GUEST_OUT);
+    uint32_t rt_level[]={rt_texture,0,GUEST_OUT};assert(!call(CP_RT_SURFACE,3,rt_level));uint32_t rt_surface=get(GUEST_OUT);
+    rt_level[1]=1;assert(call(CP_RT_SURFACE,3,rt_level)==FNV_VK_INVALID && !get(GUEST_OUT));rt_level[1]=0;
+    assert(!call(CP_RT_SURFACE,3,rt_level) && get(GUEST_OUT)==rt_surface && release(rt_surface)==1);
+    uint32_t rt_desc[]={rt_surface,DATA};assert(!call(CP_RT_DESC,2,rt_desc) && get(DATA)==21 && get(DATA+8)==1 && get(DATA+24)==32 && get(DATA+28)==32);
+    /* The surface retains the container even after its public count reaches 0. */
+    assert(!release(rt_texture));memcpy(ptr(DATA),&IID_IDirect3DTexture9,16);uint32_t container[]={rt_surface,DATA,GUEST_OUT};assert(!call(CP_RT_CONTAINER,3,container) && get(GUEST_OUT)==rt_texture);
+    uint32_t rt_lock[]={rt_texture,0,DATA,0,0};memset(ptr(DATA),0xa5,8);assert(call(CP_TLOCK,5,rt_lock)==FNV_VK_INVALID && get(DATA)==0xa5a5a5a5 && get(DATA+4)==0xa5a5a5a5);
+    uint32_t get_back[]={device_at,0,GUEST_OUT};assert(!call(CP_RT_GET,3,get_back));uint32_t back=get(GUEST_OUT);
+#endif
 #ifdef FNV_CATALOG_TWO_TEXTURES
     assert(!call(CP_TEX,9,texture_args));uint32_t secondary=get(GUEST_OUT);
 #endif
@@ -101,8 +113,16 @@ int main(int argc,char **argv){
         uint32_t unlock[]={texture,0};assert(!call(CP_TUNLOCK,2,unlock));
 #endif
         uint32_t clear[]={device_at,0,0,1,0xff000000,0,0};assert(!call(CP_CLEAR,7,clear));
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+        uint32_t rt_bind[]={device_at,0,rt_surface};assert(!call(CP_RT_SET,3,rt_bind));texbind[1]=0;texbind[2]=texture;assert(!call(CP_TBIND,3,texbind));
+        assert(!call(CP_CLEAR,7,clear) && !call(CP_BEGIN,1,&device_at));uint32_t first_draw[]={device_at,4,0,2};assert(!call(CP_DRAW,4,first_draw) && !call(CP_END,1,&device_at));
+        rt_bind[2]=back;assert(!call(CP_RT_SET,3,rt_bind));texbind[2]=!strcmp(argv[3],"wrong-render-source")?texture:rt_texture;assert(!call(CP_TBIND,3,texbind));
+        assert(!call(CP_CLEAR,7,clear));
+#endif
         if(frame==5){uint32_t viewport[6]={4,2,24,28,0,0x3f800000};memcpy(ptr(DATA),viewport,24);uint32_t args[]={device_at,DATA};assert(!call(CP_VIEWPORT,2,args));}
+#ifndef FNV_CATALOG_RENDER_TEXTURE
         assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
+#endif
         assert(!call(CP_BEGIN,1,&device_at));uint32_t draw[]={device_at,4,0,2};assert(!call(CP_DRAW,4,draw));assert(!call(CP_END,1,&device_at));
 #ifdef FNV_CATALOG_MIPS
         uint32_t reset_sampler[]={device_at,0,9,0};assert(!call(CP_SAMPLER,4,reset_sampler));reset_sampler[2]=7;assert(!call(CP_SAMPLER,4,reset_sampler));
@@ -119,6 +139,9 @@ int main(int argc,char **argv){
     }
 #ifdef FNV_CATALOG_TWO_TEXTURES
     struct fnv_vk_stats stats;assert(!fnv_vk_backend_stats(gpu,&stats) && stats.draw_waits>=6);assert(!release(secondary));
+#endif
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+    assert(!release(rt_surface) && !release(rt_texture) && !release(back));
 #endif
     assert(!release(vs) && !release(ps) && !release(vb) && !release(texture) && !release(decl));
     assert(!fnv_cpu_detach() && !fnv_d3d9_com_destroy(com) && !fnv_cpu_destroy(cpu));assert(VirtualFree(arena,0,MEM_RELEASE));assert(!fnv_vk_backend_destroy(gpu));

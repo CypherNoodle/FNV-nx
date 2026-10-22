@@ -2,7 +2,7 @@
 #define FNV_D3D9_COM_H
 #include "cpu_runtime.h"
 #include "d3d9_constants.h"
-#define FNV_D3D9_COM_METHOD_COUNT 108u
+#define FNV_D3D9_COM_METHOD_COUNT 110u
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
 enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE,FNV_D3D9_STATEBLOCK };
@@ -101,6 +101,9 @@ struct fnv_d3d9_shader_backend {
     uint32_t (*draw_fixed_directional)(void *,int,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,const float constants[40]);
     /* Optional unlit XYZ/UV fixed vertex draw, four column registers. */
     uint32_t (*draw_fixed_unlit)(void *,int,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,const float columns[16]);
+    /* Acquires one public surface reference for a texture mip. The provider
+     * must retain its parent texture/storage through the surface lifetime. */
+    uint32_t (*texture_surface)(void *,uintptr_t texture,uint32_t level,uintptr_t *);
 };
 /* Optional single prepared virtual-adapter factory. Dimensions/formats must
  * match the provider's real implicit targets. No swapchain/caps are invented.

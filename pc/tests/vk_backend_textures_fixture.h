@@ -49,8 +49,15 @@ static void exercise_textures(void){
     uint32_t t=make_texture(4,4,0,512,21,0);uintptr_t id=texture_id;unsigned pitch;
     uintptr_t rejected=0x1234;struct fnv_vk_stats before=stats();
     assert(provider.create_texture(gpu,4,4,1,0,0x32545844,1,&rejected)==FNV_VK_INVALID && rejected==0x1234);
-    assert(provider.create_texture(gpu,4,4,1,1,21,0,&rejected)==FNV_VK_INVALID);
+    /* Render targets now support A8R8G8B8, but not X8R8G8B8. */
+    assert(provider.create_texture(gpu,4,4,1,1,22,0,&rejected)==FNV_VK_INVALID);
     assert(provider.create_texture(gpu,4,4,1,0,21,2,&rejected)==FNV_VK_INVALID);
+    /* Failed GPU-only target allocation must not publish a handle or leak memory. */
+    for(unsigned fault=0;fault<3;++fault){
+        if(fault==0)fail_memory=1;else if(fault==1)fail_Image=1;else fail_ImageView=1;
+        assert(provider.create_texture(gpu,4,4,1,1,21,0,&rejected)==FNV_VK_OOM && rejected==0x1234);
+        assert(stats().allocated_bytes==before.allocated_bytes && stats().texture_versions==before.texture_versions && stats().live_textures==before.live_textures);
+    }
     unsigned char zero[64]={0};
     assert(provider.upload_texture(gpu,id,0,1,0,3,4,0x2000,16,zero)==FNV_VK_INVALID);
     assert(provider.upload_texture(gpu,id,0,0,0,4,4,0,4,zero)==FNV_VK_INVALID);

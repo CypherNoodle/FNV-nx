@@ -20,7 +20,7 @@ struct resource {
     uint64_t version;
     unsigned char *elements;uint32_t element_count;
     struct mip *mips;uint32_t levels,block,unit;
-    uint32_t surface_desc[8];struct state_block *snapshot;
+    uint32_t surface_desc[8],container_plus_one;struct state_block *snapshot;
 };
 struct span {uint32_t offset,bytes;};
 struct stream {int index;uint32_t offset,stride,frequency;};
@@ -118,6 +118,8 @@ static void retire(struct fnv_d3d9_com *c,int index) {
             memmove(c->free_spans+i+1,c->free_spans+i+2,(--c->free_count-i-1)*sizeof(*c->free_spans));}
         r->data=0;
     }
+    uint32_t parent=r->container_plus_one;r->container_plus_one=0;
+    if(parent){c->resources[parent-1].pins--;retire(c,(int)parent-1);}
 }
 static void change_binding(struct fnv_d3d9_com *,int *,int);
 static void clear_bindings(struct fnv_d3d9_com *c) {
@@ -474,11 +476,12 @@ static void api_create_texture(void) {
     uint32_t usage=fnv_cpu_argument_u32(4),format=fnv_cpu_argument_u32(5),pool=fnv_cpu_argument_u32(6),out_at=fnv_cpu_argument_u32(7),shared=fnv_cpu_argument_u32(8);
     struct fnv_d3d9_com *c=module();unsigned char *out=range(c,out_at,4,1);uint32_t block,unit;
     if(!out || !width || !height || width>16384 || height>16384){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,36);return;}
-    if(shared || (usage&0x403u))invalid("D3D9 shared/render-target/depth/autogen textures pending",self);
+    if(shared || (usage&0x402u))invalid("D3D9 shared/depth/autogen textures pending",self);
     if(!texture_format(format,&block,&unit))invalid("D3D9 texture format pending",format);
-    if(!c->config.backend.create_texture || !c->config.backend.upload_texture || !c->buffer_memory)invalid("D3D9 texture provider/arena pending",self);
+    if(!c->config.backend.create_texture || !c->config.backend.upload_texture || (!c->buffer_memory && usage!=1))invalid("D3D9 texture provider/arena pending",self);
     uint32_t maximum=1;for(uint32_t n=width>height?width:height;n>1;n>>=1)maximum++;
     if(!levels)levels=maximum;
+    if((usage&1) && (usage!=1 || format!=21 || pool || levels!=1)){write32(out,0);fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,36);return;}
     if(levels>maximum){write32(out,0);fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,36);return;}
     struct mip mips[15];uint64_t total=0;
     for(uint32_t i=0,w=width,h=height;i<levels;i++,w=w>1?w>>1:1,h=h>1?h>>1:1) {
@@ -486,14 +489,15 @@ static void api_create_texture(void) {
         mips[i]=(struct mip){.width=w,.height=h,.pitch=pitch,.offset=(uint32_t)total};
         total+=(uint64_t)pitch*((h+block-1)/block);
     }
+    if(usage==1)total=0; /* GPU-only render targets consume no guest shadow arena. */
     fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);write32(out,0);
     uint32_t index;for(index=0;index<c->used;index++)if(!c->resources[index].handle)break;
     uint32_t result=FNV_D3D9_OUTOFMEMORY;
     if(index<c->config.resource_capacity && total<=c->config.buffer_bytes && c->device_references<UINT32_MAX) {
-        uint32_t address=allocate_shadow(c,(uint32_t)total);
+        uint32_t address=usage==1?1:allocate_shadow(c,(uint32_t)total);
         if(address) {
             if(index==c->used)c->used++;
-            struct resource *r=c->resources+index;*r=(struct resource){.kind=FNV_D3D9_TEXTURE2D,.data=address,.size=(uint32_t)total,
+            struct resource *r=c->resources+index;*r=(struct resource){.kind=FNV_D3D9_TEXTURE2D,.data=usage==1?0:address,.size=(uint32_t)total,
                 .usage=usage,.format=format,.pool=pool,.levels=levels,.block=block,.unit=unit};
             r->mips=malloc(levels*sizeof(*mips));
             if(r->mips){
@@ -629,6 +633,35 @@ static uint32_t adopt_surface(struct fnv_d3d9_com *c,uintptr_t handle,int *out) 
         c->config.backend.release(c->config.backend.context,handle);return FNV_D3D9_OUTOFMEMORY;}
     if(!r->references)c->device_references++;
     r->references++;*out=(int)index;return 0;
+}
+static void api_texture_surface(void){
+    uint32_t self=fnv_cpu_argument_u32(0),level=fnv_cpu_argument_u32(1),at=fnv_cpu_argument_u32(2);struct fnv_d3d9_com *c=module();unsigned char *out=range(c,at,4,1);
+    if(!out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,12);return;}
+    if(!c->config.backend.texture_surface || !c->config.backend.surface_desc)invalid("D3D9 texture surface provider pending",self);
+    fnv_host_mutex_lock(&c->guard);int parent=texture_object(c,self);write32(out,0);uint32_t hr=FNV_D3D9_INVALIDCALL;int index=-1;uintptr_t handle=0;
+    if(level<c->resources[parent].levels && c->resources[parent].pins<UINT32_MAX){
+        hr=c->config.backend.texture_surface(c->config.backend.context,c->resources[parent].handle,level,&handle);
+        if(!hr)hr=adopt_surface(c,handle,&index);
+        if(!hr){struct resource *r=c->resources+index;
+            if(!r->container_plus_one){r->container_plus_one=(uint32_t)parent+1;c->resources[parent].pins++;}
+            else if(r->container_plus_one!=(uint32_t)parent+1){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 texture surface container mismatch",self);}
+            write32(out,resource_address(c,(uint32_t)index));
+        }
+    }
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,12);
+}
+static void api_surface_container(void){
+    uint32_t self=fnv_cpu_argument_u32(0),iid_at=fnv_cpu_argument_u32(1),at=fnv_cpu_argument_u32(2);struct fnv_d3d9_com *c=module();
+    unsigned char *out=range(c,at,4,1),*iid=range(c,iid_at,16,0);
+    if(!out || !iid){fnv_cpu_return_u32(E_POINTER_VALUE,12);return;}unsigned char requested[16];memcpy(requested,iid,16);
+    fnv_host_mutex_lock(&c->guard);int index=object(c,self,0);
+    if(index<0 || c->resources[index].kind!=FNV_D3D9_SURFACE || !c->resources[index].container_plus_one){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 non-texture surface container pending",self);}
+    int parent=(int)c->resources[index].container_plus_one-1;write32(out,0);uint32_t hr=E_NOINTERFACE_VALUE;
+    if(!memcmp(requested,iid_unknown,16) || !memcmp(requested,iid_texture,16) || !memcmp(requested,iid_base_texture,16) || !memcmp(requested,iid_resource,16)){
+        if(c->resources[parent].references==UINT32_MAX || (!c->resources[parent].references && c->device_references==UINT32_MAX))hr=FNV_D3D9_OUTOFMEMORY;
+        else {increment(c,parent);write32(out,resource_address(c,(uint32_t)parent));hr=0;}
+    }
+    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,12);
 }
 static void create_surface(int depth) {
     uint32_t self=fnv_cpu_argument_u32(0),width=fnv_cpu_argument_u32(1),height=fnv_cpu_argument_u32(2),format=fnv_cpu_argument_u32(3);
@@ -784,7 +817,7 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
     api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
     api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
-    api_unavailable2,api_adapter_identifier,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock,api_set_transform,api_get_transform,api_multiply_transform,api_set_material,api_get_material,api_set_light,api_get_light,api_light_enable,api_get_light_enable,api_set_texture_stage,api_get_texture_stage};
+    api_unavailable2,api_adapter_identifier,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock,api_set_transform,api_get_transform,api_multiply_transform,api_set_material,api_get_material,api_set_light,api_get_light,api_light_enable,api_get_light_enable,api_set_texture_stage,api_get_texture_stage,api_texture_surface,api_surface_container};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     if(c->recording)fnv_light_destroy(&c->recording->lights);
@@ -857,12 +890,14 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     write32(c->objects+TEXTURE_VTABLE+10*4,c->tokens[26]);write32(c->objects+TEXTURE_VTABLE+13*4,c->tokens[41]);
     write32(c->objects+TEXTURE_VTABLE+17*4,c->tokens[42]);write32(c->objects+TEXTURE_VTABLE+19*4,c->tokens[43]);
     write32(c->objects+TEXTURE_VTABLE+20*4,c->tokens[44]);
+    write32(c->objects+TEXTURE_VTABLE+18*4,c->tokens[108]);
     write32(c->objects+23*4,c->tokens[40]);write32(c->objects+65*4,c->tokens[45]);write32(c->objects+64*4,c->tokens[46]);
     const unsigned state_slots[8]={57,58,69,68,47,48,75,76};
     for(unsigned i=0;i<8;i++)write32(c->objects+state_slots[i]*4,c->tokens[47+i]);
     for(unsigned i=0;i<17;i++)write32(c->objects+SURFACE_VTABLE+i*4,c->tokens[19]);
     for(unsigned i=0;i<4;i++)write32(c->objects+SURFACE_VTABLE+i*4,c->tokens[i]);
     write32(c->objects+SURFACE_VTABLE+10*4,c->tokens[26]);write32(c->objects+SURFACE_VTABLE+12*4,c->tokens[57]);
+    write32(c->objects+SURFACE_VTABLE+11*4,c->tokens[109]);
     const unsigned surface_slots[8]={28,29,0,37,38,39,40,43};
     for(unsigned i=0;i<8;i++)if(i!=2)write32(c->objects+surface_slots[i]*4,c->tokens[55+i]);
     const unsigned draw_slots[4]={41,42,81,82};

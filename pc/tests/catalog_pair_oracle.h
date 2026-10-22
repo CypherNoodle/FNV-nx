@@ -48,6 +48,14 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     assert(!texture->lpVtbl->UnlockRect(texture,0) && !d->lpVtbl->SetTexture(d,0,(IDirect3DBaseTexture9*)texture));
 #endif
     assert(!d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+    IDirect3DTexture9 *render_texture=NULL;IDirect3DSurface9 *render_surface=NULL;
+    assert(!d->lpVtbl->CreateTexture(d,32,32,1,D3DUSAGE_RENDERTARGET,D3DFMT_A8R8G8B8,D3DPOOL_DEFAULT,&render_texture,NULL));
+    assert(!render_texture->lpVtbl->GetSurfaceLevel(render_texture,0,&render_surface));
+    assert(!d->lpVtbl->SetRenderTarget(d,0,render_surface) && !d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
+    assert(!d->lpVtbl->BeginScene(d) && !d->lpVtbl->DrawPrimitiveUP(d,D3DPT_TRIANGLELIST,2,vertices,24) && !d->lpVtbl->EndScene(d));
+    assert(!d->lpVtbl->SetRenderTarget(d,0,target) && !d->lpVtbl->SetTexture(d,0,(IDirect3DBaseTexture9*)render_texture));
+#endif
 #ifdef FNV_CATALOG_TWO_TEXTURES
     IDirect3DTexture9 *secondary=NULL;unsigned char second[16];secondary_texels(texels,second);
     assert(!d->lpVtbl->CreateTexture(d,2,2,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&secondary,NULL));
@@ -64,6 +72,9 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     for(unsigned y=0;y<32;y++)memcpy(pixels+y*128,(const unsigned char*)lock.pBits+y*lock.Pitch,128);
     assert(!read->lpVtbl->UnlockRect(read));read->lpVtbl->Release(read);target->lpVtbl->Release(target);
     texture->lpVtbl->Release(texture);decl->lpVtbl->Release(decl);v->lpVtbl->Release(v);p->lpVtbl->Release(p);
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+    render_surface->lpVtbl->Release(render_surface);render_texture->lpVtbl->Release(render_texture);
+#endif
 #ifdef FNV_CATALOG_TWO_TEXTURES
     secondary->lpVtbl->Release(secondary);
 #endif

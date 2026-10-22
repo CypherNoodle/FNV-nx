@@ -45,9 +45,22 @@ int main(int argc,char **argv){
     real_gpa=gp;gp=test_gpa;skip_pixel_center=argc==6 && !strcmp(argv[5],"missing-pixel-center");
     struct fnv_vk_config cfg={32,32,32,2,16,16u<<20,0};struct fnv_vk_backend *gpu;VkResult failure;
     assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));struct fnv_d3d9_shader_backend b;fnv_vk_backend_callbacks(gpu,&b);
-#ifdef FNV_CATALOG_TWO_TEXTURES
+#if defined(FNV_CATALOG_TWO_TEXTURES) || defined(FNV_CATALOG_RENDER_TEXTURE)
     assert(fnv_vk_backend_draw_wait(gpu,UINT64_MAX)==FNV_VK_INVALID);
     assert(!fnv_vk_backend_draw_wait(gpu,argc==6 && !strcmp(argv[5],"nonblocking-ring")?0:10000000000ull));
+#endif
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+    uintptr_t render_texture=0,render_surface=0,back=0;
+    struct fnv_vk_stats baseline;assert(!fnv_vk_backend_stats(gpu,&baseline));
+    assert(!fnv_vk_backend_check_format(gpu,1,3,21) && !b.create_texture(gpu,32,32,1,1,21,0,&render_texture));
+    struct fnv_vk_stats before_alias,after_alias;assert(!fnv_vk_backend_stats(gpu,&before_alias));
+    assert(!b.texture_surface(gpu,render_texture,0,&render_surface) && !b.get_target(gpu,0,0,&back));
+    uintptr_t again;assert(!b.texture_surface(gpu,render_texture,0,&again) && again==render_surface);b.release(gpu,again);
+    assert(!fnv_vk_backend_stats(gpu,&after_alias) && before_alias.allocated_bytes==after_alias.allocated_bytes && before_alias.texture_versions==after_alias.texture_versions);
+    uintptr_t invalid_surface=0x1234;assert(b.texture_surface(gpu,render_texture,1,&invalid_surface)==FNV_VK_INVALID && invalid_surface==0x1234);
+    uintptr_t invalid_texture=0x1234;assert(b.create_texture(gpu,32,32,2,1,21,0,&invalid_texture)==FNV_VK_INVALID && invalid_texture==0x1234);
+    assert(b.create_texture(gpu,32,32,1,1,21,1,&invalid_texture)==FNV_VK_INVALID && invalid_texture==0x1234);
+    unsigned char invalid_upload[4]={0};assert(b.upload_texture(gpu,render_texture,0,0,0,1,1,0,4,invalid_upload)==FNV_VK_INVALID);
 #endif
     unsigned char *code[2],*spv[2];uint32_t cb[2],sb[2];uintptr_t shader[2];
     struct fnv_vk_prepared_program prepared={.inputs=vertex_inputs,.input_count=2,.sampler_mask=FNV_CATALOG_SAMPLER_MASK};
@@ -119,10 +132,19 @@ int main(int argc,char **argv){
         assert(!b.upload_texture(gpu,texture,0,0,0,2,2,0,8,texels));
 #endif
         assert(!b.update_buffer(gpu,vb,0,144,0,vertices));
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+        assert(!b.bind_texture(gpu,0,texture) && !b.set_target(gpu,0,0,render_surface) && !b.scene(gpu,1));
+        assert(!b.bind_texture(gpu,0,render_texture));assert(b.draw(gpu,0,4,0,0,0,0,2)==FNV_VK_INVALID);assert(!b.bind_texture(gpu,0,texture));
+        assert(!b.clear(gpu,0,NULL,1,0xff000000,0,0) && !b.draw(gpu,0,4,0,0,0,0,2) && !b.scene(gpu,0));
+        assert(!b.set_target(gpu,0,0,back) && !b.bind_texture(gpu,0,argc==6 && !strcmp(argv[5],"wrong-render-source")?texture:render_texture));
+#endif
         assert(!b.clear(gpu,0,NULL,1,0xff000000,0,0));
         if(frame==5){uint32_t viewport[6]={4,2,24,28,0,0x3f800000};assert(!b.state(gpu,FNV_D3D9_VIEWPORT,0,0,viewport,0));}
         /* This pixel oracle drains transfers deliberately; not engine pacing. */
-        assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull) && !b.scene(gpu,1));
+#ifndef FNV_CATALOG_RENDER_TEXTURE
+        assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
+#endif
+        assert(!b.scene(gpu,1));
         force_draw_timeout=argc==6 && !strcmp(argv[5],"draw-timeout");
         uint32_t draw_result=b.draw(gpu,0,4,0,0,0,0,2);
 #ifdef FNV_CATALOG_TWO_TEXTURES
@@ -152,6 +174,18 @@ int main(int argc,char **argv){
     if(argc==5){assert(stats.draw_waits>=6);printf("draw_waits=%llu\n",(unsigned long long)stats.draw_waits);assert(fnv_vk_backend_draw_wait(gpu,1)==FNV_VK_INVALID);}
     b.release(gpu,secondary);
 #endif
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+    /* Drop/recreate the surface while the sampled texture preserves pixels. */
+    b.release(gpu,render_surface);assert(!b.texture_surface(gpu,render_texture,0,&render_surface));
+    unsigned char retained[4096];assert(!fnv_vk_backend_read_color(gpu,render_surface,retained,sizeof(retained),10000000000ull));
+    b.release(gpu,render_surface);b.release(gpu,render_texture);b.release(gpu,back);
+#endif
     b.release(gpu,vb);b.release(gpu,decl);b.release(gpu,texture);for(unsigned i=0;i<2;i++){b.release(gpu,shader[i]);free(code[i]);free(spv[i]);}
+#ifdef FNV_CATALOG_RENDER_TEXTURE
+    assert(!b.bind_texture(gpu,0,0) && !b.bind_stream(gpu,0,0,0,0) && !b.bind_declaration(gpu,0));
+    for(unsigned i=0;i<2;i++)assert(!b.bind_shader(gpu,i,0));
+    assert(!fnv_vk_backend_wait(gpu,10000000000ull) && !fnv_vk_backend_stats(gpu,&stats));
+    assert(stats.allocated_bytes==baseline.allocated_bytes && stats.live_surfaces==baseline.live_surfaces && !stats.live_textures && !stats.texture_versions && !stats.live_buffers && !stats.live_shaders && !stats.live_declarations && !stats.pending_frames);
+#endif
     b.device_release(gpu);assert(!fnv_vk_backend_destroy(gpu));FreeLibrary(loader);printf("PASS catalog pair %u pixels\n",checks);return 0;
 }

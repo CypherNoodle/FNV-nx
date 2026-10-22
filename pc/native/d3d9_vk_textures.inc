@@ -16,8 +16,9 @@ static void texture_barrier(struct fnv_vk_backend *d,VkCommandBuffer cmd,struct 
         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,NULL,0,NULL,1,&b);
 }
 static uint32_t make_texture_version(struct fnv_vk_backend *d,const struct texture_resource *t,struct texture_version **out){
-    VkFormat format=bc_format(t->format);if(!format)format=VK_FORMAT_R8G8B8A8_UNORM;
+    VkFormat format=bc_format(t->format);if(!format)format=t->usage==1?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_R8G8B8A8_UNORM;
     VkImageFormatProperties caps;VkImageUsageFlags usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if(t->usage==1)usage|=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     VkResult query=d->v.GetPhysicalDeviceImageFormatProperties(d->physical,format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,usage,0,&caps);
     if(query==VK_ERROR_FORMAT_NOT_SUPPORTED)return FNV_VK_INVALID;
     uint32_t hr=result(d,query);if(hr)return hr;
@@ -38,10 +39,11 @@ static uint32_t make_texture_version(struct fnv_vk_backend *d,const struct textu
 }
 static uint32_t create_texture(void *ctx,uint32_t w,uint32_t h,uint32_t levels,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out){
     struct fnv_vk_backend *d=ctx;
-    if(!out || !w || !h || w>32768 || h>32768 || pool>1 || (usage && usage!=512) || (usage && pool) ||
+    if(!out || !w || !h || w>32768 || h>32768 || pool>1 || (usage && usage!=512 && usage!=1) || (usage && pool) ||
        (format!=21 && format!=22 && format!=23 && format!=28 && format!=50 && !bc_format(format)))return FNV_VK_INVALID;
     uint32_t max=1;for(uint32_t n=w>h?w:h;n>1;n>>=1)max++;
     if(!levels)levels=max;
+    if(usage==1 && (format!=21 || levels!=1 || pool))return FNV_VK_INVALID;
     if(levels>max || levels>16)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
@@ -52,9 +54,26 @@ static uint32_t create_texture(void *ctx,uint32_t w,uint32_t h,uint32_t levels,u
     struct texture_resource t={.width=w,.height=h,.levels=levels,.usage=usage,.format=format,.pool=pool};
     for(uint32_t i=0;i<levels;++i){t.offsets[i]=t.bytes;t.bytes+=texture_level_bytes(&t,i);}
     if(t.bytes>d->config.memory_budget){hr=FNV_VK_OOM;goto done;}
-    t.shadow=calloc(1,t.bytes);if(!t.shadow){hr=FNV_VK_OOM;goto done;}
+    if(usage!=1){t.shadow=calloc(1,t.bytes);if(!t.shadow){hr=FNV_VK_OOM;goto done;}}
     hr=make_texture_version(d,&t,&t.version);if(hr){free(t.shadow);goto done;}
     t.id=++d->next_id;t.refs=1;*slot=t;d->device_refs++;*out=t.id;
+done:fnv_host_mutex_unlock(&d->guard);return hr;
+}
+static uint32_t texture_surface(void *ctx,uintptr_t id,uint32_t level,uintptr_t *out){
+    struct fnv_vk_backend *d=ctx;if(!out)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(!t || t->usage!=1 || level)goto done;
+    for(unsigned i=0;i<d->config.resource_capacity;i++)if(d->surfaces[i].id && d->surfaces[i].parent_texture==id){
+        struct surface *s=d->surfaces+i;if(!s->refs)d->device_refs++;s->refs++;*out=s->id;hr=0;goto done;
+    }
+    if(resource_count(d)>=d->config.resource_capacity){hr=FNV_VK_OOM;goto done;}
+    if(d->next_id==UINTPTR_MAX)goto done;
+    for(unsigned i=0;i<d->config.resource_capacity;i++)if(!d->surfaces[i].id){
+        struct surface *s=d->surfaces+i;
+        *s=(struct surface){.id=++d->next_id,.refs=1,.width=t->width,.height=t->height,.image=t->version->image,.view=t->version->view,.texture=t->version,.parent_texture=id,.layout=t->version->initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED};
+        t->version->refs++;pin(d,id,1);d->device_refs++;*out=s->id;hr=0;break;
+    }
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
 /* Build and upload one immutable GPU version from the CPU shadow. Caller holds the
@@ -97,7 +116,7 @@ static uint32_t upload_texture(void *ctx,uintptr_t id,uint32_t level,uint32_t le
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);
     unsigned char *candidate=NULL;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
-    if(!t || level>=t->levels || ((flags&0x2000u) && (level || !(t->usage&512) || left || top || width!=t->width || height!=t->height)))goto done;
+    if(!t || t->usage==1 || level>=t->levels || ((flags&0x2000u) && (level || !(t->usage&512) || left || top || width!=t->width || height!=t->height)))goto done;
     candidate=malloc(t->bytes);if(!candidate){hr=FNV_VK_OOM;goto done;}
     if(flags&0x2000u)memset(candidate,0,t->bytes);else memcpy(candidate,t->shadow,t->bytes);
     uint32_t unit=t->format==23?2:t->format==28 || t->format==50?1:4;
