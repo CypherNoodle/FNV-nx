@@ -19,6 +19,7 @@ from shader_packages import parse_package
 from translate_d3d9_pair import translate,normalize
 
 def run(a):
+    if a.two_textures and a.mip_clamp:raise ValueError('choose one fixture mode')
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     cc=Path(a.cc).resolve();linker=a.linker.resolve();env=os.environ.copy();env['PATH']=str(cc.parent)+os.pathsep+str(linker.parent)+os.pathsep+env['PATH']
@@ -42,6 +43,8 @@ def run(a):
         if a.constants:
             own_vs=b'row_major float4x4 transform:register(c0);struct V{float4 p:POSITION;float2 uv:TEXCOORD0;};V main(V v){v.p=mul(v.p,transform);return v;}'
             own_ps=b'float4 tint:register(c5);sampler2D image:register(s0);float4 main(float2 uv:TEXCOORD0):COLOR0{return tex2D(image,uv)*tint;}'
+        if a.two_textures:
+            own_ps=(b'float4 tint:register(c0);' if a.constants else b'')+b'sampler2D image:register(s0);sampler2D mask:register(s1);float4 main(float2 uv:TEXCOORD0):COLOR0{return lerp(tex2D(image,uv),'+(b'tint' if a.constants else b'float4(.5,.75,.25,.625)')+b',tex2D(mask,uv).x);}'
         for stage,source in (('vs',own_vs),('ps',own_ps)):(out/(stage+'.bin')).write_bytes(compile_hlsl(dll,source,(stage+'_3_0').encode()))
     descriptors={}
     for stage in ('vs','ps'):
@@ -50,7 +53,8 @@ def run(a):
         assert not p.returncode,p.stderr;descriptors[stage]=json.loads(p.stdout)
     v,p=descriptors['vs'],descriptors['ps']
     if v['stage']!=2 or v['inputs']!=[dict(usage=0,index=0),dict(usage=5,index=0)] or v['samplers']:raise ValueError('vertex shader outside fixture contract')
-    if p['stage']!=1 or p['inputs']!=[dict(usage=5,index=0)] or p['samplers']!=[dict(index=0,type=0,texbem=False)]:raise ValueError('pixel shader outside fixture contract')
+    sampler_count=2 if a.two_textures else 1
+    if p['stage']!=1 or p['inputs']!=[dict(usage=5,index=0)] or p['samplers']!=[dict(index=i,type=0,texbem=False) for i in range(sampler_count)]:raise ValueError('pixel shader outside fixture contract')
     for d in (v,p):
         active=[u for u in d['uniforms'] if not u['local']]
         if not a.constants and active:raise ValueError('uniforms require explicit --constants fixture')
@@ -63,6 +67,8 @@ def run(a):
     assert set(locations)=={'vs_v0','vs_v1'}
     header=['#define FNV_CATALOG_CONSTANTS 1'] if a.constants else []
     if a.mip_clamp:header.append('#define FNV_CATALOG_MIPS 1')
+    if a.two_textures:header.append('#define FNV_CATALOG_TWO_TEXTURES 1')
+    header.append('#define FNV_CATALOG_SAMPLER_MASK '+str((1<<sampler_count)-1))
     for stage,name in (('vs','vertex'),('ps','pixel')):
         plan=plans[stage];pointer='NULL'
         if plan['entries']:
@@ -76,12 +82,17 @@ def run(a):
     args=[str(out/'gpu-test.exe'),str(out/'vs.bin'),str(out/'ps.bin'),str(out/'pair/vs.spv'),str(out/'pair/ps.spv')]
     p=subprocess.run(args,capture_output=True,text=True,env=env,timeout=60);(out/'normal.log').write_text(p.stdout+p.stderr);assert not p.returncode,p.stdout+p.stderr
     assert 'PASS catalog pair 6144 pixels' in p.stdout
-    controls=('wrong-mip-clamp','wrong-mip-filter') if a.mip_clamp else ('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants','missing-pixel-center') if a.constants else ('wrong-uv','wrong-texture')
+    pressure_waits=next((int(line.split('=')[1]) for line in p.stdout.splitlines() if line.startswith('draw_waits=')),0)
+    controls=('swapped-textures','wrong-second-address') if a.two_textures else ('wrong-mip-clamp','wrong-mip-filter') if a.mip_clamp else ('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants','missing-pixel-center') if a.constants else ('wrong-uv','wrong-texture')
     for mode in controls:
         bad=subprocess.run([*args,mode],capture_output=True,text=True,env=env,timeout=60);(out/(mode+'.log')).write_text(bad.stdout+bad.stderr)
         assert bad.returncode and 'catalog pixel mismatch' in bad.stderr
+    if a.two_textures:
+        for mode,text in (('draw-timeout','PASS draw watchdog retains pending GPU work'),('nonblocking-ring','PASS nonblocking ring retry')):
+            trial=subprocess.run([*args,mode],capture_output=True,text=True,env=env,timeout=60);(out/(mode+'.log')).write_text(trial.stdout+trial.stderr)
+            assert not trial.returncode and text in trial.stdout,trial.stdout+trial.stderr
     assert all(sha(Path(n))==h for n,h in frozen.items())
-    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),mip_clamp=a.mip_clamp,float_constants=a.constants,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
+    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),draw_pressure_waits=pressure_waits,draw_watchdog_checked=a.two_textures,nonblocking_retry_checked=a.two_textures,two_textures=a.two_textures,mip_clamp=a.mip_clamp,float_constants=a.constants,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
                 shader_sha256={s:sha(out/(s+'.bin')) for s in ('vs','ps')},spirv_sha256={s:sha(out/'pair'/(s+'.spv')) for s in ('vs','ps')},descriptors=descriptors)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ('status','pixel_checks','negative_controls','original_package_used','game_frame')}))
 
@@ -90,5 +101,6 @@ if __name__=='__main__':
     for n in ('output','linker','headers'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',required=True);p.add_argument('--package',type=Path);p.add_argument('--constants',action='store_true')
     p.add_argument('--mip-clamp',action='store_true')
+    p.add_argument('--two-textures',action='store_true')
     for n in ('package-sha256','vertex-sha256','pixel-sha256'):p.add_argument('--'+n)
     run(p.parse_args())

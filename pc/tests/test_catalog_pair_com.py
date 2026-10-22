@@ -16,7 +16,8 @@ def run(a):
     fixture=a.fixture.resolve();out=a.output.resolve();pc=Path(__file__).resolve().parents[1]
     proof=json.loads((fixture/'validation.json').read_text());sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     mips=proof.get('mip_clamp',False)
-    assert proof['status']=='PASS' and proof['float_constants'] and proof['pixel_checks']==6144 and proof['negative_controls']==(2 if mips else 5)
+    two=proof.get('two_textures',False)
+    assert proof['status']=='PASS' and proof['float_constants'] and proof['pixel_checks']==6144 and proof['negative_controls']==(2 if mips or two else 5)
     for stage in ('vs','ps'):
         assert sha(fixture/(stage+'.bin'))==proof['shader_sha256'][stage]
         assert sha(fixture/'pair'/(stage+'.spv'))==proof['spirv_sha256'][stage]
@@ -28,19 +29,19 @@ def run(a):
     extra=[Path(__file__).resolve(),pc/'tests/catalog_pair_oracle.h',pc/'tests/catalog_mip_fixture.h',fixture/'catalog_pair_fixture.h',fixture/'validation.json',
            *[p for p in (pc/'native').iterdir() if p.suffix in ('.h','.inc')],*a.headers.rglob('*.h')]
     slots=SLOTS+[(92,2),(107,2),(86,3),(87,2),(26,7),(11,5),(12,1),(100,5),(23,9),(19,5),(20,2),(65,3),(57,3),(43,7),(47,2),(41,1),(42,1),(81,4),(93,2),(108,2)]
-    if mips:slots.extend([(69,4),(68,4)])
+    if mips or two:slots.extend([(69,4),(68,4)])
     shader_args=tuple(fixture/n for n in ('vs.bin','ps.bin','pair/vs.spv','pair/ps.spv'))
     opts=SimpleNamespace(sdk=a.sdk,python_deps=a.python_deps,output=out/'com',shaders=shaders,cc=a.cc)
     test(opts,host_source='catalog_pair_com_host.c',slots=slots,modes=('normal',),strict_fault_cases=0,extra_args=shader_args,
          extra_inputs=extra,extra_sources=sources,extra_includes=(a.headers,fixture),baseline_lifetime_checks=False)
     report=json.loads((out/'com/validation.json').read_text())
-    assert report['translated_catalog_draw'] and report['pixel_checks']==6144 and report['synthetic_functions']==(42 if mips else 40)
+    assert report['translated_catalog_draw'] and report['pixel_checks']==6144 and report['synthetic_functions']==(42 if mips or two else 40)
     controls={}
-    for mode in (('wrong-mip-clamp','wrong-mip-filter') if mips else ('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants')):
+    for mode in (('swapped-textures','wrong-second-address') if two else ('wrong-mip-clamp','wrong-mip-filter') if mips else ('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants')):
         p=subprocess.run([str(out/'com/com-test.exe'),str(out/'com/fixture.exe'),str(out/'com/catalog.bin'),mode,*map(str,shader_args)],capture_output=True,text=True,timeout=60)
         (out/(mode+'.log')).write_text(p.stdout+p.stderr);assert p.returncode and 'translated catalog pixel mismatch' in p.stderr
         controls[mode]=True
-    report.update(negative_controls=controls,mip_clamp=mips,original_package_used=proof['original_package_used'],runtime_pair_observed=False)
+    report.update(negative_controls=controls,two_textures=two,mip_clamp=mips,original_package_used=proof['original_package_used'],runtime_pair_observed=False)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ('status','pixel_checks','synthetic_functions','original_package_used')}))
 
 if __name__=='__main__':

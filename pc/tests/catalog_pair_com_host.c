@@ -13,8 +13,11 @@ int main(int argc,char **argv){
     FARPROC proc=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&proc,sizeof(gp));
     struct fnv_vk_config cfg={32,32,32,2,16,16u<<20,0};struct fnv_vk_backend *gpu;VkResult failure;
     assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));struct fnv_d3d9_shader_backend b;fnv_vk_backend_callbacks(gpu,&b);
+#ifdef FNV_CATALOG_TWO_TEXTURES
+    assert(!fnv_vk_backend_draw_wait(gpu,10000000000ull));
+#endif
     catalog_count=2;catalog=calloc(2,sizeof(*catalog));assert(catalog);
-    struct fnv_vk_prepared_program prepared={.inputs=vertex_inputs,.input_count=2,.sampler_mask=1};
+    struct fnv_vk_prepared_program prepared={.inputs=vertex_inputs,.input_count=2,.sampler_mask=FNV_CATALOG_SAMPLER_MASK};
     unsigned char *code[2],*spv[2];uint32_t cb[2],sb[2];
     for(unsigned i=0;i<2;i++){
         code[i]=load(argv[4+i],cb+i);spv[i]=load(argv[6+i],sb+i);catalog[i]=(struct fnv_d3d9_shader_code){code[i],cb[i]};
@@ -44,6 +47,9 @@ int main(int argc,char **argv){
     texture_args[1]=texture_args[2]=8;texture_args[3]=4;
 #endif
     assert(!call(CP_TEX,9,texture_args));uint32_t texture=get(GUEST_OUT);
+#ifdef FNV_CATALOG_TWO_TEXTURES
+    assert(!call(CP_TEX,9,texture_args));uint32_t secondary=get(GUEST_OUT);
+#endif
     uint32_t texbind[]={device_at,0,texture};assert(!call(CP_TBIND,3,texbind));
     uint32_t render[]={device_at,22,1};assert(!call(CP_RENDER,3,render));render[1]=7;render[2]=0;assert(!call(CP_RENDER,3,render));
     const float xy[12]={-1,1,1,1,1,-1,-1,1,1,-1,-1,-1};unsigned checks=0;
@@ -58,8 +64,20 @@ int main(int argc,char **argv){
 #ifdef FNV_CATALOG_MIPS
             if(frame==2 || frame==4){float scale=frame==4?22.627417f:16;vertices[i*6+4]=(xy[i*2]+1)*.5f*scale;vertices[i*6+5]=(1-xy[i*2+1])*.5f*scale;}
 #endif
+#ifdef FNV_CATALOG_TWO_TEXTURES
+            if(frame>=4){vertices[i*6+4]=xy[i*2]+1;vertices[i*6+5]=1-xy[i*2+1];}
+#endif
         }
         unsigned char expected[4096];oracle(frame,code[0],code[1],vertices,texels,vc,pc,expected);
+#ifdef FNV_CATALOG_TWO_TEXTURES
+        unsigned char second[16];secondary_texels(texels,second);uint32_t second_lock[]={secondary,0,GUEST_OUT,0,0};assert(!call(CP_TLOCK,5,second_lock));
+        uint32_t second_pitch=get(GUEST_OUT),second_at=get(GUEST_OUT+4);for(unsigned y=0;y<2;y++)memcpy(ptr(second_at+y*second_pitch),second+y*8,8);
+        uint32_t second_unlock[]={secondary,0};assert(!call(CP_TUNLOCK,2,second_unlock));
+        int swapped=!strcmp(argv[3],"swapped-textures");texbind[1]=0;texbind[2]=swapped?secondary:texture;assert(!call(CP_TBIND,3,texbind));
+        texbind[1]=1;texbind[2]=swapped?texture:secondary;assert(!call(CP_TBIND,3,texbind));
+        uint32_t address[]={device_at,1,1,!strcmp(argv[3],"wrong-second-address")?1:3};assert(!call(CP_SAMPLER,4,address));address[2]=2;assert(!call(CP_SAMPLER,4,address));
+        uint32_t address_get[]={device_at,1,1,GUEST_OUT};assert(!call(CP_GETSAMPLER,4,address_get) && get(GUEST_OUT)==address[3]);
+#endif
         if(!strcmp(argv[3],"wrong-uv"))for(unsigned i=0;i<6;i++)vertices[i*6+4]=.75f;
         if(!strcmp(argv[3],"wrong-texture"))for(unsigned i=0;i<4;i++){unsigned char t=texels[i*4];texels[i*4]=texels[i*4+2];texels[i*4+2]=t;}
         if(!strcmp(argv[3],"wrong-vs-constants"))memset(vc,0,sizeof(vc));
@@ -89,6 +107,9 @@ int main(int argc,char **argv){
 #ifdef FNV_CATALOG_MIPS
         uint32_t reset_sampler[]={device_at,0,9,0};assert(!call(CP_SAMPLER,4,reset_sampler));reset_sampler[2]=7;assert(!call(CP_SAMPLER,4,reset_sampler));
 #endif
+#ifdef FNV_CATALOG_TWO_TEXTURES
+        uint32_t unbind[]={device_at,1,0};assert(!call(CP_TBIND,3,unbind));
+#endif
         /* Change the COM banks after draw: the submitted GPU snapshot survives. */
         memset(ptr(DATA),0,4096);constants[3]=256;assert(!call(VS_SF,4,constants));constants[3]=224;assert(!call(PS_SF,4,constants));
         for(unsigned i=0;i<2;i++){uint32_t getter[]={device_at,GUEST_OUT};assert(!call(i?CP_GETPS:CP_GETVS,2,getter));uint32_t observed=get(GUEST_OUT);assert(observed==(i?ps:vs));assert(release(observed)==1);}
@@ -96,6 +117,9 @@ int main(int argc,char **argv){
         for(unsigned i=0;i<4096;i++)if(abs((int)actual[i]-(int)expected[i])>1){fprintf(stderr,"translated catalog pixel mismatch frame=%u byte=%u\n",frame,i);return 2;}
         checks+=1024;
     }
+#ifdef FNV_CATALOG_TWO_TEXTURES
+    struct fnv_vk_stats stats;assert(!fnv_vk_backend_stats(gpu,&stats) && stats.draw_waits>=6);assert(!release(secondary));
+#endif
     assert(!release(vs) && !release(ps) && !release(vb) && !release(texture) && !release(decl));
     assert(!fnv_cpu_detach() && !fnv_d3d9_com_destroy(com) && !fnv_cpu_destroy(cpu));assert(VirtualFree(arena,0,MEM_RELEASE));assert(!fnv_vk_backend_destroy(gpu));
     for(unsigned i=0;i<2;i++){free(code[i]);free(spv[i]);}free(catalog);FreeLibrary(loader);

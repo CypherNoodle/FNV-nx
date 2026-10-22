@@ -83,9 +83,22 @@ static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources 
     VkDescriptorPool pool=VK_NULL_HANDLE;hr=result(d,d->v.CreateDescriptorPool(d->device,&pci,NULL,&pool));if(hr)return hr;r->descriptors=pool;
     return 0;
 }
+struct draw_watch {uint64_t started;int active;};
+static uint32_t draw_slot(struct fnv_vk_backend *d,struct draw_watch *watch){
+    for(unsigned i=0;i<d->config.frames;i++)if(!d->frames[i].pending)return 0;
+    if(!d->draw_timeout_ns)return FNV_VK_BUSY;
+    uint64_t now;
+    if(!fnv_host_now_ns(&now)){d->lost=1;return FNV_VK_LOST;}
+    if(!watch->active){watch->started=now;watch->active=1;}
+    if(now<watch->started || now-watch->started>=d->draw_timeout_ns){d->lost=1;return FNV_VK_LOST;}
+    d->draw_waits++;
+    uint32_t hr=wait_for_frame_locked(d,d->draw_timeout_ns-(now-watch->started));
+    if(hr==FNV_VK_BUSY){d->lost=1;return FNV_VK_LOST;}
+    return hr;
+}
 static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
     if(d->lost || !d->device_refs)return FNV_VK_LOST;
-    uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;struct stream_binding streams[16];memcpy(streams,d->streams,sizeof(streams));
+    uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;struct draw_watch watch={0};struct stream_binding streams[16];memcpy(streams,d->streams,sizeof(streams));
     if(up_vertex){memset(streams,0,sizeof(streams));streams[0].stride=up_stride;}
     struct shader_resource *vs=find_shader(d,fixed?(fixed_bytes==160?d->fixed_directional:d->fixed_vertex):d->bound_shaders[0]),*ps=find_shader(d,d->bound_shaders[1]);
     int automatic=fixed && fixed_bytes==160 && !d->bound_shaders[1];
@@ -126,7 +139,7 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i))bindings[binding_count++]=(VkVertexInputBindingDescription){i,streams[i].stride,VK_VERTEX_INPUT_RATE_VERTEX};
     VkSamplerCreateInfo sampler_info[16];
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
-        if(t && t->dirty){hr=texture_flush(d,t);if(hr)goto done;}
+        if(t && t->dirty){hr=draw_slot(d,&watch);if(hr)goto done;hr=texture_flush(d,t);if(hr)goto done;}
         if(!t || !t->version->initialized){hr=FNV_VK_INVALID;goto done;}
         hr=fnv_d3d9_vk_sampler(d->sampler_state+i,t->levels,d->properties.limits.maxSamplerLodBias,sampler_info+i);if(hr)goto done;
         if(sampler_info[i].magFilter==VK_FILTER_LINEAR || sampler_info[i].minFilter==VK_FILTER_LINEAR || sampler_info[i].mipmapMode==VK_SAMPLER_MIPMAP_MODE_LINEAR){
@@ -137,7 +150,8 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     VkPipelineColorBlendAttachmentState blend_attachment;float blend_constants[4];hr=fnv_d3d9_vk_blend(&d->blend_state,&blend_attachment,blend_constants);if(hr)goto done;
     if(blend_attachment.blendEnable){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,VK_FORMAT_B8G8R8A8_UNORM,&props);
         if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)){hr=FNV_VK_INVALID;goto done;}}
-    if((hr=flush_locked(d))!=0)goto done;
+    if(d->count && (hr=draw_slot(d,&watch))!=0)goto done;
+    if((hr=flush_locked(d))!=0 || (hr=draw_slot(d,&watch))!=0)goto done;
     for(unsigned i=0;i<d->config.frames;++i)if(!d->frames[i].pending){f=d->frames+i;break;}
     if(!f){hr=FNV_VK_BUSY;goto done;}
     f->draw=calloc(1,sizeof(*f->draw));if(!f->draw){hr=FNV_VK_OOM;goto done;}struct draw_resources *r=f->draw;

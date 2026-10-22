@@ -20,6 +20,7 @@ struct fnv_vk_stats {
     uint64_t presentation_requests,acquire_timeouts;
     uint32_t swapchain_images,present_mode; /* Vulkan mode; valid with images. */
     uint64_t resets;
+    uint64_t draw_waits; /* Ring-pressure fence waits, not one wait per draw. */
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
@@ -68,6 +69,12 @@ void fnv_vk_backend_callbacks(struct fnv_vk_backend *,struct fnv_d3d9_shader_bac
  * Invalid/lost inputs leave output untouched. No allocations or guest calls. */
 uint32_t fnv_vk_backend_device_caps(struct fnv_vk_backend *,void *,uint32_t bytes);
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *,struct fnv_vk_stats *);
+/* Optional finite draw backpressure watchdog, set before the first submission.
+ * Zero (default) preserves nonblocking BUSY. Otherwise buffered, fixed and UP
+ * draws wait for any completed frame only when their ring is full, sharing a
+ * total deadline from the first pressure wait in that draw. Timeout loses the
+ * device; uncertain GPU resources remain retained. UINT64_MAX rejects. */
+uint32_t fnv_vk_backend_draw_wait(struct fnv_vk_backend *,uint64_t timeout_ns);
 /* Clear queues owned commands; EndScene does not submit or observe fences.
  * flush never waits or implicitly retires frames: full ring returns BUSY.
  * poll only retires signaled fences. wait has a caller-supplied total timeout

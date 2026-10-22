@@ -286,6 +286,7 @@ int main(int argc,char **argv){
     /* Prepared real offscreen device; not connected to WSI or game presentation. */
     struct fnv_vk_config graphics_config={1280,720,128,2,128,128u<<20,1};struct fnv_vk_backend *graphics;VkResult graphics_failure;
     assert(!fnv_vk_backend_create(vulkan_gp,&graphics_config,&graphics,&graphics_failure));
+    assert(!fnv_vk_backend_draw_wait(graphics,10000000000ull));
     struct fnv_vm_result graphics_objects=fnv_vm_allocate(vm,0,65536,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!graphics_objects.error);
     struct fnv_vm_result graphics_buffers=fnv_vm_allocate(vm,0,16u<<20,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!graphics_buffers.error);
     struct fnv_d3d9_factory_profile graphics_profile={1280,720,21,75,60,graphics,startup_graphics_query};

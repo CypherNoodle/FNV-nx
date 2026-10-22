@@ -1,5 +1,13 @@
 #ifndef FNV_CATALOG_PAIR_ORACLE_H
 #define FNV_CATALOG_PAIR_ORACLE_H
+#ifndef FNV_CATALOG_SAMPLER_MASK
+#define FNV_CATALOG_SAMPLER_MASK 1
+#endif
+#ifdef FNV_CATALOG_TWO_TEXTURES
+static void secondary_texels(const unsigned char *source,unsigned char *out){
+    for(unsigned i=0;i<4;i++){out[i*4]=(unsigned char)(255-source[i*4+2]);out[i*4+1]=source[((i+1)%4)*4];out[i*4+2]=source[i*4+1];out[i*4+3]=(unsigned char)(source[i*4+3]^127);}
+}
+#endif
 #ifdef FNV_CATALOG_MIPS
 #include "catalog_mip_fixture.h"
 #endif
@@ -40,6 +48,15 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     assert(!texture->lpVtbl->UnlockRect(texture,0) && !d->lpVtbl->SetTexture(d,0,(IDirect3DBaseTexture9*)texture));
 #endif
     assert(!d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
+#ifdef FNV_CATALOG_TWO_TEXTURES
+    IDirect3DTexture9 *secondary=NULL;unsigned char second[16];secondary_texels(texels,second);
+    assert(!d->lpVtbl->CreateTexture(d,2,2,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&secondary,NULL));
+    assert(!secondary->lpVtbl->LockRect(secondary,0,&lock,NULL,0));
+    for(unsigned y=0;y<2;y++)memcpy((unsigned char*)lock.pBits+y*lock.Pitch,second+y*8,8);
+    assert(!secondary->lpVtbl->UnlockRect(secondary,0) && !d->lpVtbl->SetTexture(d,1,(IDirect3DBaseTexture9*)secondary));
+    assert(!d->lpVtbl->SetSamplerState(d,1,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,1,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
+    assert(!d->lpVtbl->SetSamplerState(d,1,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP) && !d->lpVtbl->SetSamplerState(d,1,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP));
+#endif
     assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
     if(frame==5){D3DVIEWPORT9 viewport={4,2,24,28,0,1};assert(!d->lpVtbl->SetViewport(d,&viewport));}
     assert(!d->lpVtbl->BeginScene(d) && !d->lpVtbl->DrawPrimitiveUP(d,D3DPT_TRIANGLELIST,2,vertices,24) && !d->lpVtbl->EndScene(d));
@@ -47,6 +64,9 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     for(unsigned y=0;y<32;y++)memcpy(pixels+y*128,(const unsigned char*)lock.pBits+y*lock.Pitch,128);
     assert(!read->lpVtbl->UnlockRect(read));read->lpVtbl->Release(read);target->lpVtbl->Release(target);
     texture->lpVtbl->Release(texture);decl->lpVtbl->Release(decl);v->lpVtbl->Release(v);p->lpVtbl->Release(p);
+#ifdef FNV_CATALOG_TWO_TEXTURES
+    secondary->lpVtbl->Release(secondary);
+#endif
     d->lpVtbl->Release(d);api->lpVtbl->Release(api);DestroyWindow(w);
 }
 #endif

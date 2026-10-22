@@ -54,25 +54,15 @@ static uint32_t destroy_wsi(struct fnv_vk_backend *d,int device_lost){
     if(d->wsi.chain)d->v.DestroySwapchainKHR(d->device,d->wsi.chain,NULL);
     return 0;
 }
-static uint32_t present_slot(struct fnv_vk_backend *d,uint64_t timeout){
-    VkFence fences[3];uint32_t count=0;
-    for(uint32_t i=0;i<d->config.frames;++i){if(!d->frames[i].pending)return 0;fences[count++]=d->frames[i].fence;}
-    uint32_t hr=result(d,d->v.WaitForFences(d->device,count,fences,VK_FALSE,timeout));if(hr)return hr;
-    int retired=0;
-    for(uint32_t i=0;i<d->config.frames;++i){VkResult r=d->v.GetFenceStatus(d->device,d->frames[i].fence);
-        if(r==VK_SUCCESS){retire_frame(d,d->frames+i);retired=1;}else if(r!=VK_NOT_READY)return result(d,r);}
-    if(!retired)d->lost=1;
-    return d->lost?FNV_VK_LOST:0;
-}
 static uint32_t present_impl(struct fnv_vk_backend *d,uint64_t timeout,int blocking){
     if(!d || timeout==UINT64_MAX)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(!d->wsi.chain || d->in_scene)goto done;
-    if(blocking && d->count){hr=present_slot(d,timeout);if(hr)goto done;}
+    if(blocking && d->count){hr=wait_for_frame_locked(d,timeout);if(hr)goto done;}
     hr=flush_locked(d);if(hr)goto done;
     struct surface *back=find(d,d->back);if(!back || back->layout==VK_IMAGE_LAYOUT_UNDEFINED){hr=FNV_VK_INVALID;goto done;}
-    if(blocking){hr=present_slot(d,timeout);if(hr)goto done;}
+    if(blocking){hr=wait_for_frame_locked(d,timeout);if(hr)goto done;}
     for(uint32_t i=0;i<d->config.frames;++i)if(!d->frames[i].pending){f=d->frames+i;break;}
     if(!f){hr=FNV_VK_BUSY;goto done;}
     if(f->acquire_pending){

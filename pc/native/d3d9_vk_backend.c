@@ -1,6 +1,7 @@
 #include "d3d9_vk_backend.h"
 #include "d3d9_fvf.h"
 #include "host_mutex.h"
+#include "host_clock.h"
 #include "d3d9_texture_upload.h"
 #include "d3d9_geometry.h"
 #include <math.h>
@@ -79,7 +80,7 @@ struct fnv_vk_backend {
     uint32_t buffer_versions,texture_versions;struct texture_resource *textures;uintptr_t texture_bindings[16];
     struct clear_command *commands;uint32_t count;
     uintptr_t next_id,back,auto_depth,color,depth;
-    uint32_t viewport[6],scissor[4];uint64_t device_refs,allocated,submissions,completions;
+    uint32_t viewport[6],scissor[4];uint64_t device_refs,allocated,submissions,completions,draw_timeout_ns,draw_waits;
     VkResult last;int lost,in_scene,queue_touched;uint32_t scissor_enabled;
 };
 static uint32_t result(struct fnv_vk_backend *d,VkResult r){
@@ -307,6 +308,16 @@ static uint32_t wait_locked(struct fnv_vk_backend *d,uint64_t timeout){
     for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)retire_frame(d,d->frames+i);
     return d->lost?FNV_VK_LOST:0;
 }
+static uint32_t wait_for_frame_locked(struct fnv_vk_backend *d,uint64_t timeout){
+    VkFence fences[3];uint32_t count=0;
+    for(uint32_t i=0;i<d->config.frames;++i){if(!d->frames[i].pending)return 0;fences[count++]=d->frames[i].fence;}
+    uint32_t hr=result(d,d->v.WaitForFences(d->device,count,fences,VK_FALSE,timeout));if(hr)return hr;
+    int retired=0;
+    for(uint32_t i=0;i<d->config.frames;++i){VkResult r=d->v.GetFenceStatus(d->device,d->frames[i].fence);
+        if(r==VK_SUCCESS){retire_frame(d,d->frames+i);retired=1;}else if(r!=VK_NOT_READY)return result(d,r);}
+    if(!retired)d->lost=1;
+    return d->lost?FNV_VK_LOST:0;
+}
 static void barrier(struct fnv_vk_backend *d,VkCommandBuffer cmd,struct surface *s){
     int fresh=s->layout==VK_IMAGE_LAYOUT_UNDEFINED;
     VkImageMemoryBarrier b={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.srcAccessMask=fresh?0:(VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT),
@@ -529,13 +540,21 @@ uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out)
     struct fnv_vk_stats s={.allocated_bytes=d->allocated,.submissions=d->submissions,.completions=d->completions,.device_references=d->device_refs,.queued_commands=d->count,.last_result=d->last};
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
-    s.shader_catalog_entries=d->catalog_count;s.draws=d->draws;s.resets=d->resets;
+    s.shader_catalog_entries=d->catalog_count;s.draws=d->draws;s.resets=d->resets;s.draw_waits=d->draw_waits;
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->textures[i].id)s.live_textures++;
     for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)s.pending_frames++;
     *out=s;fnv_host_mutex_unlock(&d->guard);return 0;
+}
+uint32_t fnv_vk_backend_draw_wait(struct fnv_vk_backend *d,uint64_t timeout){
+    if(!d || timeout==UINT64_MAX)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=0;
+    if(d->lost || !d->device_refs)hr=FNV_VK_LOST;
+    else if(d->submissions || d->draws || d->in_scene)hr=FNV_VK_INVALID;
+    else d->draw_timeout_ns=timeout;
+    fnv_host_mutex_unlock(&d->guard);return hr;
 }
 uint32_t fnv_vk_backend_flush(struct fnv_vk_backend *d){if(!d)return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);uint32_t hr=flush_locked(d);fnv_host_mutex_unlock(&d->guard);return hr;}
 uint32_t fnv_vk_backend_wait(struct fnv_vk_backend *d,uint64_t timeout){if(!d)return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);uint32_t hr=wait_locked(d,timeout);fnv_host_mutex_unlock(&d->guard);return hr;}
