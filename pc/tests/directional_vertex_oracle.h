@@ -1,5 +1,8 @@
 #ifndef FNV_DIRECTIONAL_VERTEX_ORACLE_H
 #define FNV_DIRECTIONAL_VERTEX_ORACLE_H
+#ifdef FNV_FIXED_SWITCH
+static unsigned oracle_mode;
+#endif
 #ifdef FNV_DIRECTIONAL_TEXTURED
 /* BGRA A8R8G8B8 input with distinct channels and alpha for all four texels. */
 static const unsigned char directional_texels[16]={31,83,211,193, 173,47,109,127, 71,229,53,89, 251,139,17,241};
@@ -37,12 +40,20 @@ static void oracle(unsigned frame,const float *vertices,const struct fnv_transfo
     assert(!d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLOROP,D3DTOP_MODULATE));
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLORARG1,D3DTA_TEXTURE) && !d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLORARG2,D3DTA_DIFFUSE));
-#ifdef FNV_FIXED_ALPHA_TEXTURE
+#ifdef FNV_FIXED_SWITCH
+    assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAOP,oracle_mode==2?D3DTOP_SELECTARG1:D3DTOP_MODULATE));
+#elif defined(FNV_FIXED_ALPHA_TEXTURE)
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1));
 #else
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAOP,D3DTOP_MODULATE));
 #endif
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAARG1,D3DTA_TEXTURE) && !d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAARG2,D3DTA_DIFFUSE));
+#endif
+#ifdef FNV_FIXED_SWITCH
+    if(!oracle_mode){
+        assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLOROP,D3DTOP_SELECTARG1) && !d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLORARG1,D3DTA_DIFFUSE));
+        assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1) && !d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE));
+    }
 #endif
     assert(!d->lpVtbl->SetFVF(d,0x112));assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
     assert(!d->lpVtbl->BeginScene(d) && !d->lpVtbl->DrawPrimitiveUP(d,D3DPT_TRIANGLELIST,2,vertices,32) && !d->lpVtbl->EndScene(d));

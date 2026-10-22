@@ -1,4 +1,5 @@
 #include "d3d9_vk_backend.h"
+#include "d3d9_fvf.h"
 #include "host_mutex.h"
 #include "d3d9_texture_upload.h"
 #include "d3d9_geometry.h"
@@ -201,7 +202,8 @@ static uint32_t make_version(struct fnv_vk_backend *d,uint32_t kind,uint32_t byt
 static uint32_t create_buffer(void *ctx,enum fnv_d3d9_resource_kind kind,uint32_t bytes,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out){
     struct fnv_vk_backend *d=ctx;
     if(!out || !bytes || (kind!=FNV_D3D9_VB && kind!=FNV_D3D9_IB) || pool>1 || (usage&~(8u|512u)) ||
-       ((usage&512) && pool!=0) || (kind==FNV_D3D9_VB?format!=0:(format!=101 && format!=102)))return FNV_VK_INVALID;
+       ((usage&512) && pool!=0) || (kind==FNV_D3D9_IB && format!=101 && format!=102))return FNV_VK_INVALID;
+    if(kind==FNV_D3D9_VB){struct fnv_fvf_layout layout;if(fnv_d3d9_fvf_layout(format,&layout))return FNV_VK_INVALID;}
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_OOM;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(d->next_id==UINTPTR_MAX){hr=FNV_VK_INVALID;goto done;}

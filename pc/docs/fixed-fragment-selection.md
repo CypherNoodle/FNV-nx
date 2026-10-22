@@ -95,3 +95,5 @@ python pc/tests/test_directional_vertex_com.py --sdk ../sh2-nx/third_party/xboxr
 For mode2 use --automatic --texture-alpha. For mode0 use --automatic alone.
 Next verify multiple prepared modes switching on the same device, then broaden
 required fragment states and lighting support before advertising full T&L.
+
+Same-device switching, a translated COM Reset and nonzero VB FVF metadata are now verified; see [fixed fragment switching](fixed-fragment-switching.md).
