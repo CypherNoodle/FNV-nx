@@ -2,8 +2,8 @@
 
 Implementados como proveedores opcionales. No hay motor PC arrancado ni audio
 del juego por este cambio. Existe ahora un [primer proveedor DirectSound8 PCM](native-directsound.md)
-con buffers/mezcla hacia esta cola y productor audout; falta el listener3D que
-pide el arranque del juego. Vorbis/Bink y otras interfaces Windows siguen
+con buffers/mezcla hacia esta cola, productor audout y estado del listener3D.
+Las voces espaciales secundarias siguen pendientes. Vorbis/Bink y otras interfaces Windows siguen
 pendientes; no se anuncian exports exitosos ficticios para ocultarlas.
 DirectInput8A tiene ahora un [subconjunto COM de teclado/raton](native-directinput.md),
 con enumeracion y snapshots; no implica que la entrada del motor este completa.

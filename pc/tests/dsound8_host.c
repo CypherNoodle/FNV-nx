@@ -5,6 +5,7 @@
 #include "dsound8.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #undef NDEBUG
 #include <assert.h>
 #define BASE 0x400000u
@@ -15,8 +16,8 @@
 #define GUID_AT (BASE+0x80300)
 #define DATA (BASE+0x81000)
 static unsigned char *arena;static struct fnv_dsound8 *sound;static struct fnv_pcm_queue *queue;
-static HWND window;static unsigned sample_checks,native_checks;
-enum {QUERY,ADDREF,RELEASE,CREATE,CAPS,COOP,CERT,BCAPS,POSITION,FORMAT_GET,STATUS,LOCK,PLAY,SEEK,FORMAT_SET,VOLUME,PAN,FREQUENCY,STOP,UNLOCK,RESTORE,VOLUME_GET,PAN_GET,FREQUENCY_GET};
+static HWND window;static unsigned sample_checks,native_checks,listener_checks;
+enum {QUERY,ADDREF,RELEASE,CREATE,CAPS,COOP,CERT,BCAPS,POSITION,FORMAT_GET,STATUS,LOCK,PLAY,SEEK,FORMAT_SET,VOLUME,PAN,FREQUENCY,STOP,UNLOCK,RESTORE,VOLUME_GET,PAN_GET,FREQUENCY_GET,L_ALL_GET,L_DISTANCE_GET,L_DOPPLER_GET,L_ORIENTATION_GET,L_POSITION_GET,L_ROLLOFF_GET,L_VELOCITY_GET,L_ALL_SET,L_DISTANCE_SET,L_DOPPLER_SET,L_ORIENTATION_SET,L_POSITION_SET,L_ROLLOFF_SET,L_VELOCITY_SET,L_COMMIT};
 static void put(uint32_t at,uint32_t v){memcpy(arena+at-BASE,&v,4);}
 static uint32_t get(uint32_t at){uint32_t v;memcpy(&v,arena+at-BASE,4);return v;}
 static int valid_window(void *p,uint32_t hwnd){(void)p;return hwnd==0xb0000001 && IsWindow(window);}
@@ -48,6 +49,63 @@ static void release(uint32_t b){uint32_t a[]={b};assert(!call(RELEASE,a,1,0));}
 static uint32_t cursor(uint32_t b){uint32_t a[]={b,DATA,DATA+4};assert(!call(POSITION,a,3,0));return get(DATA);}
 static void read_exact(int16_t *output,uint32_t frames){assert(fnv_pcm_read(queue,output,frames)==frames);}
 static DWORD WINAPI pump_worker(void *p){(void)p;return (DWORD)fnv_dsound8_produce(sound,512);}
+static uint32_t bits(float value){uint32_t u;memcpy(&u,&value,4);return u;}
+static void listener_compare(uint32_t listener,IDirectSound3DListener *native){
+    put(DATA,64);uint32_t a[]={listener,DATA};DS3DLISTENER state={0};state.dwSize=sizeof(state);
+    assert(call(L_ALL_GET,a,2,0)==(uint32_t)IDirectSound3DListener_GetAllParameters(native,&state));
+    assert(get(DATA)==64);float *v=(float *)((unsigned char *)&state+4);
+    for(unsigned i=0;i<15;i++){float actual;uint32_t raw=get(DATA+4+i*4);memcpy(&actual,&raw,4);assert(fabs((double)actual-v[i])<0.000002);}
+    listener_checks++;
+    for(unsigned k=0;k<3;k++){
+        float value=0;uint32_t a[]={listener,DATA};HRESULT hr=k==0?IDirectSound3DListener_GetDistanceFactor(native,&value):k==1?IDirectSound3DListener_GetRolloffFactor(native,&value):IDirectSound3DListener_GetDopplerFactor(native,&value);
+        assert(call(k==0?L_DISTANCE_GET:k==1?L_ROLLOFF_GET:L_DOPPLER_GET,a,2,0)==(uint32_t)hr);
+        float actual;uint32_t raw=get(DATA);memcpy(&actual,&raw,4);assert(fabs((double)actual-value)<0.000002);listener_checks++;
+    }
+    for(unsigned k=0;k<2;k++){
+        D3DVECTOR value;uint32_t a[]={listener,DATA};HRESULT hr=k?IDirectSound3DListener_GetVelocity(native,&value):IDirectSound3DListener_GetPosition(native,&value);
+        assert(call(k?L_VELOCITY_GET:L_POSITION_GET,a,2,0)==(uint32_t)hr);
+        assert(!memcmp(arena+DATA-BASE,&value,12));listener_checks++;
+    }
+    D3DVECTOR front,top;uint32_t orient_args[]={listener,DATA,DATA+16};assert(!call(L_ORIENTATION_GET,orient_args,3,0)&&IDirectSound3DListener_GetOrientation(native,&front,&top)==S_OK);
+    float *vectors[2]={(float *)&front,(float *)&top};
+    for(unsigned k=0;k<2;k++)for(unsigned i=0;i<3;i++){float actual;uint32_t raw=get(DATA+k*16+i*4);memcpy(&actual,&raw,4);assert(fabs((double)actual-vectors[k][i])<0.000002);}
+    listener_checks++;
+}
+static void listener_test(uint32_t root,IDirectSound8 *native){
+    uint32_t primary=make(root,0x91,0);DSBUFFERDESC desc={0};desc.dwSize=sizeof(desc);desc.dwFlags=0x91;IDirectSoundBuffer *np;
+    assert(IDirectSound8_CreateSoundBuffer(native,&desc,&np,NULL)==S_OK);
+    memcpy(arena+GUID_AT-BASE,&IID_IDirectSound3DListener,16);uint32_t qi[]={primary,GUID_AT,OUTPUT_AT};
+    assert(!call(QUERY,qi,3,0));uint32_t listener=get(OUTPUT_AT);assert(listener==primary+4);
+    IDirectSound3DListener *nl;assert(IDirectSoundBuffer_QueryInterface(np,&IID_IDirectSound3DListener,(void **)&nl)==S_OK);
+    memcpy(arena+GUID_AT-BASE,&IID_IUnknown,16);qi[0]=listener;assert(!call(QUERY,qi,3,0)&&get(OUTPUT_AT)==primary);uint32_t ref[]={primary};call(RELEASE,ref,1,0);
+    IUnknown *nu=NULL,*pu=NULL;assert(IDirectSound3DListener_QueryInterface(nl,&IID_IUnknown,(void **)&nu)==S_OK&&IDirectSoundBuffer_QueryInterface(np,&IID_IUnknown,(void **)&pu)==S_OK&&nu==pu);IUnknown_Release(nu);IUnknown_Release(pu);
+    listener_compare(listener,nl);
+    for(unsigned i=0;i<100;i++){
+        float x=(float)i-50,y=(float)(i%7),z=(float)(i%11);uint32_t a[]={listener,bits(x),bits(y),bits(z),1};
+        assert(call(L_POSITION_SET,a,5,0)==(uint32_t)IDirectSound3DListener_SetPosition(nl,x,y,z,DS3D_DEFERRED));listener_compare(listener,nl);
+        uint32_t immediate[]={listener,bits(x+1),bits(y+1),bits(z+1),0};assert(call(L_POSITION_SET,immediate,5,0)==(uint32_t)IDirectSound3DListener_SetPosition(nl,x+1,y+1,z+1,0));
+        uint32_t scalar[]={listener,bits((float)(i%10)),0};assert(call(L_ROLLOFF_SET,scalar,3,0)==(uint32_t)IDirectSound3DListener_SetRolloffFactor(nl,(float)(i%10),0));listener_compare(listener,nl);
+        uint32_t c[]={listener};assert(call(L_COMMIT,c,1,0)==(uint32_t)IDirectSound3DListener_CommitDeferredSettings(nl));listener_compare(listener,nl);
+        uint32_t orient[]={listener,bits(1),0,bits(1),0,bits(1),bits(1),i&1};
+        assert(call(L_ORIENTATION_SET,orient,8,0)==(uint32_t)IDirectSound3DListener_SetOrientation(nl,1,0,1,0,1,1,i&1));listener_compare(listener,nl);
+        float factor=0.5f+(float)(i%4);uint32_t distance[]={listener,bits(factor),i&1};assert(call(L_DISTANCE_SET,distance,3,0)==(uint32_t)IDirectSound3DListener_SetDistanceFactor(nl,factor,i&1));
+        assert(call(L_DOPPLER_SET,distance,3,0)==(uint32_t)IDirectSound3DListener_SetDopplerFactor(nl,factor,i&1));
+        assert(call(L_VELOCITY_SET,a,5,0)==(uint32_t)IDirectSound3DListener_SetVelocity(nl,x,y,z,1));
+        assert(call(L_COMMIT,c,1,0)==(uint32_t)IDirectSound3DListener_CommitDeferredSettings(nl));listener_compare(listener,nl);
+    }
+    DS3DLISTENER all={0};all.dwSize=64;assert(IDirectSound3DListener_GetAllParameters(nl,&all)==S_OK);
+    all.vPosition.x=123;all.flDistanceFactor=2;all.vOrientFront.x=2;all.vOrientFront.y=0;all.vOrientFront.z=0;all.vOrientTop.x=0;all.vOrientTop.y=3;all.vOrientTop.z=0;
+    memcpy(arena+DATA-BASE,&all,64);uint32_t set[]={listener,DATA,1};assert(call(L_ALL_SET,set,3,0)==(uint32_t)IDirectSound3DListener_SetAllParameters(nl,&all,1));listener_compare(listener,nl);
+    uint32_t c[]={listener};assert(!call(L_COMMIT,c,1,0)&&IDirectSound3DListener_CommitDeferredSettings(nl)==S_OK);listener_compare(listener,nl);
+    for(unsigned k=0;k<3;k++){
+        float invalid=k==0?0:-1;uint32_t a[]={listener,bits(invalid),0};HRESULT hr=k==0?IDirectSound3DListener_SetDistanceFactor(nl,invalid,0):k==1?IDirectSound3DListener_SetRolloffFactor(nl,invalid,0):IDirectSound3DListener_SetDopplerFactor(nl,invalid,0);
+        assert(call(k==0?L_DISTANCE_SET:k==1?L_ROLLOFF_SET:L_DOPPLER_SET,a,3,0)==(uint32_t)hr);listener_checks++;
+    }
+    uint32_t zero[]={listener,0,0,0,0,0,0,0};assert(call(L_ORIENTATION_SET,zero,8,0)==(uint32_t)IDirectSound3DListener_SetOrientation(nl,0,0,0,0,0,0,0));listener_compare(listener,nl);
+    /* The listener keeps its controlling primary alive after buffer Release. */
+    uint32_t drop[]={primary};assert(call(RELEASE,drop,1,0)>0);IDirectSoundBuffer_Release(np);listener_compare(listener,nl);
+    release(listener);IDirectSound3DListener_Release(nl);
+}
 int main(int argc,char **argv){
     assert(argc==2||argc==3);arena=VirtualAlloc(NULL,BYTES,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,BYTES,&image)==FNV_NATIVE_OK);
@@ -65,9 +123,15 @@ int main(int argc,char **argv){
     assert(!call(-2,factory,3,0));uint32_t other=get(OUTPUT_AT);assert(other!=root);release(other);
     uint32_t coop[]={root,0xb0000001,2};assert(!call(COOP,coop,3,0));
     if(argc==3&&!strcmp(argv[2],"--strict-stale")){release(root);uint32_t a[]={root,OUTPUT_AT};call(CAPS,a,2,1);goto finish;}
+    if(argc==3&&(!strcmp(argv[2],"--strict-listener")||!strcmp(argv[2],"--strict-listener-output"))){
+        uint32_t p=make(root,0x91,0);memcpy(arena+GUID_AT-BASE,&IID_IDirectSound3DListener,16);uint32_t qi[]={p,GUID_AT,OUTPUT_AT};assert(!call(QUERY,qi,3,0));uint32_t l=get(OUTPUT_AT);
+        uint32_t drop[]={p};call(RELEASE,drop,1,0);uint32_t args[]={l,DATA};
+        if(!strcmp(argv[2],"--strict-listener"))release(l);else args[1]=0;
+        put(DATA,64);call(L_ALL_GET,args,2,1);goto finish;
+    }
     wave(48000,2,16);
     if(argc==3){if(!strcmp(argv[2],"--strict-format"))arena[FORMAT-BASE]=3;
-        memset(arena+DESC-BASE,0,36);put(DESC,36);put(DESC+4,!strcmp(argv[2],"--strict-3d")?0x91:0);put(DESC+8,!strcmp(argv[2],"--strict-3d")?0:512);put(DESC+16,!strcmp(argv[2],"--strict-3d")?0:FORMAT);
+        memset(arena+DESC-BASE,0,36);put(DESC,36);put(DESC+4,!strcmp(argv[2],"--strict-3d")?0x10:0);put(DESC+8,512);put(DESC+16,FORMAT);
         uint32_t a[]={root,DESC,OUTPUT_AT,0};call(CREATE,a,4,1);goto finish;}
     /* ABI comparisons use a real Windows device, never play native buffers. */
     IDirectSound8 *native=NULL;HRESULT native_result=DirectSoundCreate8(NULL,&native,NULL);
@@ -75,6 +139,7 @@ int main(int argc,char **argv){
     uint32_t self[]={root};assert(call(ADDREF,self,1,0)==IDirectSound8_AddRef(native));assert(call(RELEASE,self,1,0)==IDirectSound8_Release(native));
     memcpy(arena+GUID_AT-BASE,&IID_IDirectSound8,16);uint32_t qi[]={root,GUID_AT,OUTPUT_AT};assert(!call(QUERY,qi,3,0)&&get(OUTPUT_AT)==root);IUnknown *unk;assert(IDirectSound8_QueryInterface(native,&IID_IDirectSound8,(void **)&unk)==S_OK);IUnknown_Release(unk);call(RELEASE,self,1,0);native_checks++;
     put(DATA,96);uint32_t caps[]={root,DATA};DSCAPS nc={0};nc.dwSize=sizeof(nc);assert(call(CAPS,caps,2,0)==(uint32_t)IDirectSound8_GetCaps(native,&nc));assert(get(DATA)==96&&!(get(DATA+4)&DSCAPS_CERTIFIED));native_checks++;
+    listener_test(root,native);
     uint32_t primary=make(root,DSBCAPS_PRIMARYBUFFER,0);uint32_t fmtset[]={primary,FORMAT};assert(!call(FORMAT_SET,fmtset,2,0));release(primary);
     const uint32_t flags=DSBCAPS_CTRLFREQUENCY|DSBCAPS_CTRLPAN|DSBCAPS_CTRLVOLUME|DSBCAPS_LOCSOFTWARE;
     uint32_t b=make(root,flags,1024);WAVEFORMATEX nf;memcpy(&nf,arena+FORMAT-BASE,18);DSBUFFERDESC bd={0};bd.dwSize=sizeof(bd);bd.dwFlags=flags;bd.dwBufferBytes=1024;bd.lpwfxFormat=&nf;IDirectSoundBuffer *nb;assert(IDirectSound8_CreateSoundBuffer(native,&bd,&nb,NULL)==S_OK);
@@ -135,6 +200,9 @@ int main(int argc,char **argv){
     assert(!fnv_dsound8_produce(sound,8));read_exact(output,8);for(unsigned i=0;i<16;i++){assert(output[i]==(i&1?-32768:32767));sample_checks++;}
     uint32_t mute[]={pair[1],(uint32_t)-10000};assert(!call(VOLUME,mute,2,0));uint32_t pan[]={pair[0],10000};assert(!call(PAN,pan,2,0));
     assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned i=0;i<16;i++){assert(output[i]==(i&1?-20000:0));sample_checks++;}
+    uint32_t master=make(root,0x81,0);uint32_t master_volume[]={master,(uint32_t)-10000};assert(!call(VOLUME,master_volume,2,0));
+    assert(fnv_dsound8_pump(sound,4)==FNV_PCM_OK);read_exact(output,4);for(unsigned i=0;i<8;i++){assert(!output[i]);sample_checks++;}
+    master_volume[1]=0;assert(!call(VOLUME,master_volume,2,0));release(master);
     assert(fnv_dsound8_set_focus(sound,0)==FNV_CPU_OK);
     assert(fnv_dsound8_pump(sound,3)==FNV_PCM_OK);read_exact(output,3);
     for(unsigned i=0;i<6;i++){assert(!output[i]);sample_checks++;}
@@ -144,5 +212,5 @@ int main(int argc,char **argv){
 finish:
     assert(DestroyWindow(window));assert(fnv_windows_thread_detach()==FNV_CPU_OK&&fnv_dsound8_destroy(sound)==FNV_CPU_OK&&fnv_windows_destroy(process)==FNV_CPU_OK);fnv_pcm_destroy(queue);assert(VirtualFree(arena,0,MEM_RELEASE));
     if(argc==3){puts("strict PASS");return 0;}
-    printf("{\"status\":\"PASS\",\"pcm_samples_compared\":%u,\"windows_ABI_checks\":%u,\"unattached_audio_worker\":true,\"full_queue_rolls_back_cursors\":true,\"engine_started\":false}\n",sample_checks,native_checks);return 0;
+    printf("{\"status\":\"PASS\",\"pcm_samples_compared\":%u,\"windows_ABI_checks\":%u,\"listener_state_checks\":%u,\"unattached_audio_worker\":true,\"full_queue_rolls_back_cursors\":true,\"engine_started\":false}\n",sample_checks,native_checks,listener_checks);return 0;
 }

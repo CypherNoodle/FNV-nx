@@ -24,11 +24,12 @@ static void api_performance_frequency(void){
     uint32_t address=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     unsigned char *output=sync_pointer(p,address,8);write32(output,10000000);write32(output+4,0);fnv_cpu_return_u32(1,4);
 }
-static void api_tick_count(void){
+uint32_t fnv_windows_uptime_ms(void){
     (void)thread();uint64_t value;
     if(!fnv_host_uptime_ms(&value))sync_invalid("Windows uptime clock unavailable",0);
-    fnv_cpu_return_u32((uint32_t)value,0); /* DWORD wraps at 2^32 milliseconds. */
+    return (uint32_t)value; /* DWORD wraps at 2^32 milliseconds. */
 }
+static void api_tick_count(void){fnv_cpu_return_u32(fnv_windows_uptime_ms(),0);}
 static void api_system_filetime(void){
     uint32_t address=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
     unsigned char *output=sync_pointer(p,address,8);uint64_t value;

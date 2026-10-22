@@ -16,13 +16,13 @@ def build(a):
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh output directory')
     proof=json.loads(a.fixture_validation.read_text())
-    if proof.get('status')!='PASS' or proof.get('pcm_samples_compared',0)<12592 or proof.get('windows_ABI_checks',0)<10 or proof.get('strict_flag_stops')!=4 or not proof.get('unattached_audio_worker') or not proof.get('full_queue_rolls_back_cursors'):
+    if proof.get('listener_state_checks',0)<508 or proof.get('status')!='PASS' or proof.get('pcm_samples_compared',0)<12592 or proof.get('windows_ABI_checks',0)<10 or proof.get('strict_flag_stops')!=6 or not proof.get('unattached_audio_worker') or not proof.get('full_queue_rolls_back_cursors'):
         raise ValueError('Require accepted translated DirectSound PCM/ABI proof')
     frozen={str(Path(n).resolve()):h for n,h in proof['source_sha256'].items()}
     sdk=a.sdk.resolve();nx=a.libnx.resolve();identity=sdk_identity(sdk)
     if identity!=proof['sdk_sha256']:raise ValueError('SDK changed')
     sources=[pc/'native'/n for n in ('dsound8.c','pcm_queue.c','audio_horizon.c')]
-    inputs=[*sources,*sorted((pc/'native').glob('*.h')),Path(__file__).resolve(),pc/'tools/build_cpu_runtime.py',pc/'tools/run_aot_analysis.py',a.fixture_validation.resolve(),a.cc.resolve(),a.ld.resolve(),a.nm.resolve(),nx/'lib/libnx.a',*sorted((nx/'include').rglob('*.h'))]
+    inputs=[pc/'native/dsound_listener.inc',*sources,*sorted((pc/'native').glob('*.h')),Path(__file__).resolve(),pc/'tools/build_cpu_runtime.py',pc/'tools/run_aot_analysis.py',a.fixture_validation.resolve(),a.cc.resolve(),a.ld.resolve(),a.nm.resolve(),nx/'lib/libnx.a',*sorted((nx/'include').rglob('*.h'))]
     for p in inputs:
         n=str(p.resolve());h=sha(p)
         if n in frozen and frozen[n]!=h:raise ValueError('Proof source changed: '+n)

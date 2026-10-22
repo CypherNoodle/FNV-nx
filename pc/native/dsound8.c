@@ -6,17 +6,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 #define INVALID 0x80070057u
 #define NOMEM 0x8007000eu
 #define CONTROL 0x8878001eu
 #define INVALIDCALL 0x88780032u
 #define CAPACITY 256u
-#define METHODS 36u
+#define METHODS 54u
 struct sound_object {
     uint32_t refs,kind,parent,flags,bytes,address,rate,frequency,channels,bits;
     uint32_t cooperative,playing,looping,locked,offset,first,second;
     int32_t volume,pan,gain[2];uint64_t phase;
     unsigned char *samples;
+    float listener[15],listener_pending[15];uint32_t listener_dirty;
 };
 struct fnv_dsound8 {
     struct fnv_cpu_runtime *cpu;struct fnv_dsound8_config config;
@@ -28,6 +30,7 @@ static const unsigned char unknown[16]={0,0,0,0,0,0,0,0,0xc0,0,0,0,0,0,0,0x46};
 static const unsigned char device[16]={0x93,0x7e,0x0a,0xc5,0x95,0xf3,0x34,0x48,0x9e,0xf6,0x7f,0xa9,0x9d,0xe5,9,0x66};
 static const unsigned char legacy_device[16]={0x83,0xfa,0x9a,0x27,0x81,0x49,0xce,0x11,0xa5,0x21,0,0x20,0xaf,0x0b,0xe5,0x60};
 static const unsigned char buffer[16]={0x85,0xfa,0x9a,0x27,0x81,0x49,0xce,0x11,0xa5,0x21,0,0x20,0xaf,0x0b,0xe5,0x60};
+static const unsigned char listener_iid[16]={0x84,0xfa,0x9a,0x27,0x81,0x49,0xce,0x11,0xa5,0x21,0,0x20,0xaf,0x0b,0xe5,0x60};
 static const unsigned char buffer8[16]={0x49,0xa4,0x25,0x68,0x24,0x75,0x82,0x4d,0x92,0x0f,0x50,0xe3,0x6a,0xb3,0xab,0x1e};
 static uint32_t rd(const unsigned char *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 static uint32_t half(const unsigned char *p){return p[0]|(uint32_t)p[1]<<8;}
@@ -42,8 +45,12 @@ static unsigned char *range(uint32_t at,uint32_t n,int write){
 static int current(void){if(active && active->cpu==fnv_cpu_current())return 1;recomp_unimpl("DirectSound provider unavailable",0);return 0;}
 static uint32_t address(unsigned i){return active->config.arena_address+512+i*8;}
 static int index_of(uint32_t self){
-    if(self<active->config.arena_address+512 || (self-active->config.arena_address-512)%8)return -1;
-    uint32_t i=(self-active->config.arena_address-512)/8;return i<active->count && active->objects[i].refs?(int)i:-1;
+    if(self<active->config.arena_address+512)return -1;
+    uint32_t delta=self-active->config.arena_address-512,i=delta/8;
+    if(i>=active->count || !active->objects[i].refs)return -1;
+    if(!(delta&7))return (int)i;
+    if((delta&7)==4 && active->objects[i].kind==1 && (active->objects[i].flags&0x11)==0x11)return (int)i;
+    return -1;
 }
 /* Returns with mutex held only on success. Never unwind a held host mutex. */
 static struct sound_object *acquire(uint32_t self,int kind){
@@ -73,10 +80,12 @@ static void query(void){
     uint32_t self=fnv_cpu_argument_u32(0),iid=fnv_cpu_argument_u32(1),out=fnv_cpu_argument_u32(2);
     unsigned char *g=range(iid,16,0),*p=range(out,4,1);if(!g || !p)return;
     unsigned char id[16];memcpy(id,g,16);wr(p,0);struct sound_object *o=acquire(self,-1);if(!o)return;
-    int ok=!memcmp(id,unknown,16) || (!o->kind && (!memcmp(id,device,16)||!memcmp(id,legacy_device,16))) ||
-        (o->kind && (!memcmp(id,buffer,16)||(!(o->flags&1) && !memcmp(id,buffer8,16))));
+    uint32_t target=0,base=address((unsigned)(o-active->objects));
+    if(!memcmp(id,unknown,16) || (!o->kind && (!memcmp(id,device,16)||!memcmp(id,legacy_device,16))) ||
+       (o->kind && (!memcmp(id,buffer,16)||(!(o->flags&1) && !memcmp(id,buffer8,16)))))target=base;
+    else if(o->kind && (o->flags&0x11)==0x11 && !memcmp(id,listener_iid,16))target=base+4;
     uint32_t hr=0x80004002u;
-    if(ok){if(o->refs==UINT32_MAX)hr=NOMEM;else {o->refs++;wr(p,self);hr=0;}}
+    if(target){if(o->refs==UINT32_MAX)hr=NOMEM;else {o->refs++;wr(p,target);hr=0;}}
     finish(hr,12);
 }
 static void ref(int add){
@@ -99,8 +108,9 @@ static void create_buffer(void){
     wr(p,0);if(!current())return;
     if(outer){fnv_cpu_return_u32(0x80040110u,16);return;}
     if(size!=36 || reserved){fnv_cpu_return_u32(INVALID,16);return;}
-    /* No hardware voices, 3D, effects or notifications are advertised. */
-    if(flags&~0x180ebu){recomp_unimpl("DirectSound buffer capabilities pending",flags);return;}
+    /* Only primary/listener3D; spatial secondary voices remain explicit. */
+    if((flags&0x10) && !(flags&1)){recomp_unimpl("DirectSound spatial secondary buffer pending",flags);return;}
+    if(flags&~0x180fbu){recomp_unimpl("DirectSound buffer capabilities pending",flags);return;}
     if(flags&1){if(bytes||fmt){fnv_cpu_return_u32(INVALID,16);return;}}
     else {unsigned char *f=range(fmt,18,0);if(!f)return;
         if(!format(f,&rate,&channels,&bits)){recomp_unimpl("DirectSound PCM format pending",fmt);return;}
@@ -117,6 +127,11 @@ static void create_buffer(void){
     uint32_t at=allocate(1,(unsigned)(root-active->objects)+1);
     if(!at){free(samples);finish(NOMEM,16);return;}
     struct sound_object *o=active->objects+active->count-1;o->flags=flags;o->bytes=bytes;o->rate=o->frequency=rate;o->channels=channels;o->bits=bits;o->samples=samples;
+    if((flags&0x11)==0x11){
+        o->listener[8]=o->listener[10]=o->listener[12]=o->listener[13]=o->listener[14]=1;
+        memcpy(o->listener_pending,o->listener,sizeof(o->listener));
+        wr(active->memory+512+(active->count-1)*8+4,active->config.arena_address+36*4);
+    }
     if(bytes){o->address=active->config.arena_address+active->used;active->used+=bytes;}
     wr(p,at);finish(0,16);
 }
@@ -219,10 +234,13 @@ static void set_value(unsigned which){int32_t value=(int32_t)fnv_cpu_argument_u3
 }
 static void volume_set(void){set_value(0);}static void pan_set(void){set_value(1);}static void frequency_set(void){set_value(2);}
 static void restore(void){if(!acquire(fnv_cpu_argument_u32(0),1))return;finish(0,4);}
+#include "dsound_listener.inc"
 #define PENDING(N) static void pending_##N(void){recomp_unimpl("DirectSound COM method pending",N);}
 PENDING(5) PENDING(7) PENDING(9) PENDING(22) PENDING(33) PENDING(34) PENDING(35)
 static fnv_cpu_function methods[METHODS]={query,addref,release,create_buffer,device_caps,pending_5,cooperative,pending_7,speakers,pending_9,initialize,certification,
-    query,addref,release,buffer_caps,position,get_format,volume_get,pan_get,frequency_get,status,pending_22,lock_buffer,play,seek,set_format,volume_set,pan_set,frequency_set,stop,unlock_buffer,restore,pending_33,pending_34,pending_35};
+    query,addref,release,buffer_caps,position,get_format,volume_get,pan_get,frequency_get,status,pending_22,lock_buffer,play,seek,set_format,volume_set,pan_set,frequency_set,stop,unlock_buffer,restore,pending_33,pending_34,pending_35,
+    query,addref,release,listener_all_get,listener_distance_get,listener_doppler_get,listener_orientation_get,listener_position_get,listener_rolloff_get,listener_velocity_get,
+    listener_all_set,listener_distance_set,listener_doppler_set,listener_orientation_set,listener_position_set,listener_rolloff_set,listener_velocity_set,listener_commit};
 static const struct fnv_cpu_export exports[]={{"dsound.dll","DirectSoundCreate8",0,0,factory},{"dsound.dll",NULL,11,1,factory}};
 const struct fnv_cpu_export *fnv_dsound8_exports(size_t *n){if(n)*n=2;return exports;}
 enum fnv_cpu_result fnv_dsound8_create(struct fnv_windows_process *process,const struct fnv_dsound8_config *cfg,struct fnv_dsound8 **out){
@@ -263,6 +281,9 @@ enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *d,uint32_t frames){
     if(!d||d!=active||!frames||frames>512)return FNV_PCM_INVALID;
     int64_t mix[1024]={0};int16_t output[1024];uint64_t phases[CAPACITY];uint32_t playing[CAPACITY];
     fnv_host_mutex_lock(&d->guard);
+    int32_t masters[CAPACITY][2];for(unsigned i=0;i<d->count;i++)masters[i][0]=masters[i][1]=65536;
+    for(unsigned i=0;i<d->count;i++){struct sound_object *o=d->objects+i;
+        if(o->refs && o->kind && (o->flags&1) && o->parent){masters[o->parent-1][0]=o->gain[0];masters[o->parent-1][1]=o->gain[1];}}
     for(unsigned i=0;i<d->count;i++){struct sound_object *o=d->objects+i;phases[i]=o->phase;playing[i]=o->playing;
         if(!o->refs||!o->kind||!o->playing||!o->bytes||!d->objects[o->parent-1].cooperative)continue;
         uint32_t count=o->bytes/(o->channels*(o->bits/8));uint64_t end=(uint64_t)count*48000;
@@ -270,7 +291,7 @@ enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *d,uint32_t frames){
             uint32_t a=(uint32_t)(o->phase/48000),fraction=(uint32_t)(o->phase%48000),b=a+1;
             if(b==count)b=o->looping?0:a;
             for(unsigned c=0;c<2;c++){int64_t s=(int64_t)sample(o,a,c)*(48000-fraction)+(int64_t)sample(o,b,c)*fraction;
-                if(d->focused || (o->flags&0x8000))mix[f*2+c]+=(s/48000)*o->gain[c]/65536;}
+                if(d->focused || (o->flags&0x8000))mix[f*2+c]+=((s/48000)*o->gain[c]/65536)*masters[o->parent-1][c]/65536;}
             o->phase+=o->frequency;
             if(o->phase>=end){if(o->looping)o->phase%=end;else {o->phase=0;o->playing=0;}}
         }

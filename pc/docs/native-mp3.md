@@ -42,7 +42,7 @@ incluido el bloque pendiente, no audio reproducido por el dispositivo.
 La aplicacion puede bombear desde su hilo de decodificacion mientras el worker
 audout consume PCM. Aun no hay ese reproductor del motor ni un puente desde sus
 APIs de MP3/DirectShow. Existe un [primer proveedor DirectSound8 PCM](native-directsound.md),
-con volumen/pan y buffers, pero el juego todavia pide un listener3D pendiente.
+con volumen/pan, buffers y estado del listener3D; las voces espaciales siguen pendientes.
 Bink y Vorbis tambien siguen pendientes en esta ruta.
 
 ## Relacion con DirectSound

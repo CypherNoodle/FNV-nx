@@ -57,28 +57,45 @@ consume36 bytes x86. Los primeros4096 bytes son tablas/objetos y el resto stagin
 Release libera el shadow nativo pero no recicla identidad/staging: el agotamiento
 devuelve E_OUTOFMEMORY. No es aun un allocador para una sesion larga del juego.
 
-Primary permite formato y controles, no escritura/cursor primario. Las capacidades
+Primary permite formato, controles y un listener3D si lleva CTRL3D; no admite
+escritura/cursor primario. El volumen del primario se aplica a la mezcla de su
+dispositivo; no cambia volumen global del host. Las capacidades
 publican mezcla software, PCM y formatos implementados, sin voces hardware ni
-certificacion. Otros formatos, dispositivos por GUID, CTRL3D, notificaciones,
+certificacion. Otros formatos, dispositivos por GUID, voces secundarias CTRL3D, notificaciones,
 efectos, sticky-focus, write-primary, DuplicateSoundBuffer y metodos pendientes
 no se convierten en exito ficticio. QueryInterface solo publica IUnknown,
 DirectSound/8 y Buffer/8 realmente modelados; el primario no ofrece Buffer8.
-No hay Vorbis/MP3/Bink conectados a este ABI, ni listener/audio espacial 3D.
+No hay Vorbis/MP3/Bink conectados a este ABI. El listener conserva estado pero
+las voces espaciales secundarias siguen pendientes; no se anuncian como PCM2D.
+Las voces PCM normales ignoran correctamente los parametros del listener.
 
-El replay privado ya supera DirectSoundCreate8, SetCooperativeLevel y GetCaps.
-El siguiente pedido del juego es un buffer primario flags0x91(PRIMARYBUFFER,
-CTRL3D,CTRLVOLUME): se detiene explicitamente antes de crearlo. Falta implementar
-el listener3D y las capacidades que pida despues. No hay frame ni sonido del
-motor PC demostrado, ni arranque frio desde EXE ni prueba hardware de esta ruta.
+El listener usa una segunda vtable en primary+4 y comparte el contador de
+referencias con el primario. QueryInterface(IUnknown) devuelve la identidad
+controladora del buffer. Su referencia mantiene vivo el primario tras Release
+del buffer. Implementa los18 metodos, todos los campos DS3DLISTENER64, getters,
+setters, normalizacion/ortogonalizacion de orientacion y CommitDeferredSettings.
+Cada campo diferido mantiene su valor hasta Commit, incluso si hubo un cambio
+inmediato posterior del mismo campo, como se comprobo contra Windows.
+No se ejecutan callbacks guest ni recalculos espaciales ficticios.
+
+El replay privado supera DirectSoundCreate8, SetCooperativeLevel, GetCaps,
+creacion del primario0x91 y consulta del listener. Despues se encontro timeGetTime,
+ya conectado al reloj monotono compartido con GetTickCount. El siguiente limite
+es USER32!EnumDisplayDevicesA. No hay frame ni sonido del motor PC demostrado,
+ni arranque frio desde EXE ni prueba hardware de esta ruta.
 
 ## Verificacion
 
-test_dsound8.py:26 callers x86 traducidos,12598 muestras exactas,20 combinaciones
+test_dsound8.py:41 callers x86 traducidos,12606 muestras exactas,20 combinaciones
 de formato/rate, mono/estereo8/16bits, bucle, final de playback, wrap Lock/Unlock,
 mezcla/saturacion, mute/pan, foco y rollback con cola llena. Un host thread sin
 attach produce PCM. Diez comparaciones ABI con DirectSound Windows; buffers
-nativos nunca se ponen a reproducir. Cuatro casos negativos: salida invalida,
-identidad retirada, formato pendiente y flags3D que realmente pide el juego.
+nativos nunca se ponen a reproducir. Cuatro casos negativos PCM: salida invalida,
+identidad retirada, formato pendiente y voces secundarias3D todavia pendientes.
+Dos casos adicionales detectan listener retirado y buffer inaccesible.
+Ademas3538 comprobaciones del listener contra Windows prueban estado inicial,
+getters, setters inmediatos/diferidos, commit, orientacion, factores invalidos,
+identidad compartida y vida util. Incluye la solicitud primaria0x91 del juego.
 Se repite con el ABI x87 extendido. build_dsound_audio.py comprueba el proof
 vigente, compila3 unidades ARM64/libnx con Werror y verifica enlace interno
 DirectSound/PCM/audout y exports de libnx. No enlaza ni entrega NRO.

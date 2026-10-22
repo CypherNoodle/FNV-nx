@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 import test_windows_heap as shared
 SLOTS=[(0,3),(1,1),(2,1),(3,4),(4,2),(6,3),(11,2),(3,2),(4,3),(5,4),(9,2),(11,8),(12,4),(13,2),(14,2),(15,2),(16,2),(17,2),(18,1),(19,5),(20,1),(6,2),(7,2),(8,2)]
+SLOTS += [(3,2),(4,2),(5,2),(6,3),(7,2),(8,2),(9,2),(10,3),(11,3),(12,3),(13,8),(14,5),(15,3),(16,5),(17,1)]
+
 def programs(raw):
     raw.extend(bytes(16384-len(raw)))
     struct.pack_into('<I',raw,0x98+56,0x5000)
@@ -21,7 +23,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('sdk','python-deps','output'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True);p.add_argument('--x87-build',type=Path)
-    a=p.parse_args();pc=Path(__file__).resolve().parents[1];extra=[Path(__file__).resolve(),pc/'native/dsound8.h',pc/'native/pcm_queue.h'];link=['-ldsound','-ldxguid','-luser32','-lole32','-Wl,--stack,8388608']
+    a=p.parse_args();pc=Path(__file__).resolve().parents[1];extra=[Path(__file__).resolve(),pc/'native/dsound8.h',pc/'native/pcm_queue.h',pc/'native/dsound_listener.inc'];link=['-ldsound','-ldxguid','-luser32','-lole32','-Wl,--stack,8388608']
     if a.x87_build:
         sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve()),str(pc/'tools')]
         from test_x87_environment import verify
@@ -32,4 +34,4 @@ if __name__=='__main__':
         link.extend(str(o) for o in objects);a.cc.append('-DFNV_CPU_EXTENDED_X87=1')
     shared.NAMES=['DirectSoundCreate8','DirectSoundCreate8'];shared.ARGS=[3,3];shared.DLLS=['dsound.dll']*2
     shared.test(a,host_source='dsound8_host.c',guest_programs=programs,native_sources=('dsound8.c','pcm_queue.c'),extra_inputs=extra,linker_options=link,
-        strict_modes=('--strict-output','--strict-stale','--strict-3d','--strict-format'))
+        strict_modes=('--strict-output','--strict-stale','--strict-3d','--strict-format','--strict-listener','--strict-listener-output'))
