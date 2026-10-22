@@ -25,6 +25,7 @@ struct windows_thread {
     struct fnv_windows_thread_config config;
     unsigned char *teb, *expansion;
     char debug_name[128];
+    uint32_t com_count,com_model;
 };
 struct heap_block {uint32_t address,bytes,span,local;};
 struct heap_store {
@@ -137,6 +138,22 @@ static struct windows_thread *thread(void) {
 static unsigned char *slot(struct windows_thread *t,uint32_t index) {
     return index<64?t->teb+TEB_SLOTS+index*4:t->expansion+(index-64)*4;
 }
+/* Apartment bookkeeping is guest-thread state; it never initializes host COM.
+ * Auxiliary COINIT flags do not change the concurrency model. */
+uint32_t fnv_windows_com_initialize(uint32_t reserved,uint32_t flags){
+    struct windows_thread *t=thread();
+    if(reserved || (flags&~14u))return 0x80070057u;
+    uint32_t model=flags&2u;
+    if(t->com_count && t->com_model!=model)return 0x80010106u;
+    if(t->com_count==UINT32_MAX){recomp_unimpl("COM initialization nesting exhausted",t->config.thread_id);return 0x8007000eu;}
+    uint32_t result=t->com_count?1u:0u;
+    t->com_model=model;t->com_count++;return result;
+}
+void fnv_windows_com_uninitialize(void){
+    struct windows_thread *t=thread();
+    if(t->com_count && !--t->com_count)t->com_model=0;
+}
+uint32_t fnv_windows_com_initialization_count(void){return thread()->com_count;}
 uint32_t fnv_windows_double_click_time(int64_t setting){
     struct fnv_windows_process *p=thread()->process;lock(p);
     uint32_t old=p->double_click_ms?p->double_click_ms:500;

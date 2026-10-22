@@ -123,6 +123,11 @@ uint32_t fnv_windows_current_address_space_bytes(void);
 /* Trusted immutable attach metadata for native callback stack validation. */
 void fnv_windows_current_stack_bounds(uint32_t *low,uint32_t *high,uint32_t *thread_id);
 void fnv_windows_set_last_error(uint32_t value);
+/* COM initialization bookkeeping only, no class activation or marshalling.
+ * Flags: MTA=0, STA=2, DISABLE_OLE1DDE=4, SPEED_OVER_MEMORY=8. */
+uint32_t fnv_windows_com_initialize(uint32_t reserved,uint32_t flags);
+void fnv_windows_com_uninitialize(void);
+uint32_t fnv_windows_com_initialization_count(void);
 /* Current-thread diagnostic label only; copied, max127 ASCII bytes. */
 /* Per-guest USER32 setting; -1 reads,0/1 updates. Never changes host policy. */
 uint32_t fnv_windows_mouse_buttons(int setting);

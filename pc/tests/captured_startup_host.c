@@ -7,6 +7,7 @@
 #include "windows_user32.h"
 #include "windows_boot_ui.h"
 #include "windows_debug.h"
+#include "windows_com.h"
 #include "dinput8.h"
 #include "steam_callbacks.h"
 #include "windows_registry.h"
@@ -243,6 +244,7 @@ int main(int argc,char **argv){
     e=fnv_windows_memory_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_dinput8_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_debug_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_com_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_boot_ui_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_user32_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_system_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
@@ -303,6 +305,7 @@ int main(int argc,char **argv){
     }
     if(!workers.active)fnv_startup_math_replay_close();
 #endif
+    printf(",\"current_thread_COM_initialization_count\":%u",fnv_windows_com_initialization_count());
     enum fnv_cpu_result detach=fnv_windows_thread_detach(),cleanup=FNV_CPU_BUSY;
     if(detach==FNV_CPU_OK && !workers.active && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_dinput8_destroy(dinput)==FNV_CPU_OK && !fnv_vm_free(vm,input_pool.value,0,FNV_VM_RELEASE).error && fnv_steam_callbacks_destroy(steam_callbacks)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK && fnv_windows_boot_ui_destroy(boot_ui)==FNV_CPU_OK && fnv_windows_user32_destroy(user32)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
     printf(",\"thread_detach_result\":%u,\"process_cleanup_result\":%u}\n",detach,cleanup);
