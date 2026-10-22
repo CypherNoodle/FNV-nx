@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include "d3d9_vk_backend.h"
+#include "d3d9_vk_prepared.h"
 #include "catalog_pair_fixture.h"
 #include <stdio.h>
 #undef NDEBUG
@@ -69,11 +70,17 @@ int main(int argc,char **argv){
     struct fnv_vk_config cfg={32,32,32,2,16,16u<<20,0};struct fnv_vk_backend *gpu;VkResult failure;
     assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));struct fnv_d3d9_shader_backend b;fnv_vk_backend_callbacks(gpu,&b);
     unsigned char *code[2],*spv[2];uint32_t cb[2],sb[2];uintptr_t shader[2];
+    struct fnv_vk_prepared_program prepared={.inputs=vertex_inputs,.input_count=2,.sampler_mask=1};
+    struct fnv_d3d9_shader_code catalog[2];
     for(unsigned i=0;i<2;i++){
         code[i]=load(argv[1+i],cb+i);spv[i]=load(argv[3+i],sb+i);struct fnv_uniform_plan plan=i?pixel_plan:vertex_plan;
-        assert(!fnv_vk_backend_register_shader(gpu,i,code[i],cb[i],spv[i],sb[i],&plan));assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));
+        prepared.stages[i]=(struct fnv_vk_prepared_stage){code[i],spv[i],cb[i],sb[i],plan};catalog[i]=(struct fnv_d3d9_shader_code){code[i],cb[i]};
     }
-    assert(!fnv_vk_backend_link_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,2,1));
+    /* Missing PS in original package must not even install the VS. */
+    assert(fnv_vk_prepare_program(gpu,&prepared,catalog,1)==FNV_VK_INVALID);
+    struct fnv_vk_stats stats;assert(!fnv_vk_backend_stats(gpu,&stats) && !stats.shader_catalog_entries);
+    assert(!fnv_vk_prepare_program(gpu,&prepared,catalog,2));
+    for(unsigned i=0;i<2;i++){assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));}
     uintptr_t decl,texture,vb;
     assert(!b.create_declaration(gpu,elements,3,&decl) && !b.bind_declaration(gpu,decl));
     assert(!b.create_texture(gpu,2,2,1,0,21,1,&texture) && !b.bind_texture(gpu,0,texture));

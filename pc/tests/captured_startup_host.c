@@ -18,6 +18,9 @@
 #ifdef FNV_STARTUP_SDP
 #include "d3d9_sdp.h"
 #endif
+#ifdef FNV_STARTUP_PROGRAM_HEADER
+#include FNV_STARTUP_PROGRAM_HEADER
+#endif
 #include <stdio.h>
 static uint32_t startup_graphics_query(void *context,uint32_t kind,const uint32_t *args,uint32_t count,void *out,uint32_t bytes){
 #ifdef FNV_STARTUP_GRAPHICS_TRACE
@@ -299,6 +302,10 @@ int main(int argc,char **argv){
         graphics_com_config.catalog=fnv_sdp_entries(sdp,&graphics_com_config.catalog_count);
         fprintf(stderr,"FNV_STARTUP_SDP records=%zu translated=0\n",graphics_com_config.catalog_count);
     }
+#endif
+#ifdef FNV_STARTUP_PROGRAM_HEADER
+    assert(!fnv_vk_prepare_program(graphics,&fnv_startup_program,graphics_com_config.catalog,graphics_com_config.catalog_count));
+    fprintf(stderr,"FNV_STARTUP_PROGRAM shaders=2 linked_pairs=1 caps_unchanged=1\n");
 #endif
     struct fnv_d3d9_com *graphics_com;assert(fnv_d3d9_com_create(fnv_windows_runtime(process),&graphics_com_config,&graphics_com)==FNV_CPU_OK);
 #ifdef FNV_STARTUP_SDP

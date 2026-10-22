@@ -22,7 +22,7 @@ def run(a):
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     cc=Path(a.cc).resolve();linker=a.linker.resolve();env=os.environ.copy();env['PATH']=str(cc.parent)+os.pathsep+str(linker.parent)+os.pathsep+env['PATH']
-    native=['d3d9_vk_backend.c','d3d9_geometry.c','d3d9_texture_upload.c','d3d9_uniform_state.c','d3d9_uniform_pack.c','d3d9_vk_state.c','d3d9_constants.c']
+    native=['d3d9_vk_backend.c','d3d9_vk_prepared.c','d3d9_geometry.c','d3d9_texture_upload.c','d3d9_uniform_state.c','d3d9_uniform_pack.c','d3d9_vk_state.c','d3d9_constants.c']
     sources=[Path(__file__).resolve(),pc/'tests/catalog_pair_gpu_host.c',Path(compile_hlsl.__code__.co_filename),linker,cc,
              *[pc/'native'/n for n in native],*[p for p in (pc/'native').iterdir() if p.suffix in ('.h','.inc')],
              *[(pc/'tools'/n) for n in ('shader_packages.py','translate_d3d9_pair.py','inspect_spirv.py','spirv_uniform_layout.py')]]
