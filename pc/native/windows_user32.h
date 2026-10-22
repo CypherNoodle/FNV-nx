@@ -9,6 +9,11 @@ struct fnv_windows_user32;
  * Fixed capacity16; handles are guest tokens and are never host HWND values.
  * A single desktop is allowed, created before guest attach and destroyed after
  * detach. Runtime registration enforces the latter lifecycle at destroy. */
+/* Optional immutable native display metrics; native callbacks only, 1=value,
+ * 0=unsupported,-1=backend failure. Host/context live through destroy.
+ * SM_SWAPBUTTON/REMOTESESSION retain their guest-local semantics. */
+struct fnv_user32_metrics {void *context;int (*query)(void *,uint32_t,int32_t *);};
+enum fnv_cpu_result fnv_windows_user32_create_with_metrics(struct fnv_windows_process *,const struct fnv_user32_metrics *,struct fnv_windows_user32 **);
 enum fnv_cpu_result fnv_windows_user32_create(struct fnv_windows_process *,struct fnv_windows_user32 **);
 enum fnv_cpu_result fnv_windows_user32_destroy(struct fnv_windows_user32 *);
 enum fnv_cpu_result fnv_windows_user32_add_window(struct fnv_windows_user32 *,const char *class_name,const char *title,uint32_t *handle);

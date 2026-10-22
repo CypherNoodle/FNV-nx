@@ -80,8 +80,9 @@ No se ejecutan callbacks guest ni recalculos espaciales ficticios.
 
 El replay privado supera DirectSoundCreate8, SetCooperativeLevel, GetCaps,
 creacion del primario0x91 y consulta del listener. Despues se encontro timeGetTime,
-ya conectado al reloj monotono compartido con GetTickCount. El siguiente limite
-es USER32!EnumDisplayDevicesA. No hay frame ni sonido del motor PC demostrado,
+ya conectado al reloj monotono compartido con GetTickCount. El puente de enumeracion/metricas de pantalla ya supera ese limite. El arranque
+se detiene despues con un aviso de renderer porque el runner todavia no registra
+nuestro proveedor d3d9.dll; vease [pantallas y resolucion](native-windows-display.md). No hay frame ni sonido del motor PC demostrado,
 ni arranque frio desde EXE ni prueba hardware de esta ruta.
 
 ## Verificacion

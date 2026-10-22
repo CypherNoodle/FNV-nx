@@ -5,6 +5,9 @@
 #include "host_mutex.h"
 #include <stdlib.h>
 #include <string.h>
+#ifdef FNV_MODULE_TRACE
+#include <stdio.h>
+#endif
 struct module_item {char name[128];uint32_t handle,references;};
 struct module_export {char name[256];uint16_t ordinal;unsigned by_ordinal,module;uint32_t token;fnv_cpu_function function;};
 struct fnv_windows_modules {
@@ -47,7 +50,7 @@ static int guest_string(uint32_t at,int wide,char *out,size_t capacity){
     return 0;
 }
 static void module_get(int wide,int load){
-    uint32_t at=fnv_cpu_argument_u32(0),value=0,error=126;char name[128];struct fnv_windows_modules *m=modules();
+    uint32_t at=fnv_cpu_argument_u32(0),value=0,error=126;char name[128]={0};struct fnv_windows_modules *m=modules();
     if(!at && !load)value=m->image_base;
     else if(guest_string(at,wide,name,sizeof(name)) && canonical(name)){
         if(!strcmp(name,m->exe) && !load)value=m->image_base;
@@ -58,6 +61,9 @@ static void module_get(int wide,int load){
             }
             fnv_host_mutex_unlock(&m->guard);}
     }
+#ifdef FNV_MODULE_TRACE
+    fprintf(stderr,"FNV_MODULE %s wide=%d name=%.127s result=%08x error=%u\n",load?"load":"get",wide,name,value,value?0:error);
+#endif
     if(!value)fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,4);
 }
@@ -73,13 +79,16 @@ static void api_free(void){
     fnv_host_mutex_unlock(&m->guard);if(!value)fnv_windows_set_last_error(6);fnv_cpu_return_u32(value,4);
 }
 static void api_proc(void){
-    uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),value=0;char name[256];
+    uint32_t h=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1),value=0;char name[256]={0};
     struct fnv_windows_modules *m=modules();int ordinal=at<=65535;
     if(ordinal || guest_string(at,0,name,sizeof(name))){
         for(size_t i=0;i<m->count;++i){struct module_export *s=m->symbols+i;
             if(h==m->items[s->module].handle && s->by_ordinal==(unsigned)ordinal &&
                (ordinal?s->ordinal==at:!strcmp(name,s->name))){value=fnv_cpu_import_token(s->function);if(!value)value=s->token;break;}}
     }
+#ifdef FNV_MODULE_TRACE
+    fprintf(stderr,"FNV_MODULE proc module=%08x ordinal=%u name=%.255s result=%08x\n",h,ordinal?at:0,ordinal?"":name,value);
+#endif
     if(!value)fnv_windows_set_last_error(127);
     fnv_cpu_return_u32(value,8);
 }

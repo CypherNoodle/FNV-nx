@@ -63,7 +63,8 @@ int main(int argc,char **argv){
     char dll[]="Fixture.DLL",name[]="Value";
     extra[6]=(struct fnv_cpu_export){dll,name,0,0,native_value};extra[7]=(struct fnv_cpu_export){dll,NULL,7,1,native_value};
     extra[8]=(struct fnv_cpu_export){"other.dll","Value",0,0,native_value};
-    memcpy(catalog+builtins,extra,sizeof(extra));size_t total=builtins+9;
+    memcpy(catalog+builtins,extra,sizeof(extra));size_t total=builtins+9,expected_modules=0;
+    for(size_t i=0;i<total;i++){int seen=0;for(size_t j=0;j<i;j++)if(!_stricmp(catalog[i].dll,catalog[j].dll)){seen=1;break;}if(!seen)expected_modules++;}
     struct fnv_windows_modules *m=NULL;
     if(argc==3 && !strcmp(argv[2],"--strict-capacity")){
         fnv_cpu_function functions[FNV_CPU_MAX_NATIVE_METHODS];uint32_t tokens[FNV_CPU_MAX_NATIVE_METHODS];
@@ -104,7 +105,7 @@ int main(int argc,char **argv){
     assert(call(GET_PROC,kernel,text(PROC_TEXT,"GetLastError",0))==error_token);
     call(SET_ERROR,0x55fa,0);assert(call(GET_ERROR_ALIAS,0,0)==0x55fa && indirect(error_token)==0x55fa);
     struct fnv_windows_module_stats snapshot;assert(fnv_windows_modules_stats(m,&snapshot)==FNV_CPU_OK);
-    assert(snapshot.pinned_modules==4 && snapshot.native_exports==builtins+9 && !snapshot.load_calls && !snapshot.dynamic_references);
+    assert(snapshot.pinned_modules==expected_modules && snapshot.native_exports==builtins+9 && !snapshot.load_calls && !snapshot.dynamic_references);
     assert(call(GET_A,text(NAME_TEXT,"falloutnv.exe",0),0)==BASE);
     HMODULE native=GetModuleHandleW(L"kernel32.dll");assert(native);
     const char *names[]={"kernel32.dll","KERNEL32.DLL","kernel32","kernel32.dll."};

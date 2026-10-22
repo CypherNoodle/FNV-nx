@@ -9,7 +9,7 @@
 struct guest_window {uint32_t handle;char class_name[256],title[512];};
 struct fnv_windows_user32 {
     struct fnv_cpu_runtime *cpu;fnv_host_mutex guard;uint32_t token,next;
-    struct guest_window windows[16];
+    struct guest_window windows[16];struct fnv_user32_metrics metrics;
 };
 /* One virtual desktop, isolated from the PC host. Lifecycle matches the native
  * module catalog: create before attach, destroy after every thread detaches. */
@@ -56,17 +56,20 @@ static void api_find_window_a(void){
     fnv_host_mutex_unlock(&active->guard);
     fnv_cpu_return_u32(value,8); /* Found or not, LastError is untouched. */
 }
-enum fnv_cpu_result fnv_windows_user32_create(struct fnv_windows_process *process,struct fnv_windows_user32 **out){
+enum fnv_cpu_result fnv_windows_user32_create_with_metrics(struct fnv_windows_process *process,const struct fnv_user32_metrics *metrics,struct fnv_windows_user32 **out){
     if(!out)return FNV_CPU_INVALID;
     *out=NULL;if(!process)return FNV_CPU_INVALID;
     if(active)return FNV_CPU_BUSY;
     struct fnv_windows_user32 *u=calloc(1,sizeof(*u));if(!u)return FNV_CPU_NO_MEMORY;
     if(!fnv_host_mutex_init(&u->guard)){free(u);return FNV_CPU_NO_MEMORY;}
-    u->cpu=fnv_windows_runtime(process);u->next=1;
+    u->cpu=fnv_windows_runtime(process);u->next=1;if(metrics)u->metrics=*metrics;
     fnv_cpu_function function=api_find_window_a;
     enum fnv_cpu_result r=fnv_cpu_register_native(u->cpu,&function,1,&u->token);
     if(r!=FNV_CPU_OK){fnv_host_mutex_destroy(&u->guard);free(u);return r;}
     active=u;*out=u;return FNV_CPU_OK;
+}
+enum fnv_cpu_result fnv_windows_user32_create(struct fnv_windows_process *process,struct fnv_windows_user32 **out){
+    return fnv_windows_user32_create_with_metrics(process,NULL,out);
 }
 enum fnv_cpu_result fnv_windows_user32_destroy(struct fnv_windows_user32 *u){
     if(!u || active!=u)return FNV_CPU_INVALID;
@@ -96,7 +99,14 @@ static void api_system_metrics(void){
     /* SM_REMOTESESSION: the Switch guest has a local console, no Terminal
      * Services client. Do not infer unrelated metrics from this boolean. */
     if(index==23){fnv_cpu_return_u32(fnv_windows_mouse_buttons(-1),4);return;}
-    if(index!=0x1000u){recomp_unimpl("Windows system metric pending",index);return;}
+    if(index!=0x1000u){
+        if(active && active->cpu==fnv_cpu_current() && active->metrics.query){
+            int32_t value=0;int found=active->metrics.query(active->metrics.context,index,&value);
+            if(found==1){fnv_cpu_return_u32((uint32_t)value,4);return;}
+            if(found){recomp_unimpl("Windows native display metric failed",index);return;}
+        }
+        recomp_unimpl("Windows system metric pending",index);return;
+    }
     fnv_cpu_return_u32(0,4); /* Preserve LastError, including when the metric is zero. */
 }
 static const struct fnv_cpu_export exports[]={

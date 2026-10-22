@@ -9,6 +9,8 @@
 #include "windows_debug.h"
 #include "windows_com.h"
 #include "windows_multimedia.h"
+#include "windows_display.h"
+#include "windows_display_win32.h"
 #include "dinput8.h"
 #include "dsound8.h"
 #include "steam_callbacks.h"
@@ -229,8 +231,11 @@ int main(int argc,char **argv){
         c.worker_stack_bytes=0x20000;c.worker_tls_bytes=0x11000;c.worker_host_stack_bytes=0x100000;
     }
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
+    struct fnv_display_backend display_backend={NULL,fnv_display_enumerate_win32};
+    struct fnv_windows_display *display;assert(fnv_windows_display_create(process,&display_backend,&display)==FNV_CPU_OK);
     struct fnv_windows_boot_ui *boot_ui;assert(fnv_windows_boot_ui_create(process,&image,&boot_ui)==FNV_CPU_OK);
-    struct fnv_windows_user32 *user32;assert(fnv_windows_user32_create(process,&user32)==FNV_CPU_OK);
+    struct fnv_user32_metrics metrics={NULL,fnv_display_metrics_win32};
+    struct fnv_windows_user32 *user32;assert(fnv_windows_user32_create_with_metrics(process,&metrics,&user32)==FNV_CPU_OK);
     struct fnv_boot_window_backend window_backend={NULL,diagnostic_window_create,diagnostic_window_destroy,diagnostic_window_active,diagnostic_window_focus};
     assert(fnv_windows_boot_ui_set_backend(boot_ui,user32,&window_backend)==FNV_CPU_OK);
     struct fnv_vm_result input_pool=fnv_vm_allocate(vm,0,65536,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!input_pool.error);
@@ -254,6 +259,7 @@ int main(int argc,char **argv){
     e=fnv_windows_debug_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_com_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_multimedia_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+    e=fnv_windows_display_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_dsound8_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_boot_ui_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_user32_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
@@ -317,7 +323,7 @@ int main(int argc,char **argv){
 #endif
     printf(",\"current_thread_COM_initialization_count\":%u",fnv_windows_com_initialization_count());
     enum fnv_cpu_result detach=fnv_windows_thread_detach(),cleanup=FNV_CPU_BUSY;
-    if(detach==FNV_CPU_OK && !workers.active && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_dinput8_destroy(dinput)==FNV_CPU_OK && fnv_dsound8_destroy(sound)==FNV_CPU_OK && !fnv_vm_free(vm,sound_pool.value,0,FNV_VM_RELEASE).error && !fnv_vm_free(vm,input_pool.value,0,FNV_VM_RELEASE).error && fnv_steam_callbacks_destroy(steam_callbacks)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK && fnv_windows_boot_ui_destroy(boot_ui)==FNV_CPU_OK && fnv_windows_user32_destroy(user32)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
+    if(detach==FNV_CPU_OK && !workers.active && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_windows_display_destroy(display)==FNV_CPU_OK && fnv_dinput8_destroy(dinput)==FNV_CPU_OK && fnv_dsound8_destroy(sound)==FNV_CPU_OK && !fnv_vm_free(vm,sound_pool.value,0,FNV_VM_RELEASE).error && !fnv_vm_free(vm,input_pool.value,0,FNV_VM_RELEASE).error && fnv_steam_callbacks_destroy(steam_callbacks)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK && fnv_windows_boot_ui_destroy(boot_ui)==FNV_CPU_OK && fnv_windows_user32_destroy(user32)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
     if(cleanup==FNV_CPU_OK)fnv_pcm_destroy(sound_queue);
     printf(",\"thread_detach_result\":%u,\"process_cleanup_result\":%u}\n",detach,cleanup);
     /* A fault can leave live guest private heaps. In that case this isolated
