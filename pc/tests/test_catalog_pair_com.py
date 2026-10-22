@@ -12,6 +12,8 @@ import subprocess
 from types import SimpleNamespace
 from test_d3d9_com import test,SLOTS
 
+CATALOG_SLOTS=SLOTS+[(92,2),(107,2),(86,3),(87,2),(26,7),(11,5),(12,1),(100,5),(23,9),(19,5),(20,2),(65,3),(57,3),(43,7),(47,2),(41,1),(42,1),(81,4),(93,2),(108,2)]
+
 def run(a):
     fixture=a.fixture.resolve();out=a.output.resolve();pc=Path(__file__).resolve().parents[1]
     proof=json.loads((fixture/'validation.json').read_text());sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
@@ -29,7 +31,7 @@ def run(a):
     sources=[pc/'native'/n for n in ('d3d9_vk_backend.c','d3d9_vk_prepared.c','d3d9_texture_upload.c','d3d9_uniform_state.c','d3d9_uniform_pack.c','d3d9_geometry.c','d3d9_vk_state.c')]
     extra=[Path(__file__).resolve(),pc/'tests/catalog_pair_oracle.h',pc/'tests/catalog_mip_fixture.h',fixture/'catalog_pair_fixture.h',fixture/'validation.json',
            *[p for p in (pc/'native').iterdir() if p.suffix in ('.h','.inc')],*a.headers.rglob('*.h')]
-    slots=SLOTS+[(92,2),(107,2),(86,3),(87,2),(26,7),(11,5),(12,1),(100,5),(23,9),(19,5),(20,2),(65,3),(57,3),(43,7),(47,2),(41,1),(42,1),(81,4),(93,2),(108,2)]
+    slots=list(CATALOG_SLOTS)
     if mips or two or rt:slots.extend([(69,4),(68,4)])
     if rt:slots.extend([(18,3),(37,3),(38,3),(11,3),(12,2)])
     shader_args=tuple(fixture/n for n in ('vs.bin','ps.bin','pair/vs.spv','pair/ps.spv'))

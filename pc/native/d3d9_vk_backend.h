@@ -102,6 +102,9 @@ uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *,uintptr_t,uint32_t 
  * substitute for spirv-val, reflection or pair-interface validation offline.
  * Duplicate stage/tokens reject; copies remain owned until backend destroy. */
 uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *,enum fnv_d3d9_stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *);
+/* Idempotent only for identical bytecode, SPIR-V and uniform plan. Conflicts
+ * reject without replacing live catalog storage; no inference or caps change. */
+uint32_t fnv_vk_backend_ensure_shader(struct fnv_vk_backend *,enum fnv_d3d9_stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *);
 /* Trusted original XYZ/UV fixed VS only; host validates semantic contract.
  * Retains an internal shader pin through Reset; id0 clears. Plan must be four
  * float column registers c0..3,64 bytes. No binding/caps changes. */
@@ -126,6 +129,8 @@ struct fnv_vk_vertex_input {uint32_t usage,index,location;};
  * Copy semantic/location map and sampler mask; no inference from declaration order.
  * Caller verifies SPIR-V pair linkage and descriptors offline. */
 uint32_t fnv_vk_backend_link_program(struct fnv_vk_backend *,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *,uint32_t inputs,uint32_t sampler_mask);
+/* Reuse only an identical pair, semantic map and sampler mask. */
+uint32_t fnv_vk_backend_ensure_program(struct fnv_vk_backend *,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *,uint32_t inputs,uint32_t sampler_mask);
 /* Debug snapshots only, not GPU draws. Both output buffers are unchanged on
  * error; require disjoint valid destinations, exclusive caller ownership. */
 uint32_t fnv_vk_backend_read_uniforms(struct fnv_vk_backend *,void *vertex,uint32_t vertex_capacity,void *pixel,uint32_t pixel_capacity);

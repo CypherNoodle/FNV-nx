@@ -12,7 +12,7 @@ static void release_draw(struct fnv_vk_backend *d,struct draw_resources *r){
     free(r);
 }
 static void draw_pin(struct fnv_vk_backend *d,struct draw_resources *r,uintptr_t id){if(id){pin(d,id,1);r->ids[r->count++]=id;}}
-uint32_t fnv_vk_backend_link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){
+static uint32_t link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask,int reuse){
     if(!d || !vertex || !pixel || !inputs || !count || count>32 || mask&~65535u)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct program_entry next={.count=count,.mask=mask};
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
@@ -23,12 +23,18 @@ uint32_t fnv_vk_backend_link_program(struct fnv_vk_backend *d,const void *vertex
     if(samplers>d->properties.limits.maxPerStageDescriptorSamplers || samplers>d->properties.limits.maxPerStageDescriptorSampledImages)goto done;
     for(uint32_t i=0;i<count;++i){if(inputs[i].usage>13 || inputs[i].index>15 || inputs[i].location>=d->properties.limits.maxVertexInputAttributes)goto done;
         for(uint32_t j=0;j<i;++j)if(inputs[i].location==inputs[j].location || (inputs[i].usage==inputs[j].usage && inputs[i].index==inputs[j].index))goto done;}
-    for(struct program_entry *e=d->programs;e;e=e->next)if(e->stages[0]==next.stages[0] && e->stages[1]==next.stages[1])goto done;
+    for(struct program_entry *e=d->programs;e;e=e->next)if(e->stages[0]==next.stages[0] && e->stages[1]==next.stages[1]){
+        if(!reuse || e->count!=count || e->mask!=mask)goto done;
+        for(uint32_t i=0;i<count;i++)if(e->inputs[i].usage!=inputs[i].usage || e->inputs[i].index!=inputs[i].index || e->inputs[i].location!=inputs[i].location)goto done;
+        hr=0;goto done;
+    }
     if(d->program_count>=4096){hr=FNV_VK_OOM;goto done;}
     struct program_entry *entry=malloc(sizeof(*entry));if(!entry){hr=FNV_VK_OOM;goto done;}
     memcpy(next.inputs,inputs,count*sizeof(*inputs));next.next=d->programs;*entry=next;d->programs=entry;d->program_count++;hr=0;
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
+uint32_t fnv_vk_backend_link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){return link_program(d,vertex,vertex_bytes,pixel,pixel_bytes,inputs,count,mask,0);}
+uint32_t fnv_vk_backend_ensure_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){return link_program(d,vertex,vertex_bytes,pixel,pixel_bytes,inputs,count,mask,1);}
 static uint32_t draw_state(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get,int *handled){
     *handled=0;
     if(kind==FNV_D3D9_TEXTURE_STAGE_STATE){

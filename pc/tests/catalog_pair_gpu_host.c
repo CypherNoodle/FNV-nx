@@ -73,6 +73,28 @@ int main(int argc,char **argv){
     assert(fnv_vk_prepare_program(gpu,&prepared,catalog,1)==FNV_VK_INVALID);
     struct fnv_vk_stats stats;assert(!fnv_vk_backend_stats(gpu,&stats) && !stats.shader_catalog_entries);
     assert(!fnv_vk_prepare_program(gpu,&prepared,catalog,2));
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+    struct fnv_vk_prepared_program other=prepared;
+    other.stages[1]=(struct fnv_vk_prepared_stage){shared_ps,shared_ps_spv,sizeof(shared_ps),sizeof(shared_ps_spv),shared_pixel_plan};
+    struct fnv_d3d9_shader_code all[3]={catalog[0],catalog[1],{shared_ps,sizeof(shared_ps)}};
+    assert(fnv_vk_prepare_program(gpu,&other,catalog,2)==FNV_VK_INVALID);
+    assert(!fnv_vk_backend_stats(gpu,&stats) && stats.shader_catalog_entries==2);
+    assert(!fnv_vk_prepare_program(gpu,&other,all,3));
+    for(unsigned i=0;i<32;i++)assert(!fnv_vk_prepare_program(gpu,&prepared,all,3) && !fnv_vk_prepare_program(gpu,&other,all,3));
+    assert(!fnv_vk_backend_stats(gpu,&stats) && stats.shader_catalog_entries==3);
+    struct fnv_vk_prepared_program conflict=prepared;
+    unsigned char *changed=malloc(sb[0]);assert(changed);memcpy(changed,spv[0],sb[0]);changed[8]^=1;conflict.stages[0].spirv=changed;
+    assert(fnv_vk_prepare_program(gpu,&conflict,all,3)==FNV_VK_INVALID);free(changed);
+    struct fnv_uniform_entry wrong_entries[4];assert(vertex_plan.count==4);memcpy(wrong_entries,vertex_plan.entries,sizeof(wrong_entries));wrong_entries[0].offset+=4;conflict=prepared;conflict.stages[0].plan.entries=wrong_entries;
+    assert(fnv_vk_prepare_program(gpu,&conflict,all,3)==FNV_VK_INVALID);
+    conflict=prepared;conflict.sampler_mask=2;assert(fnv_vk_prepare_program(gpu,&conflict,all,3)==FNV_VK_INVALID);
+    struct fnv_vk_vertex_input wrong_inputs[2]={vertex_inputs[0],vertex_inputs[1]};wrong_inputs[0].usage=1;conflict=prepared;conflict.inputs=wrong_inputs;
+    assert(fnv_vk_prepare_program(gpu,&conflict,all,3)==FNV_VK_INVALID);
+    assert(!fnv_vk_prepare_program(gpu,&prepared,all,3) && !fnv_vk_prepare_program(gpu,&other,all,3));
+    assert(fnv_vk_backend_register_shader(gpu,0,code[0],cb[0],spv[0],sb[0],&vertex_plan)==FNV_VK_INVALID);
+    assert(fnv_vk_backend_link_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,2,1)==FNV_VK_INVALID);
+    uintptr_t other_shader;assert(!b.create(gpu,1,shared_ps,sizeof(shared_ps),&other_shader));
+#endif
     for(unsigned i=0;i<2;i++){assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));}
     uintptr_t decl,texture,vb;
     assert(!b.create_declaration(gpu,elements,3,&decl) && !b.bind_declaration(gpu,decl));
@@ -110,7 +132,12 @@ int main(int argc,char **argv){
             if(frame>=4){vertices[i*6+4]=xy[i*2]+1;vertices[i*6+5]=1-xy[i*2+1];}
 #endif
         }
-        unsigned char expected[4096];oracle(frame,code[0],code[1],vertices,texels,vc,pc,expected);
+        const unsigned char *reference_ps=code[1];
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+        if(frame&1)reference_ps=(const unsigned char*)shared_ps;
+        assert(!b.bind_shader(gpu,1,(frame&1) && !(argc==6 && !strcmp(argv[5],"wrong-shared-program"))?other_shader:shader[1]));
+#endif
+        unsigned char expected[4096];oracle(frame,code[0],reference_ps,vertices,texels,vc,pc,expected);
 #ifdef FNV_CATALOG_TWO_TEXTURES
         unsigned char second[16];secondary_texels(texels,second);assert(!b.upload_texture(gpu,secondary,0,0,0,2,2,0,8,second));
         int swapped=argc==6 && !strcmp(argv[5],"swapped-textures");assert(!b.bind_texture(gpu,0,swapped?secondary:texture) && !b.bind_texture(gpu,1,swapped?texture:secondary));
@@ -179,6 +206,9 @@ int main(int argc,char **argv){
     b.release(gpu,render_surface);assert(!b.texture_surface(gpu,render_texture,0,&render_surface));
     unsigned char retained[4096];assert(!fnv_vk_backend_read_color(gpu,render_surface,retained,sizeof(retained),10000000000ull));
     b.release(gpu,render_surface);b.release(gpu,render_texture);b.release(gpu,back);
+#endif
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+    b.release(gpu,other_shader);
 #endif
     b.release(gpu,vb);b.release(gpu,decl);b.release(gpu,texture);for(unsigned i=0;i<2;i++){b.release(gpu,shader[i]);free(code[i]);free(spv[i]);}
 #ifdef FNV_CATALOG_RENDER_TEXTURE

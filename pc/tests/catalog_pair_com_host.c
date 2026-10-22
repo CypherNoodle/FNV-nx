@@ -17,7 +17,11 @@ int main(int argc,char **argv){
 #if defined(FNV_CATALOG_TWO_TEXTURES) || defined(FNV_CATALOG_RENDER_TEXTURE)
     assert(!fnv_vk_backend_draw_wait(gpu,10000000000ull));
 #endif
-    catalog_count=2;catalog=calloc(2,sizeof(*catalog));assert(catalog);
+    catalog_count=2;
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+    catalog_count=3;
+#endif
+    catalog=calloc(catalog_count,sizeof(*catalog));assert(catalog);
     struct fnv_vk_prepared_program prepared={.inputs=vertex_inputs,.input_count=2,.sampler_mask=FNV_CATALOG_SAMPLER_MASK};
     unsigned char *code[2],*spv[2];uint32_t cb[2],sb[2];
     for(unsigned i=0;i<2;i++){
@@ -25,15 +29,24 @@ int main(int argc,char **argv){
         prepared.stages[i]=(struct fnv_vk_prepared_stage){code[i],spv[i],cb[i],sb[i],i?pixel_plan:vertex_plan};
     }
     assert(!fnv_vk_prepare_program(gpu,&prepared,catalog,2));
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+    catalog[2]=(struct fnv_d3d9_shader_code){shared_ps,sizeof(shared_ps)};
+    struct fnv_vk_prepared_program other=prepared;other.stages[1]=(struct fnv_vk_prepared_stage){shared_ps,shared_ps_spv,sizeof(shared_ps),sizeof(shared_ps_spv),shared_pixel_plan};
+    assert(!fnv_vk_prepare_program(gpu,&other,catalog,catalog_count) && !fnv_vk_prepare_program(gpu,&prepared,catalog,catalog_count));
+    struct fnv_vk_stats prepared_stats;assert(!fnv_vk_backend_stats(gpu,&prepared_stats) && prepared_stats.shader_catalog_entries==3);
+#endif
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(!fnv_native_load_image(argv[1],arena,ARENA,&image));
     struct fnv_cpu_config cpu_cfg={0};cpu_cfg.memory=arena;cpu_cfg.guest_base=BASE;cpu_cfg.memory_bytes=ARENA;cpu_cfg.code_low=BASE+0x1000;cpu_cfg.code_high=BASE+0x3000;
     assert(!fnv_cpu_create(&cpu_cfg,&cpu));code_at=BASE+0x200000;
     struct fnv_d3d9_com_config cc={.objects_address=BASE+0x18000,.objects_bytes=4096,.resource_capacity=32,.vertex_floats=256,.pixel_floats=224,
-        .backend=b,.catalog=catalog,.catalog_count=2,.buffer_address=BASE+0x1000000,.buffer_bytes=4096};
+        .backend=b,.catalog=catalog,.catalog_count=catalog_count,.buffer_address=BASE+0x1000000,.buffer_bytes=4096};
     assert(!fnv_d3d9_com_create(cpu,&cc,&com));device_at=fnv_d3d9_com_device(com);
     struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(!fnv_cpu_attach(cpu,&initial));
     uint32_t vs=make_shader(0),ps=make_shader(1),binding[]={device_at,vs};assert(!call(CP_VS,2,binding));binding[1]=ps;assert(!call(CP_PS,2,binding));
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+    uint32_t other_ps=make_shader(2);
+#endif
     memset(ptr(code_at),0,cb[1]); /* Shader creation must copy the guest source. */
     for(unsigned i=0;i<2;i++){
         uint32_t args[]={i?ps:vs,0,GUEST_OUT};put(GUEST_OUT,0);assert(!call(GET_FUNCTION,3,args) && get(GUEST_OUT)==cb[i]);
@@ -80,7 +93,12 @@ int main(int argc,char **argv){
             if(frame>=4){vertices[i*6+4]=xy[i*2]+1;vertices[i*6+5]=1-xy[i*2+1];}
 #endif
         }
-        unsigned char expected[4096];oracle(frame,code[0],code[1],vertices,texels,vc,pc,expected);
+        const unsigned char *reference_ps=code[1];uint32_t current_ps=ps;
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+        if(frame&1){reference_ps=(const unsigned char*)shared_ps;if(strcmp(argv[3],"wrong-shared-program"))current_ps=other_ps;}
+        binding[1]=current_ps;assert(!call(CP_PS,2,binding));
+#endif
+        unsigned char expected[4096];oracle(frame,code[0],reference_ps,vertices,texels,vc,pc,expected);
 #ifdef FNV_CATALOG_TWO_TEXTURES
         unsigned char second[16];secondary_texels(texels,second);uint32_t second_lock[]={secondary,0,GUEST_OUT,0,0};assert(!call(CP_TLOCK,5,second_lock));
         uint32_t second_pitch=get(GUEST_OUT),second_at=get(GUEST_OUT+4);for(unsigned y=0;y<2;y++)memcpy(ptr(second_at+y*second_pitch),second+y*8,8);
@@ -132,7 +150,7 @@ int main(int argc,char **argv){
 #endif
         /* Change the COM banks after draw: the submitted GPU snapshot survives. */
         memset(ptr(DATA),0,4096);constants[3]=256;assert(!call(VS_SF,4,constants));constants[3]=224;assert(!call(PS_SF,4,constants));
-        for(unsigned i=0;i<2;i++){uint32_t getter[]={device_at,GUEST_OUT};assert(!call(i?CP_GETPS:CP_GETVS,2,getter));uint32_t observed=get(GUEST_OUT);assert(observed==(i?ps:vs));assert(release(observed)==1);}
+        for(unsigned i=0;i<2;i++){uint32_t getter[]={device_at,GUEST_OUT};assert(!call(i?CP_GETPS:CP_GETVS,2,getter));uint32_t observed=get(GUEST_OUT);assert(observed==(i?current_ps:vs));assert(release(observed)==1);}
         uintptr_t color;assert(!b.get_target(gpu,0,0,&color));unsigned char actual[4096];assert(!fnv_vk_backend_read_color(gpu,color,actual,sizeof(actual),10000000000ull));b.release(gpu,color);
         for(unsigned i=0;i<4096;i++)if(abs((int)actual[i]-(int)expected[i])>1){fprintf(stderr,"translated catalog pixel mismatch frame=%u byte=%u\n",frame,i);return 2;}
         checks+=1024;
@@ -142,6 +160,9 @@ int main(int argc,char **argv){
 #endif
 #ifdef FNV_CATALOG_RENDER_TEXTURE
     assert(!release(rt_surface) && !release(rt_texture) && !release(back));
+#endif
+#ifdef FNV_CATALOG_SHARED_PROGRAM
+    assert(!release(other_ps));
 #endif
     assert(!release(vs) && !release(ps) && !release(vb) && !release(texture) && !release(decl));
     assert(!fnv_cpu_detach() && !fnv_d3d9_com_destroy(com) && !fnv_cpu_destroy(cpu));assert(VirtualFree(arena,0,MEM_RELEASE));assert(!fnv_vk_backend_destroy(gpu));

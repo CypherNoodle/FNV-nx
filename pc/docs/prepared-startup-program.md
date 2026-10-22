@@ -14,6 +14,10 @@ use a fresh backend. Membership rejection has no side effects. Later failures
 may leave partial registrations, so the caller must destroy that backend
 instead of retrying. The helper does not create public shader objects.
 
+Subsequent preparations may reuse exactly identical stages and pairs; see
+[prepared program sharing](prepared-program-sharing.md) for conflict checks,
+same-device pixel tests and remaining per-pair variant limitations.
+
 The shader pixel test now uses this same helper, checks that a missing pixel
 shader in the catalog installs neither stage, and then verifies creation,
 binding and rendering. Both the own-input and explicitly selected original

@@ -17,12 +17,20 @@ static int spirv_header(enum fnv_d3d9_stage stage,const void *bytes,uint32_t cou
     }
     return entries==1;
 }
-uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *plan){
-    if(!d || !shader_header(stage,code,code_bytes) || !spirv_header(stage,spirv,spirv_bytes) || !plan)return FNV_VK_INVALID;
+static uint32_t register_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *plan,int reuse){
+    if(!d || !shader_header(stage,code,code_bytes) || !spirv_header(stage,spirv,spirv_bytes) || !plan || (plan->count && !plan->entries))return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(!reuse && d->catalog_count>=4096){hr=FNV_VK_OOM;goto done;}
+    for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->stage==stage && e->code_bytes==code_bytes && !memcmp(e->code,code,code_bytes)){
+        if(!reuse || e->spirv_bytes!=spirv_bytes || memcmp(e->spirv,spirv,spirv_bytes) || e->plan.bytes!=plan->bytes || e->plan.count!=plan->count)goto done;
+        for(uint32_t i=0;i<plan->count;i++){
+            const struct fnv_uniform_entry *a=e->entries+i,*b=plan->entries+i;
+            if(a->kind!=b->kind || a->first!=b->first || a->count!=b->count || a->offset!=b->offset || a->stride!=b->stride)goto done;
+        }
+        hr=0;goto done;
+    }
     if(d->catalog_count>=4096){hr=FNV_VK_OOM;goto done;}
-    for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->stage==stage && e->code_bytes==code_bytes && !memcmp(e->code,code,code_bytes))goto done;
     if(plan->bytes>d->properties.limits.maxUniformBufferRange || plan->bytes>65536 || plan->count>512)goto done;
     uint32_t zeros[1024]={0};struct fnv_uniform_banks banks={{zeros,zeros,zeros},{stage?224:256,16,16}};
     void *scratch=plan->bytes?malloc(plan->bytes):NULL;if(plan->bytes && !scratch){hr=FNV_VK_OOM;goto done;}
@@ -36,6 +44,8 @@ uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *d,enum fnv_d3d9_s
     entry->next=d->catalog;d->catalog=entry;d->catalog_count++;hr=0;
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
+uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *plan){return register_shader(d,stage,code,code_bytes,spirv,spirv_bytes,plan,0);}
+uint32_t fnv_vk_backend_ensure_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *plan){return register_shader(d,stage,code,code_bytes,spirv,spirv_bytes,plan,1);}
 static uint32_t create_shader(void *ctx,enum fnv_d3d9_stage stage,const void *code,uint32_t bytes,uintptr_t *out){
     struct fnv_vk_backend *d=ctx;if(!out || !shader_header(stage,code,bytes))return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
