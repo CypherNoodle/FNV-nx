@@ -100,6 +100,9 @@ uint32_t fnv_vk_backend_register_shader(struct fnv_vk_backend *,enum fnv_d3d9_st
  * float column registers c0..3,64 bytes. No binding/caps changes. */
 uint32_t fnv_vk_backend_fixed_vertex(struct fnv_vk_backend *,uintptr_t);
 /* Trusted directional XYZ/NORMAL shader with ten contiguous float registers. */
+/* Trusted zero-uniform PS: mode0 diffuse RGBA,1 texture*diffuse RGBA,
+ * 2 texture*diffuse RGB with texture alpha. Keeps public binding unchanged. */
+uint32_t fnv_vk_backend_fixed_pixel(struct fnv_vk_backend *,uint32_t mode,uintptr_t);
 uint32_t fnv_vk_backend_fixed_directional(struct fnv_vk_backend *,uintptr_t);
 /* Supported logical D3D9 resource/usage -> actual Vulkan format query.
  * Unsupported capabilities return D3DERR_NOTAVAILABLE; never allocate here. */

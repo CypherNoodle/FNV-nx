@@ -86,6 +86,13 @@ def test(args):
     assert prepare(state,C.byref(draw))==0x8876086c and bytes(draw)==before
     assert bind(state,1,None)==0
     assert override(state,columns,64,C.byref(draw))==0x8876086c and bytes(draw)==before
+    fixed=lib.fnv_uniform_state_prepare_fixed
+    fixed.argtypes=[C.c_void_p,C.c_void_p,U32,C.POINTER(Draw)];fixed.restype=U32
+    for data,size in ((None,64),(columns,0),(columns,65)):
+        assert fixed(state,data,size,C.byref(draw))==0x8876086c and bytes(draw)==before
+    assert fixed(state,columns,64,C.byref(d))==0 and not d.bytes[1] and d.data[1] is None
+    columns[0]=1000;assert C.cast(d.data[0],C.POINTER(U32))[0]==999 and cancel(state,d.ticket)==0
+    assert prepare(state,C.byref(draw))==0x8876086c and bytes(draw)==before
     entries[0].first=4
     assert bind(state,1,C.byref(plan))==0
     zero=Plan(0,0,None);assert bind(state,0,C.byref(zero))==0

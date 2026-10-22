@@ -6,6 +6,15 @@
 #include "d3d9_directional_vertex.h"
 #include "directional_vertex_fixture.h"
 enum {FIX_PS=20,FIX_FVF,FIX_VB,FIX_LOCK,FIX_UNLOCK,FIX_STREAM,FIX_RENDER,FIX_BEGIN,FIX_END,FIX_DRAW,FIX_MATRIX,FIX_MATERIAL,FIX_LIGHT,FIX_ENABLE,FIX_TEXTURE,FIX_TLOCK,FIX_TUNLOCK,FIX_TBIND};
+#ifdef FNV_FIXED_AUTOMATIC
+#define FIX_STAGE_SET (34+4*SAMPLER_MASK)
+#define FIX_STAGE_GET (35+4*SAMPLER_MASK)
+#define FIX_PS_GET (36+4*SAMPLER_MASK)
+#define FIX_BLOCK_BEGIN (37+4*SAMPLER_MASK)
+#define FIX_BLOCK_END (38+4*SAMPLER_MASK)
+#define FIX_BLOCK_APPLY (40+4*SAMPLER_MASK)
+#define FIX_BLOCK_CAPTURE (39+4*SAMPLER_MASK)
+#endif
 static unsigned char *fixed_load(const char *path,uint32_t *size){
     FILE *f=fopen(path,"rb");assert(f && !fseek(f,0,SEEK_END));long n=ftell(f);assert(n>0 && n<1048576);rewind(f);
     unsigned char *p=malloc((size_t)n);assert(p && fread(p,1,(size_t)n,f)==(size_t)n && !fclose(f));*size=(uint32_t)n;return p;
@@ -42,6 +51,19 @@ int main(int argc,char **argv){
         assert(!fnv_vk_backend_register_shader(gpu,i,code[i],cb[i],spv,bytes,&plan));free(spv);
     }
     assert(!fnv_vk_backend_link_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,INPUT_COUNT,SAMPLER_MASK));
+#ifdef FNV_FIXED_AUTOMATIC
+    uintptr_t prepared_ps;assert(!b.create(gpu,1,code[1],cb[1],&prepared_ps));
+#ifdef FNV_DIRECTIONAL_TEXTURED
+#ifdef FNV_FIXED_ALPHA_TEXTURE
+    assert(!fnv_vk_backend_fixed_pixel(gpu,2,prepared_ps));
+#else
+    assert(!fnv_vk_backend_fixed_pixel(gpu,1,prepared_ps));
+#endif
+#else
+    assert(!fnv_vk_backend_fixed_pixel(gpu,0,prepared_ps));
+#endif
+    b.release(gpu,prepared_ps);
+#endif
     uintptr_t prepared;assert(!b.create(gpu,0,code[0],cb[0],&prepared));assert(!fnv_vk_backend_fixed_directional(gpu,prepared));b.release(gpu,prepared);
     arena=VirtualAlloc(NULL,ARENA,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(!fnv_native_load_image(argv[1],arena,ARENA,&image));
@@ -96,6 +118,35 @@ int main(int argc,char **argv){
         memcpy(ptr(DATA),words,104);uint32_t set_light[]={device_at,0,DATA},enable[]={device_at,0,on};assert(!call(FIX_LIGHT,3,set_light) && !call(FIX_ENABLE,3,enable));
         render[1]=139;render[2]=ambient;assert(!call(FIX_RENDER,3,render));
         if(frame==1 && !strcmp(argv[3],"clobber-constants")){memcpy(ptr(DATA),constants,160);uint32_t upload[]={device_at,0,DATA,10};assert(!call(VS_SF,4,upload));}
+#ifdef FNV_FIXED_AUTOMATIC
+        const uint32_t stage_values[6]={
+#ifdef FNV_DIRECTIONAL_TEXTURED
+            4,2,1,
+#ifdef FNV_FIXED_ALPHA_TEXTURE
+            2,2,1
+#else
+            4,2,1
+#endif
+#else
+            2,0,1,2,0,1
+#endif
+        };
+        for(unsigned i=0;i<6;i++){
+            uint32_t set[]={device_at,0,i+1,stage_values[i]},get_stage[]={device_at,0,i+1,GUEST_OUT};
+            assert(!call(FIX_STAGE_SET,4,set) && !call(FIX_STAGE_GET,4,get_stage) && get(GUEST_OUT)==stage_values[i]);
+        }
+        if(!frame){
+            uint32_t change[]={device_at,1,1,2},read[]={device_at,1,1,GUEST_OUT};
+            assert(!call(FIX_BLOCK_BEGIN,1,&device_at));assert(!call(FIX_STAGE_SET,4,change));
+            assert(!call(FIX_STAGE_GET,4,read) && get(GUEST_OUT)==1);
+            uint32_t finish[]={device_at,GUEST_OUT};assert(!call(FIX_BLOCK_END,2,finish));uint32_t block=get(GUEST_OUT);
+            assert(!call(FIX_BLOCK_APPLY,1,&block) && !call(FIX_STAGE_GET,4,read) && get(GUEST_OUT)==2);
+            change[3]=1;assert(!call(FIX_STAGE_SET,4,change) && !call(FIX_BLOCK_CAPTURE,1,&block));
+            change[3]=2;assert(!call(FIX_STAGE_SET,4,change) && !call(FIX_BLOCK_APPLY,1,&block));
+            assert(!call(FIX_STAGE_GET,4,read) && get(GUEST_OUT)==1);assert(!release(block));
+        }
+        uint32_t pixel_bind[]={device_at,(frame==0 || frame==2)?ps:0};assert(!call(FIX_PS,2,pixel_bind));
+#endif
         a[0]=device_at;a[1]=(frame==0 || frame==2)?vs:0;assert(!call(UNSUPPORTED,2,a));
         assert(!b.clear(gpu,0,NULL,1,0xff000000,0,0));assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
         assert(!call(FIX_BEGIN,1,&device_at));uint32_t draw[]={device_at,4,0,2};
@@ -108,9 +159,22 @@ int main(int argc,char **argv){
             assert(!call(FIX_TBIND,3,bind_texture));
         }
 #endif
+#ifdef FNV_FIXED_AUTOMATIC
+        if(frame==1){
+            uint32_t change[]={device_at,1,1,2};assert(!call(FIX_STAGE_SET,4,change));
+            assert(call(FIX_DRAW,4,draw)==0x8876086au);change[3]=1;assert(!call(FIX_STAGE_SET,4,change));
+            change[1]=0;change[3]=99;assert(!call(FIX_STAGE_SET,4,change));assert(call(FIX_DRAW,4,draw)==0x8876086au);
+            change[3]=stage_values[0];assert(!call(FIX_STAGE_SET,4,change));
+        }
+#endif
         assert(!call(FIX_DRAW,4,draw));assert(!call(FIX_END,1,&device_at));
 #ifdef FNV_DIRECTIONAL_TEXTURED
         com_texture_upload(texture,0,1);
+#endif
+#ifdef FNV_FIXED_AUTOMATIC
+        uint32_t pixel_get[]={device_at,GUEST_OUT};assert(!call(FIX_PS_GET,2,pixel_get));
+        uint32_t observed_ps=get(GUEST_OUT);assert(observed_ps==((frame==0 || frame==2)?ps:0));
+        if(observed_ps)assert(release(observed_ps)==1);
 #endif
         memset(ptr(DATA),0,160);uintptr_t color;assert(!b.get_target(gpu,0,0,&color));unsigned char pixels[4096];
         assert(!fnv_vk_backend_read_color(gpu,color,pixels,sizeof(pixels),10000000000ull));b.release(gpu,color);

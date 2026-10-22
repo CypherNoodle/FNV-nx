@@ -14,6 +14,12 @@ static void oracle(unsigned frame,const float *vertices,const struct fnv_transfo
     HWND w=CreateWindowExA(0,"STATIC","Directional oracle",WS_POPUP,0,0,32,32,NULL,NULL,GetModuleHandleA(NULL),NULL);assert(w);
     IDirect3D9 *api=Direct3DCreate9(32);assert(api);D3DPRESENT_PARAMETERS pp={0};pp.Windowed=1;pp.SwapEffect=D3DSWAPEFFECT_DISCARD;pp.hDeviceWindow=w;
     IDirect3DDevice9 *d=NULL;assert(!api->lpVtbl->CreateDevice(api,0,D3DDEVTYPE_HAL,w,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&pp,&d));
+#ifdef FNV_FIXED_AUTOMATIC
+    const DWORD defaults[2][6]={{4,2,1,2,2,1},{1,2,1,1,2,1}};
+    for(unsigned stage=0;stage<2;stage++)for(unsigned i=0;i<6;i++){
+        DWORD observed=0;assert(!d->lpVtbl->GetTextureStageState(d,stage,(D3DTEXTURESTAGESTATETYPE)(i+1),&observed) && observed==defaults[stage][i]);
+    }
+#endif
     IDirect3DSurface9 *target=NULL,*read=NULL;assert(!d->lpVtbl->CreateRenderTarget(d,32,32,D3DFMT_A8R8G8B8,D3DMULTISAMPLE_NONE,0,FALSE,&target,NULL));
     assert(!d->lpVtbl->SetDepthStencilSurface(d,NULL) && !d->lpVtbl->SetRenderTarget(d,0,target));
     assert(!d->lpVtbl->CreateOffscreenPlainSurface(d,32,32,D3DFMT_A8R8G8B8,D3DPOOL_SYSTEMMEM,&read,NULL));
@@ -31,7 +37,11 @@ static void oracle(unsigned frame,const float *vertices,const struct fnv_transfo
     assert(!d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLOROP,D3DTOP_MODULATE));
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLORARG1,D3DTA_TEXTURE) && !d->lpVtbl->SetTextureStageState(d,0,D3DTSS_COLORARG2,D3DTA_DIFFUSE));
+#ifdef FNV_FIXED_ALPHA_TEXTURE
+    assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1));
+#else
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAOP,D3DTOP_MODULATE));
+#endif
     assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAARG1,D3DTA_TEXTURE) && !d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAARG2,D3DTA_DIFFUSE));
 #endif
     assert(!d->lpVtbl->SetFVF(d,0x112));assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));

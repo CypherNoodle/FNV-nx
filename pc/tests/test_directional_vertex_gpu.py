@@ -17,7 +17,8 @@ def run(a):
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     compiler=Path(os.environ['SystemRoot'])/'System32/d3dcompiler_47.dll'
     dll=C.WinDLL(str(compiler))
-    shader_sources=([pc/'shaders/fixed_directional_textured.vs.hlsl',pc/'shaders/fixed_directional_modulate.ps.hlsl'] if a.textured else [pc/'shaders/fixed_directional.vs.hlsl',pc/'tests/fixed_directional_color.ps.hlsl'])
+    if a.texture_alpha:a.textured=True
+    shader_sources=([pc/'shaders/fixed_directional_textured.vs.hlsl',pc/('shaders/fixed_directional_texture_alpha.ps.hlsl' if a.texture_alpha else 'shaders/fixed_directional_modulate.ps.hlsl')] if a.textured else [pc/'shaders/fixed_directional.vs.hlsl',pc/'tests/fixed_directional_color.ps.hlsl'])
     native=['d3d9_vk_backend.c','d3d9_geometry.c','d3d9_texture_upload.c','d3d9_uniform_state.c','d3d9_uniform_pack.c','d3d9_vk_state.c','d3d9_constants.c']
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     inputs=[Path(__file__).resolve(),Path(compile_hlsl.__code__.co_filename),*shader_sources,compiler,Path(a.cc[0]).resolve(),a.linker.resolve(),pc/'tests/directional_vertex_gpu_host.c',pc/'tests/directional_vertex_oracle.h',
@@ -33,6 +34,8 @@ def run(a):
     registers={i for e in plans['vs']['entries'] for i in range(e['first'],e['first']+e['count'])}
     assert registers==set(range(10)) and all(e['kind']==0 for e in plans['vs']['entries'])
     header=['#define FNV_DIRECTIONAL_TEXTURED 1'] if a.textured else []
+    if a.automatic:header.append('#define FNV_FIXED_AUTOMATIC 1')
+    if a.texture_alpha:header.append('#define FNV_FIXED_ALPHA_TEXTURE 1')
     for stage,name in (('vs','vertex'),('ps','pixel')):
         plan=plans[stage];pointer='NULL'
         if plan['entries']:
@@ -60,7 +63,7 @@ def run(a):
         assert bad.returncode and 'directional pixel mismatch' in bad.stderr
         controls[mode]=True
     assert all(sha(Path(p))==h for p,h in frozen.items())
-    result=dict(status='PASS',textured=a.textured,pixel_checks=7168,negative_controls=controls,source_sha256=frozen,
+    result=dict(status='PASS',textured=a.textured,automatic=a.automatic,texture_alpha=a.texture_alpha,pixel_checks=7168,negative_controls=controls,source_sha256=frozen,
                 compiler_command=command,output_sha256={str(p.relative_to(out)):sha(p) for p in [out/'vs.bin',out/'ps.bin',out/'pair/vs.spv',out/'pair/ps.spv',out/'directional_vertex_fixture.h',out/'gpu-test.exe',out/'pair/translation.json']},translated_callers=False,automatic_fixed_pipeline=False,game_frame=False,switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print('PASS directional vertex GPU7168 pixels; all %d negative controls detected'%len(controls))
 
@@ -68,5 +71,7 @@ def run(a):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for n in ('output','linker','headers'):parser.add_argument('--'+n,type=Path,required=True)
+    parser.add_argument('--automatic',action='store_true')
+    parser.add_argument('--texture-alpha',action='store_true')
     parser.add_argument('--textured',action='store_true')
     parser.add_argument('--cc',nargs='+',required=True);run(parser.parse_args())

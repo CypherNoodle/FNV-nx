@@ -75,3 +75,5 @@ synthetic generated callers and reports remain local.
 
 Next implement bounded automatic fragment-state selection, starting with
 single-stage texture/color combinations, before broadening point/multiple lights.
+
+A bounded automatic NULL-PS path is now implemented; see [fixed fragment selection](fixed-fragment-selection.md). The explicit pair remains available.

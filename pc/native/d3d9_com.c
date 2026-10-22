@@ -579,9 +579,9 @@ static void api_get_texture(void){texture_binding(1);}
 static void device_state(enum fnv_d3d9_state_kind kind,int get) {
     uint32_t self=fnv_cpu_argument_u32(0),sampler=0,name=0,values[6]={0},out_at=0,argc=2,words=1;
     struct fnv_d3d9_com *c=module();unsigned char *data=NULL;
-    if(kind==FNV_D3D9_RENDER_STATE || kind==FNV_D3D9_SAMPLER_STATE) {
-        argc=kind==FNV_D3D9_SAMPLER_STATE?4:3;
-        if(kind==FNV_D3D9_SAMPLER_STATE)sampler=fnv_cpu_argument_u32(1);
+    if(kind==FNV_D3D9_RENDER_STATE || kind==FNV_D3D9_SAMPLER_STATE || kind==FNV_D3D9_TEXTURE_STAGE_STATE) {
+        argc=kind!=FNV_D3D9_RENDER_STATE?4:3;
+        if(kind!=FNV_D3D9_RENDER_STATE)sampler=fnv_cpu_argument_u32(1);
         name=fnv_cpu_argument_u32(argc-2);out_at=fnv_cpu_argument_u32(argc-1);
         if(!get)values[0]=out_at;
     } else {words=kind==FNV_D3D9_VIEWPORT?6:4;out_at=fnv_cpu_argument_u32(1);}
@@ -600,6 +600,8 @@ static void api_set_render_state(void){device_state(FNV_D3D9_RENDER_STATE,0);}
 static void api_get_render_state(void){device_state(FNV_D3D9_RENDER_STATE,1);}
 static void api_set_sampler_state(void){device_state(FNV_D3D9_SAMPLER_STATE,0);}
 static void api_get_sampler_state(void){device_state(FNV_D3D9_SAMPLER_STATE,1);}
+static void api_set_texture_stage(void){device_state(FNV_D3D9_TEXTURE_STAGE_STATE,0);}
+static void api_get_texture_stage(void){device_state(FNV_D3D9_TEXTURE_STAGE_STATE,1);}
 static void api_set_viewport(void){device_state(FNV_D3D9_VIEWPORT,0);}
 static void api_get_viewport(void){device_state(FNV_D3D9_VIEWPORT,1);}
 static void api_set_scissor(void){device_state(FNV_D3D9_SCISSOR,0);}
@@ -721,7 +723,7 @@ static void draw(int indexed) {
     if(c->in_scene && !locked){result=fnv_d3d9_constants_flush(c->constants,c->config.backend.upload_constants,c->config.backend.context);
         if(!result){
             if(c->shaders[0]<0 && c->declaration>=0 && c->resources[c->declaration].fvf==0x112 && c->config.backend.draw_fixed_directional){
-                result=0x8876086au;int supported=c->shaders[1]>=0 && c->config.backend.state;
+                result=0x8876086au;int supported=c->config.backend.state!=NULL;
                 for(unsigned r=0;r<4;r++)for(unsigned col=0;col<4;col++)if(c->transforms.matrices[2][r*4+col]!=(r==col?1.0f:0.0f))supported=0;
                 if(supported){uint32_t ambient[6]={0},normal[6]={0};
                     result=c->config.backend.state(c->config.backend.context,FNV_D3D9_RENDER_STATE,0,139,ambient,1);
@@ -782,7 +784,7 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
     api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
     api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
-    api_unavailable2,api_adapter_identifier,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock,api_set_transform,api_get_transform,api_multiply_transform,api_set_material,api_get_material,api_set_light,api_get_light,api_light_enable,api_get_light_enable};
+    api_unavailable2,api_adapter_identifier,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock,api_set_transform,api_get_transform,api_multiply_transform,api_set_material,api_get_material,api_set_light,api_get_light,api_light_enable,api_get_light_enable,api_set_texture_stage,api_get_texture_stage};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     if(c->recording)fnv_light_destroy(&c->recording->lights);
@@ -869,6 +871,7 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     write32(c->objects+BLOCK_VTABLE+16,c->tokens[94]);write32(c->objects+BLOCK_VTABLE+20,c->tokens[95]);
     write32(c->objects+59*4,c->tokens[96]);write32(c->objects+60*4,c->tokens[92]);write32(c->objects+61*4,c->tokens[93]);
     for(unsigned i=0;i<3;i++)write32(c->objects+(44+i)*4,c->tokens[97+i]);
+    write32(c->objects+67*4,c->tokens[106]);write32(c->objects+66*4,c->tokens[107]);
     for(unsigned i=0;i<4;i++)write32(c->objects+(51+i)*4,c->tokens[102+i]);
     write32(c->objects+49*4,c->tokens[100]);write32(c->objects+50*4,c->tokens[101]);
     write32(c->objects+89*4,c->tokens[90]);write32(c->objects+90*4,c->tokens[91]);

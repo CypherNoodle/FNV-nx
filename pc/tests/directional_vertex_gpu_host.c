@@ -26,6 +26,18 @@ int main(int argc,char **argv){
     unsigned char *code[2],*spv[2];uint32_t cb[2],sb[2];uintptr_t shader[2];
     for(unsigned i=0;i<2;i++){code[i]=load(argv[1+i],cb+i);spv[i]=load(argv[3+i],sb+i);struct fnv_uniform_plan plan=i?pixel_plan:vertex_plan;
         assert(!fnv_vk_backend_register_shader(gpu,i,code[i],cb[i],spv[i],sb[i],&plan));assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));}
+#ifdef FNV_FIXED_AUTOMATIC
+#ifdef FNV_DIRECTIONAL_TEXTURED
+#ifdef FNV_FIXED_ALPHA_TEXTURE
+#define FIXED_PIXEL_MODE 2
+#else
+#define FIXED_PIXEL_MODE 1
+#endif
+#else
+#define FIXED_PIXEL_MODE 0
+#endif
+    assert(!fnv_vk_backend_fixed_pixel(gpu,FIXED_PIXEL_MODE,shader[1]));
+#endif
     assert(!fnv_vk_backend_fixed_directional(gpu,shader[0]));assert(fnv_vk_backend_fixed_vertex(gpu,shader[0])==FNV_VK_INVALID);
     assert(!fnv_vk_backend_link_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,INPUT_COUNT,SAMPLER_MASK));
 #ifdef FNV_DIRECTIONAL_TEXTURED
@@ -44,6 +56,9 @@ int main(int argc,char **argv){
     for(unsigned frame=0;frame<7;frame++){
         if(frame==5){
             assert(!b.bind_shader(gpu,0,0));b.release(gpu,shader[0]);shader[0]=0;
+#ifdef FNV_FIXED_AUTOMATIC
+            assert(!b.bind_shader(gpu,1,0));b.release(gpu,shader[1]);shader[1]=0;
+#endif
             assert(!fnv_vk_backend_reset(gpu,10000000000ull));
             assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,141,state,1) && state[0]==1);
             assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,143,state,1) && state[0]==0);
@@ -56,6 +71,27 @@ int main(int argc,char **argv){
         assert(!b.bind_texture(gpu,0,texture));
         assert(!b.upload_texture(gpu,texture,0,0,0,2,2,0,8,directional_texels));
         unsigned char texture_copy[16];assert(!fnv_vk_backend_read_texture(gpu,texture,0,texture_copy,16,10000000000ull));
+#endif
+#ifdef FNV_FIXED_AUTOMATIC
+        assert(!b.bind_shader(gpu,1,frame==4?shader[1]:0));
+        struct fnv_d3d9_state_value stage_transaction[2]={{.kind=FNV_D3D9_TEXTURE_STAGE_STATE,.sampler=0,.name=1,.values={99}},
+            {.kind=FNV_D3D9_TEXTURE_STAGE_STATE,.sampler=2,.name=1}};
+        uint32_t previous[6]={0};assert(!b.state(gpu,FNV_D3D9_TEXTURE_STAGE_STATE,0,1,previous,1));
+        assert(b.state_batch(gpu,stage_transaction,2,0)==FNV_VK_INVALID);
+        assert(!b.state(gpu,FNV_D3D9_TEXTURE_STAGE_STATE,0,1,state,1) && state[0]==previous[0]);
+        const uint32_t stages[6]={
+#ifdef FNV_DIRECTIONAL_TEXTURED
+            4,2,1,
+#ifdef FNV_FIXED_ALPHA_TEXTURE
+            2,2,1
+#else
+            4,2,1
+#endif
+#else
+            2,0,1,2,0,1
+#endif
+        };
+        for(unsigned i=0;i<6;i++){state[0]=stages[i];assert(!b.state(gpu,FNV_D3D9_TEXTURE_STAGE_STATE,0,i+1,state,0));}
 #endif
         struct fnv_transform_state bank;fnv_transform_init(&bank);float material[17]={.5f,.25f,.75f,.6f},light[26]={0};
         uint32_t words[26],mat[17],ambient=0,on=frame!=3;

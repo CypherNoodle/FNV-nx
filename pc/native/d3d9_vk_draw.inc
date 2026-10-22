@@ -31,6 +31,11 @@ done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
 static uint32_t draw_state(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kind,uint32_t sampler,uint32_t name,uint32_t values[6],int get,int *handled){
     *handled=0;
+    if(kind==FNV_D3D9_TEXTURE_STAGE_STATE){
+        *handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;
+        if(sampler>=2 || name<1 || name>6)return FNV_VK_INVALID;
+        if(get)values[0]=d->texture_stage[sampler][name-1];else d->texture_stage[sampler][name-1]=values[0];return 0;
+    }
     if(kind==FNV_D3D9_RENDER_STATE && (name==137 || name==143 || name==141 || name==29 || name==139)){
         *handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;
         uint32_t *field=name==137?&d->lighting:name==143?&d->normalize_normals:name==141?&d->color_vertex:name==29?&d->specular:&d->ambient;
@@ -79,9 +84,20 @@ static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources 
     return 0;
 }
 static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
+    if(d->lost || !d->device_refs)return FNV_VK_LOST;
     uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;struct stream_binding streams[16];memcpy(streams,d->streams,sizeof(streams));
     if(up_vertex){memset(streams,0,sizeof(streams));streams[0].stride=up_stride;}
     struct shader_resource *vs=find_shader(d,fixed?(fixed_bytes==160?d->fixed_directional:d->fixed_vertex):d->bound_shaders[0]),*ps=find_shader(d,d->bound_shaders[1]);
+    int automatic=fixed && fixed_bytes==160 && !d->bound_shaders[1];
+    if(automatic){
+        const uint32_t *t=d->texture_stage[0];int mode=-1;
+        if(d->texture_stage[1][0]!=1)return 0x8876086au;
+        if(t[0]==2 && t[1]==0 && t[3]==2 && t[4]==0)mode=0;
+        if(t[0]==4 && t[1]==2 && t[2]==1 && t[4]==2){
+            if(t[3]==4 && t[5]==1)mode=1;else if(t[3]==2)mode=2;
+        }
+        if(mode<0 || !(ps=find_shader(d,d->fixed_pixel[mode])))return 0x8876086au;
+    }
     struct declaration_resource *decl=find_declaration(d,d->declaration);struct surface *color=find(d,d->color),*depth=find(d,d->depth);
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(fixed && (d->bound_shaders[0] || (fixed_bytes==64?d->lighting:(!d->lighting || d->specular || d->color_vertex))))goto done;
@@ -130,7 +146,7 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     if(indexed){r->indices=ib->version;r->indices->refs++;draw_pin(d,r,ib->id);}
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
         r->textures[i]=t->version;r->textures[i]->refs++;draw_pin(d,r,t->id);}
-    struct fnv_uniform_draw snapshot;hr=fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,fixed_bytes,&snapshot):fnv_uniform_state_prepare(d->uniforms,&snapshot);if(hr)goto rollback;
+    struct fnv_uniform_draw snapshot;hr=automatic?fnv_uniform_state_prepare_fixed(d->uniforms,fixed,fixed_bytes,&snapshot):fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,fixed_bytes,&snapshot):fnv_uniform_state_prepare(d->uniforms,&snapshot);if(hr)goto rollback;
     for(unsigned i=0;i<2 && !hr;++i)if(snapshot.bytes[i])hr=make_version(d,i?FNV_D3D9_PS:FNV_D3D9_VS,snapshot.bytes[i],snapshot.data[i],r->ubo+i);
     {uint32_t cancel=fnv_uniform_state_cancel(d->uniforms,snapshot.ticket);if(cancel && !hr)hr=cancel;}if(hr)goto rollback;
     hr=draw_descriptors(d,r,program);if(hr)goto rollback;
@@ -217,4 +233,14 @@ static uint32_t draw_fixed_directional(void *ctx,int indexed,uint32_t primitive,
     struct fnv_vk_backend *d=ctx;if(!d || !constants)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=(d->lost || !d->device_refs)?FNV_VK_LOST:d->fixed_directional?draw_locked(d,indexed,primitive,base,minimum,vertices,start,primitives,NULL,NULL,0,constants,160):0x8876086au;
     fnv_host_mutex_unlock(&d->guard);return hr;
+}
+
+uint32_t fnv_vk_backend_fixed_pixel(struct fnv_vk_backend *d,uint32_t mode,uintptr_t id){
+    if(!d || mode>=3)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
+    struct shader_resource *s=find_shader(d,id);
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    if(id && (!s || s->entry->stage!=FNV_D3D9_PIXEL || s->entry->plan.bytes || s->entry->plan.count))goto done;
+    pin(d,id,1);uintptr_t old=d->fixed_pixel[mode];d->fixed_pixel[mode]=id;pin(d,old,0);hr=0;
+ done:fnv_host_mutex_unlock(&d->guard);return hr;
 }

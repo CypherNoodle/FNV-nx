@@ -74,7 +74,7 @@ struct fnv_vk_backend {
     struct fnv_d3d9_blend blend_state;struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
     struct shader_catalog *catalog;uint32_t catalog_count;
     struct shader_resource *shaders;struct declaration_resource *declarations;
-    uintptr_t bound_shaders[2],declaration,fixed_vertex,fixed_directional;uint32_t lighting,normalize_normals,color_vertex,specular,ambient;struct fnv_uniform_state *uniforms;
+    uintptr_t bound_shaders[2],declaration,fixed_vertex,fixed_directional,fixed_pixel[3];uint32_t texture_stage[2][6];uint32_t lighting,normalize_normals,color_vertex,specular,ambient;struct fnv_uniform_state *uniforms;
     uint32_t buffer_versions,texture_versions;struct texture_resource *textures;uintptr_t texture_bindings[16];
     struct clear_command *commands;uint32_t count;
     uintptr_t next_id,back,auto_depth,color,depth;
@@ -154,6 +154,7 @@ static void pin(struct fnv_vk_backend *d,uintptr_t id,int add){
 static void close_device(struct fnv_vk_backend *d){
     uintptr_t fixed=d->fixed_vertex;d->fixed_vertex=0;pin(d,fixed,0);
     fixed=d->fixed_directional;d->fixed_directional=0;pin(d,fixed,0);
+    for(unsigned i=0;i<3;i++){fixed=d->fixed_pixel[i];d->fixed_pixel[i]=0;pin(d,fixed,0);}
     uintptr_t ids[4]={d->color,d->depth,d->back,d->auto_depth};
     d->color=d->depth=d->back=d->auto_depth=0;
     for(unsigned i=0;i<4;++i)pin(d,ids[i],0);
@@ -709,6 +710,7 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     hr=fnv_uniform_state_create(&uc,&d->uniforms);if(hr)goto fail;
     d->blend_state=(struct fnv_d3d9_blend){0,2,1,1,0,2,1,1,15,0xffffffff};
     d->depth_state=(struct fnv_d3d9_depth){1,1,4};d->cull_mode=3;d->lighting=1;d->color_vertex=1;
+    const uint32_t initial_stage[2][6]={{4,2,1,2,2,1},{1,2,1,1,2,1}};memcpy(d->texture_stage,initial_stage,sizeof(initial_stage));
     for(unsigned i=0;i<16;++i)d->sampler_state[i]=(struct fnv_d3d9_sampler){1,1,1,0,1,1,0,0,0,1};
     d->shaders=calloc(cfg->resource_capacity,sizeof(*d->shaders));d->declarations=calloc(cfg->resource_capacity,sizeof(*d->declarations));
     d->textures=calloc(cfg->resource_capacity,sizeof(*d->textures));
