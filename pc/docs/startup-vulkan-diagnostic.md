@@ -24,15 +24,18 @@ antes del loader. Si no es seguro, el proceso aislado conserva el respaldo
 hasta salir. El JSON distingue limpieza Vulkan de limpieza completa del proceso.
 
 La ultima ejecucion privada verifica carga de d3d9.dll, Direct3DCreate9,
-identificacion real, consultas de modos y caps HAL limitadas (REF sigue indisponible). La consulta
-HAL ya pasa y permite al motor comprobar formatos de superficies de color y
-profundidad. Despues el
-motor solicita ShellExecuteA hacia el launcher (la cadena incluye un prefijo
-inesperado que queda por auditar). Se registra la solicitud, nunca se ejecuta
-un programa externo ni se devuelve exito ficticio. Implementar ShellExecute no
-resolveria las capacidades graficas que faltan. Proximo trabajo: ampliar las operaciones y formatos que necesita el motor,
-y enlazar/verificar el catalogo de shaders; no asumir que todas las capacidades fisicas Vulkan estan
-implementadas por nuestra capa D3D9.
+identificacion real, consultas de modos y caps HAL limitadas (REF sigue indisponible).
+HAL permite comprobar los formatos de color y profundidad. El juego termina
+consultando REF y despues solicita ShellExecuteA para FalloutNVLauncher.exe.
+La solicitud contiene el byte inicial 0x16. La ruta de fallback consulta
+HKLM\Software\Bethesda Softworks\FalloutNV, valor Installed Path; como el
+registro virtual esta vacio, RegOpenKeyExA informa que la clave no existe y el
+buffer de salida de esa consulta queda sin inicializar. Esto explica el prefijo
+de la ruta, pero no demuestra por que el juego eligio el fallback. No se ejecuta
+el launcher ni se devuelve exito ficticio. El siguiente bloqueo grafico que se
+debe resolver es por que el motor pasa de las consultas HAL validas a REF sin
+llegar a CreateDevice; revisar el control de enumeracion/caps y los formatos
+solicitados antes de anunciar shader versions o ampliar el perfil.
 
 En este camino se detecto RegCloseKey(NULL) despues de una apertura fallida.
 Ahora devuelve ERROR_INVALID_HANDLE6; se comparo1000 veces con Windows,
