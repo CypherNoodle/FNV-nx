@@ -60,6 +60,7 @@ static int setup(void){
     fprintf(log_file,"create hr=%08lx VkResult=%ld\n",(unsigned long)hr,(long)reason);fflush(log_file);
     if(!check(hr,"NVK create"))return 0;
     
+    if(!check(fnv_vk_backend_draw_wait(gpu,2000000000ull),"draw watchdog"))return 0;
     fnv_vk_backend_callbacks(gpu,&provider);
     struct fnv_uniform_entry ve[4]={{0,7,1,0,16},{0,9,1,16,16},{1,2,1,32,16},{2,3,1,48,16}},pe[2]={{0,3,1,0,16},{0,12,1,16,16}};
     struct fnv_uniform_plan vp={64,4,ve},pp={32,2,pe};
@@ -163,9 +164,9 @@ static void readback(unsigned phase,unsigned channel){
     free(pixels);
 }
 int main(void){
-    mkdir("sdmc:/switch/FNV-nx",0777);log_file=fopen("sdmc:/switch/FNV-nx/fnv-pc-renderer-hw02.log","w");
+    mkdir("sdmc:/switch/FNV-nx",0777);log_file=fopen("sdmc:/switch/FNV-nx/fnv-pc-renderer-hw03.log","w");
     if(!log_file)return 1;
-    setvbuf(log_file,NULL,_IOLBF,0);fprintf(log_file,"FNV pc-renderer-hw02; synthetic renderer only; no Fallout files/code\n");
+    setvbuf(log_file,NULL,_IOLBF,0);fprintf(log_file,"FNV pc-renderer-hw03; synthetic renderer only; no Fallout files/code\n");
     padConfigureInput(1,HidNpadStyleSet_NpadStandard);PadState pad;padInitializeDefault(&pad);
     int ready=setup();unsigned frame=0,last_phase=99;
     while(ready && !failed && appletMainLoop()){

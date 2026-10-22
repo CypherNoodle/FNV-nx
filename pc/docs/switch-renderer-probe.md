@@ -1,5 +1,8 @@
 # Prueba conjunta DX9/Vulkan en Switch: pc-renderer-hw02
 
+La revision nueva es [pc-renderer-hw03](switch-renderer-hw03.md), que agrega
+render a textura con dos pasadas. Lo siguiente conserva el alcance de hw02.
+
 Este NRO ejecuta callers x86 sinteticos recompilados a ARM64 y el proveedor
 D3D9/Vulkan propio con Mesa/NVK estatico. No arranca Fallout, no incluye su
 codigo ni necesita EXE, DLL, assets o carpetas adicionales en la SD.

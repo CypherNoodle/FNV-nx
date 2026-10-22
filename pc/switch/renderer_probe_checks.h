@@ -8,6 +8,7 @@ struct fnv_probe_checks {
     uint32_t (*call)(unsigned,unsigned,const uint32_t *);
     unsigned char *(*memory)(uint32_t);int (*check)(uint32_t,const char *);
     unsigned groups,pixels,draws;
+    unsigned replace_render_source; /* Desktop negative control only. */
 };
 static struct fnv_probe_checks *hw;
 static uint32_t hw_get(uint32_t address){uint32_t v;memcpy(&v,hw->memory(address),4);return v;}
@@ -34,7 +35,7 @@ static int hw_pixels(unsigned r,unsigned g,unsigned b,unsigned alpha){
     if(!hw->check(hr,"combined GPU pixels"))return 0;
     
     const unsigned char expected[4]={(unsigned char)b,(unsigned char)g,(unsigned char)r,(unsigned char)alpha};
-    for(unsigned i=0;i<1024;++i)if(memcmp(pixels+i*4,expected,4)){fprintf(hw->log,"combined pixel %u got=%u,%u,%u,%u expected=%u,%u,%u,%u\n",i,pixels[i*4],pixels[i*4+1],pixels[i*4+2],pixels[i*4+3],b,g,r,alpha);return hw->check(FNV_VK_INVALID,"combined pixel mismatch");}
+    for(unsigned i=0;i<1024;++i)if(memcmp(pixels+i*4,expected,4)){fprintf(hw->log,"combined pixel %u got=%u,%u,%u,%u expected=%u,%u,%u,%u\n",i,pixels[i*4],pixels[i*4+1],pixels[i*4+2],pixels[i*4+3],b,g,r,alpha);fflush(hw->log);return hw->check(FNV_VK_INVALID,"combined pixel mismatch");}
     hw->pixels+=1024;return 1;
 }
 static int hw_clear(void){uint32_t a[]={hw->device,0,0,7,0xff000000,0x3f800000,0};return hw->check(fnv_vk_backend_wait(hw->gpu,2000000000ull),"draw retirement")&&hw_call(27,7,a,"Clear");}
@@ -47,6 +48,31 @@ static int hw_draw(unsigned kind){
     if(!hw_call(kind==0?61:kind==2?85:84,kind==0?7:kind==2?9:5,kind==0?indexed:kind==2?up_indexed:up,"combined Draw"))return 0;
     
     hw->draws++;return hw_call(36,1,&hw->device,"EndScene");
+}
+static int hw_targets(uint32_t,uint32_t);
+/* Two ordered passes without a host wait or readback between them. */
+static int hw_render_texture(uint32_t source,uint32_t color,uint32_t depth){
+    hw_group("render texture/shared surface/container");
+    struct fnv_vk_stats before,after;fnv_vk_backend_stats(hw->gpu,&before);
+    uint32_t create[]={hw->device,32,32,1,1,21,0,hw->out,0};
+    if(!hw_call(46,9,create,"CreateTexture render target"))return 0;
+    uint32_t texture=hw_get(hw->out),level[]={texture,0,hw->out};
+    if(!hw_call(103,3,level,"GetSurfaceLevel"))return 0;
+    uint32_t surface=hw_get(hw->out);
+    hw_release(texture);
+    const unsigned char unknown[16]={0,0,0,0,0,0,0,0,0xc0,0,0,0,0,0,0,0x46};
+    memcpy(hw->memory(hw->data),unknown,16);uint32_t container[]={surface,hw->data,hw->out};
+    if(!hw_call(104,3,container,"GetContainer")||hw_get(hw->out)!=texture)return hw->check(FNV_VK_INVALID,"render texture identity");
+    const float first[4]={1,0,0,1},second[4]={1,1,1,1};
+    uint32_t clear[]={hw->device,0,0,7,0xff000000,0x3f800000,0},draw[]={hw->device,4,UINT32_MAX,1,4,2,2};
+    if(!hw_targets(surface,depth)||!hw_texture(source)||!hw_constant(13,12,first)||!hw_call(27,7,clear,"RT Clear")||!hw_call(35,1,&hw->device,"RT BeginScene")||!hw_call(61,7,draw,"RT Draw")||!hw_call(36,1,&hw->device,"RT EndScene"))return 0;
+    hw->draws++;
+    if(!hw_targets(color,depth)||!hw_texture(hw->replace_render_source?source:texture)||!hw_constant(13,12,second)||!hw_call(27,7,clear,"sample RT Clear")||!hw_call(35,1,&hw->device,"sample RT BeginScene")||!hw_call(61,7,draw,"sample RT Draw")||!hw_call(36,1,&hw->device,"sample RT EndScene"))return 0;
+    hw->draws++;
+    if(!hw_pixels(255,0,0,255)||!hw_texture(source)||!hw_constants())return 0;
+    hw_release(surface);hw_release(texture);fnv_vk_backend_stats(hw->gpu,&after);
+    if(after.allocated_bytes!=before.allocated_bytes||after.live_surfaces!=before.live_surfaces||after.live_textures!=before.live_textures||after.texture_versions!=before.texture_versions)return hw->check(FNV_VK_INVALID,"render texture release");
+    hw->groups++;return 1;
 }
 static uint32_t hw_make_texture(unsigned format,unsigned levels,const unsigned char *block){
     uint32_t create[]={hw->device,4,4,levels,0,format,1,hw->out,0};
@@ -114,6 +140,7 @@ static int fnv_renderer_probe_checks(struct fnv_probe_checks *checks,const struc
     }
     const unsigned char white[4]={255,255,255,255};uint32_t texture=hw_make_texture(21,1,white);
     if(!texture||!hw_ready(texture,21,1,white))return 0;
+    if(!hw_render_texture(texture,small,small_depth))return 0;
     
     const float triangles[24]={-1,1,0,0,1,1,1,0,1,-1,1,1,-1,1,0,0,1,-1,1,1,-1,-1,0,1};
     hw_group("DrawPrimitiveUP");memcpy(hw->memory(hw->data+512),triangles,sizeof(triangles));
@@ -163,6 +190,6 @@ static int fnv_renderer_probe_checks(struct fnv_probe_checks *checks,const struc
     
     hw_release(small);hw_release(small_depth);hw_release(back);hw_release(depth);hw_release(block);hw->groups++;
     fprintf(hw->log,"combined PASS groups=%u pixels=%u draws=%u\n",hw->groups,hw->pixels,hw->draws);fflush(hw->log);
-    return hw->groups==9 && hw->pixels==10240 && hw->draws==9;
+    return hw->groups==10 && hw->pixels==11264 && hw->draws==11;
 }
 #endif

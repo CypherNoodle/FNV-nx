@@ -91,7 +91,7 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
         assert parsed['status']=='PASS'
         if mode=='normal':result=parsed
     if any(sha(p)!=h for p,h in frozen.items()) or sdk_identity(sdk)!=sdk_hash:raise ValueError('Inputs changed')
-    result.update(source_sha256={str(p):h for p,h in frozen.items()},sdk_sha256=sdk_hash,exe_sha256=sha(exe),generated_source_sha256=sha(generated),fixture_sha256=sha(fixture),
+    result.update(source_sha256={str(p):h for p,h in frozen.items()},sdk_sha256=sdk_hash,exe_sha256=sha(exe),generated_source_sha256=sha(generated),fixture_sha256=sha(fixture),catalog_sha256=sha(catalog),
         synthetic_functions=len(functions),strict_fault_cases=strict_fault_cases,parent_lifetime_checked=baseline_lifetime_checks,capacity_and_alias_checked=baseline_lifetime_checks,
         native_engine_started=False,switch_hardware_tested=False,gpu_rendered=result.get('gpu_rendered',False))
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
