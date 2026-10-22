@@ -11,10 +11,17 @@ static int create_window(void *context,const struct fnv_boot_window_request *req
 static void destroy_window(void *context,void *window){
     struct fnv_boot_horizon *h=context;if(h && h->nwindow==window)atomic_store(&h->leased,0);
 }
+static int queue_active(void *context,void *window){
+    struct fnv_boot_horizon *h=context;
+    return h && h->nwindow==window && atomic_load(&h->leased) && nwindowIsValid(window);
+}
+static int input_focus(void *context,void *window){
+    return queue_active(context,window) && appletGetFocusState()==AppletFocusState_InFocus;
+}
 int fnv_boot_horizon_backend(struct fnv_boot_horizon *h,void *window,struct fnv_boot_window_backend *out){
     if(!h || !out || !window || !nwindowIsValid(window))return 0;
     h->nwindow=window;atomic_init(&h->leased,0);
-    *out=(struct fnv_boot_window_backend){h,create_window,destroy_window};return 1;
+    *out=(struct fnv_boot_window_backend){h,create_window,destroy_window,queue_active,input_focus};return 1;
 }
 #else
 int fnv_boot_horizon_backend(struct fnv_boot_horizon *h,void *window,struct fnv_boot_window_backend *out){

@@ -37,8 +37,12 @@ static int diagnostic_window_create(void *context,const struct fnv_boot_window_r
     HWND window=CreateWindowExA(0,"STATIC",request->title,WS_POPUP,0,0,
         (int)request->width,(int)request->height,NULL,NULL,GetModuleHandleA(NULL),NULL);
     if(!window)return 0;
+    if(request->style&WS_VISIBLE)(void)SetActiveWindow(window);
     *out=window;return 1;
 }
+static int diagnostic_window_active(void *context,void *window){(void)context;return GetActiveWindow()==window;}
+static int diagnostic_window_focus(void *context,void *window){(void)context;return GetForegroundWindow()==window;}
+static int diagnostic_input_focus(void *context,uint32_t hwnd){return fnv_windows_boot_ui_input_focus(context,hwnd);}
 static int diagnostic_input_window_valid(void *context,uint32_t hwnd){void *window=NULL;
     return fnv_windows_boot_ui_presentation(context,hwnd,&window)==FNV_CPU_OK && IsWindow(window);}
 static void diagnostic_window_destroy(void *context,void *window){(void)context;assert(DestroyWindow(window));}
@@ -224,11 +228,11 @@ int main(int argc,char **argv){
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
     struct fnv_windows_boot_ui *boot_ui;assert(fnv_windows_boot_ui_create(process,&image,&boot_ui)==FNV_CPU_OK);
     struct fnv_windows_user32 *user32;assert(fnv_windows_user32_create(process,&user32)==FNV_CPU_OK);
-    struct fnv_boot_window_backend window_backend={NULL,diagnostic_window_create,diagnostic_window_destroy};
+    struct fnv_boot_window_backend window_backend={NULL,diagnostic_window_create,diagnostic_window_destroy,diagnostic_window_active,diagnostic_window_focus};
     assert(fnv_windows_boot_ui_set_backend(boot_ui,user32,&window_backend)==FNV_CPU_OK);
     struct fnv_vm_result input_pool=fnv_vm_allocate(vm,0,65536,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!input_pool.error);
     struct fnv_dinput8_config input_config={0};input_config.instance=BASE;input_config.objects_address=input_pool.value;input_config.objects_bytes=65536;
-    input_config.keyboard=input_config.mouse=1;input_config.memory=vm;input_config.context=boot_ui;input_config.valid_window=diagnostic_input_window_valid;
+    input_config.keyboard=input_config.mouse=1;input_config.memory=vm;input_config.context=boot_ui;input_config.valid_window=diagnostic_input_window_valid;input_config.has_input_focus=diagnostic_input_focus;
     struct fnv_dinput8 *dinput;assert(fnv_dinput8_create(process,&input_config,&dinput)==FNV_CPU_OK);
     /* Neutral controlled snapshots, not physical desktop input or HW evidence. */
     struct fnv_steam_callbacks *steam_callbacks;assert(fnv_steam_callbacks_create(process,&steam_callbacks)==FNV_CPU_OK);

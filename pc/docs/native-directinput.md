@@ -15,7 +15,7 @@ No Wine code or Windows DLL implementation is incorporated.
   and attached-only; GAMECTRL has no DirectInput devices in this provider.
   A temporary parent reference protects ordinary callback releases. No provider
   lock is held while guest callback code runs. Early callback stop is honored.
-- Device IUnknown, SetDataFormat, SetCooperativeLevel metadata, background
+- Device IUnknown, SetDataFormat, SetCooperativeLevel metadata,
   Acquire/Unacquire and immediate GetDeviceState. Standard DIKeyboard,
   DIMouse and DIMouse2 layouts are validated field by field, including GUIDs,
   offsets and object instances, then retained as an owned format identity.
@@ -59,13 +59,43 @@ mapping stays in XInput. There is no keyboard emulation of controller buttons.
 
 ## Explicit remaining work
 
-Foreground Acquire stops until activation/focus tracking exists; accepting
-cooperative-level metadata is not proof of focus loss/reacquisition. The current
-engine stop is GetActiveWindow, before device configuration completes. Other
-remaining methods include buffered GetDeviceData/properties, capabilities and
-object queries, polling/event notification, force feedback, action mapping,
-Unicode/legacy interfaces, aggregation and other data layouts. Each unimplemented
-COM slot has a specific diagnostic rather than reporting successful no-op work.
+Foreground Acquire requires an explicit native focus probe. Missing/invalid
+probes still stop diagnostically. A valid unfocused window returns
+DIERR_OTHERAPPHASPRIO. Loss during a read returns DIERR_INPUTLOST without
+writing input data; regaining focus requires Acquire, clears buffered stale
+input and resets the relative-motion cursor. These checks are separate from
+the calling thread's GetActiveWindow selection. They do not implement queued
+WM_ACTIVATE/WM_SETFOCUS delivery.
+
+Buffered input now supports device-level DIPROP_BUFFERSIZE Set/GetProperty and
+GetDeviceData with the x86 DirectInput8 20-byte event layout. A Windows oracle
+confirms that the legacy 16-byte record is rejected for this interface.
+Requested size is reported verbatim; actual storage is capped at 4096 events
+per device. Allocation failure preserves the previous queue. Press/release and
+relative-axis changes are timestamped from the same host uptime clock used by
+GetTickCount, with wrapping 32-bit sequence numbers. PEEK preserves events,
+ordinary reads consume them, and a null array permits querying/flushing counts.
+Guest output validation uses the actual copy count, including UINT_MAX requests.
+Buffered reads and immediate relative-motion reads consume independent cursors.
+
+The bounded overflow policy retains recent events and reports DI_BUFFEROVERFLOW;
+PEEK preserves that indication until a consuming read. That policy is tested
+with controlled snapshots, not injected native Windows input. Exact overflow
+capacity/retention equivalence to the Windows driver remains unverified. Host
+snapshot updates can miss transitions occurring entirely between polls; this is
+not a full OS input-event capture pipeline. Action mapping is unsupported, so
+the unused event app-data field is zero.
+
+GetCapabilities accepts the Windows 24/44-byte layouts. The configured virtual
+keyboard has 256 keys and no axes; the mouse has three relative axes and eight
+snapshot button slots. Both advertise attached/emulated and no force feedback.
+These describe logical providers, not attached physical hardware.
+
+Remaining methods include other properties, object/device queries, device
+polling/event notification, force feedback, action mapping, Unicode/legacy
+interfaces, aggregation and other data layouts. Unimplemented COM slots retain
+specific diagnostics. The current engine boundary is ole32!CoInitialize after
+its initial keyboard/mouse setup, before full engine initialization.
 
 ## Verification and current engine boundary
 
@@ -78,18 +108,21 @@ status, three standard formats, cooperative level and unacquired reads. They
 validate 1000 controlled keyboard/mouse snapshots, cumulative-motion consumption,
 repeated Acquire, malformed GUID rejection, invalid-update rollback, callback
 continue/stop/filter behavior and the retired object limit. Six explicit faults
-cover version, aggregation, stale object, output memory, callback and foreground
-focus. USB/mouse collection checks cover modifier side, unmapped usages, retained
+cover version, aggregation, stale object, output memory, callback and missing
+foreground focus provider. USB/mouse collection checks cover modifier side, unmapped usages, retained
 samples/gaps, duplicates, sample zero and forward-button ordering.
 
-The suite passes with extended x87 CPU state. Both provider and HID feeder also
+Additional checks cover focus loss/reacquisition, buffered PEEK/read/flush,
+overflow indication, invalid flags, UINT_MAX requests with a one-event output,
+independent immediate motion, capability layouts and native unacquired-read
+errors. The suite passes with extended x87 CPU state. Both provider and HID feeder also
 compile for Cortex-A57/libnx with strict warnings and soft TLS options. None of
 these checks is a Switch gameplay/input result.
 
 The private captured-code diagnostic with a real native hidden backing window
 and explicitly neutral input snapshots now passes factory/enumeration, reaching
-USER32.dll!GetActiveWindow after 202916 indirect calls (111 implemented imports,
-169 traps). Arithmetic replay remains 1082 hits and zero misses. This does not
+ole32.dll!CoInitialize after 202980 indirect calls (114 implemented imports,
+166 traps). Arithmetic replay remains 1082 hits and zero misses. This does not
 prove cold disk-EXE startup, complete engine initialization, a game frame or a
 playable NRO. The existing controlled-stop worker/teardown limitation remains.
 

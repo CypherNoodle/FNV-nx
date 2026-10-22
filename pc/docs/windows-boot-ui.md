@@ -32,6 +32,15 @@ USER32 or a successful engine launch. The Xbox route remains paused.
 - `DestroyWindow`: owner-thread live windows receive WM_DESTROY and
   WM_NCDESTROY before their native object and virtual-desktop token are removed.
 
+- `GetActiveWindow`: resolves only live native-backed windows owned by the
+  current guest thread, using the backend's native queue-activation probe.
+  No owned windows returns zero. No host HWND value is exposed to the guest.
+- `SwapMouseButton`, `GetDoubleClickTime` and `SetDoubleClickTime` use locked
+  per-guest settings. SM_SWAPBUTTON reads the same state. Defaults are unswapped
+  and 500 ms; zero resets double-click time to 500 and values above 5000 clamp.
+  These calls never modify the Windows host's global mouse settings. Raw
+  DirectInput button ordering is unaffected by the USER32 logical swap setting.
+
 Provider creation checks that its borrowed PE image is the CPU runtime's actual
 backing allocation. Creation and destruction happen outside guest execution;
 resource/class access is protected by a host mutex. Capacity is bounded to 16
@@ -66,7 +75,7 @@ suite passes with the extended x87 state ABI.
 
 The private captured-code startup diagnostic now passes actual guest window
 creation and a verified current-thread naming event. It reaches
-`USER32.dll!GetActiveWindow` after 202916 indirect calls, with 1082 arithmetic
+`ole32.dll!CoInitialize` after 202980 indirect calls, with 1082 arithmetic
 replay hits and no misses. It uses the original PC executable identity and a
 hidden native desktop window. This remains captured-code validation, not cold
 startup from the disk EXE. There is no engine frame, new NRO or new HW result.
@@ -92,9 +101,28 @@ Windows creation-message transcript.
 
 The existing controlled-stop diagnostic still reports worker failures and a
 busy teardown. This change does not claim to repair that separate limitation.
-The next observed engine import is GetActiveWindow. A [bounded DirectInput8A
-provider](native-directinput.md) now covers the factory/enumeration calls that
-precede it; activation and focus notifications remain window-layer work.
+The next observed engine import is CoInitialize. The [DirectInput8A provider](native-directinput.md)
+now covers factory/enumeration, format/cooperative setup, buffers and capabilities.
+Activation/focus message delivery remains window-layer work.
+
+## Queue activation and input focus
+
+The backend now exposes separate owner-queue activation and foreground/app-focus
+probes. The desktop diagnostic selects its real hidden backing window with
+SetActiveWindow; it does not force the Windows foreground window. Tests switch
+the native queue selection to an unrelated native window and back, and attach
+another guest thread on a real native thread to verify owner isolation.
+
+For Horizon, the leased NWindow remains the app's selected queue window, while
+input focus additionally requires AppletFocusState_InFocus. The corresponding
+DInput focus probe is called outside the input/provider locks. A foreign or
+invalid guest HWND is never treated as a focused input target.
+
+This is a native-backed query model, not a complete activation/message pump.
+It does not synthesize WM_ACTIVATE/WM_SETFOCUS callbacks in a query. Suspend/
+resume and window-message delivery still require the host event-loop layer.
+Native settings tests confirm the Windows host mouse swap/double-click values
+are unchanged; they do not call the host's global setters as an oracle.
 
 ## Nested callback primitive
 

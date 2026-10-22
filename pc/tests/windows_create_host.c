@@ -31,8 +31,10 @@ static int native_create(void *context,const struct fnv_boot_window_request *r,v
     (void)context;*out=NULL;if(backend_fail)return 0;
     assert(r->width==320 && r->height==240 && r->style==WS_VISIBLE && !strcmp(r->title,"Synthetic window"));
     HWND hwnd=CreateWindowExA(0,"STATIC",r->title,WS_POPUP,0,0,320,240,NULL,NULL,GetModuleHandleA(NULL),NULL);
-    assert(hwnd && IsWindow(hwnd));*out=hwnd;creates++;return 1;
+    assert(hwnd && IsWindow(hwnd));(void)SetActiveWindow(hwnd);*out=hwnd;creates++;return 1;
 }
+static int native_active(void *context,void *window){(void)context;return GetActiveWindow()==window;}
+static int native_focus(void *context,void *window){(void)context;return GetForegroundWindow()==window;}
 static void native_destroy(void *context,void *window){(void)context;assert(IsWindow(window) && DestroyWindow(window));destroys++;}
 static void observe(void){
     uint32_t hwnd=fnv_cpu_argument_u32(0),msg=fnv_cpu_argument_u32(1),wp=fnv_cpu_argument_u32(2),lp=fnv_cpu_argument_u32(3);
@@ -59,6 +61,14 @@ static uint32_t call(unsigned api,const uint32_t *args,unsigned n,int negative){
     if(r!=FNV_CPU_OK)fprintf(stderr,"window call %u: %s\n",api,fault.text);
     assert(r==FNV_CPU_OK && fnv_cpu_get_state(&a)==FNV_CPU_OK && a.gpr[4]==s.gpr[4]+4+n*4);return a.gpr[0];
 }
+static DWORD WINAPI other_queue(void *context){
+    struct fnv_windows_process *process=context;struct fnv_windows_thread_config t={0};
+    t.thread_id=23;t.teb_address=BASE+0x20000;t.tls_expansion_address=BASE+0x21000;t.stack_low=BASE+0x22000;t.stack_high=BASE+0x2a000;
+    fnv_cpu_state_init(&t.state,t.stack_high-256,t.teb_address);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
+    put(t.state.gpr[4],0x401500);struct fnv_cpu_fault fault;assert(fnv_cpu_execute(0x401500+8*96,&fault)==FNV_CPU_OK);
+    struct fnv_cpu_state after;assert(fnv_cpu_get_state(&after)==FNV_CPU_OK && !after.gpr[0]);
+    assert(fnv_windows_thread_detach()==FNV_CPU_OK);return 0;
+}
 int main(int argc,char **argv){
     assert(argc==2 || argc==3);arena=VirtualAlloc(NULL,BYTES,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,BYTES,&image)==FNV_NATIVE_OK);
@@ -67,13 +77,13 @@ int main(int argc,char **argv){
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
     struct fnv_windows_user32 *desktop;assert(fnv_windows_user32_create(process,&desktop)==FNV_CPU_OK);
     assert(fnv_windows_boot_ui_create(process,&image,&ui)==FNV_CPU_OK);
-    struct fnv_boot_window_backend backend={NULL,native_create,native_destroy};
+    struct fnv_boot_window_backend backend={NULL,native_create,native_destroy,native_active,native_focus};
     if(argc==2 || strcmp(argv[2],"--strict-no-backend"))assert(fnv_windows_boot_ui_set_backend(ui,desktop,&backend)==FNV_CPU_OK);
     size_t n,bound;struct fnv_cpu_export exports[16];const struct fnv_cpu_export *e=fnv_windows_boot_ui_exports(&n);memcpy(exports,e,n*sizeof(*e));
     for(size_t i=0;i<n;i++)if(!strcmp(e[i].name,"DefWindowProcA"))default_proc=e[i].function;assert(default_proc);
     exports[n++]=(struct fnv_cpu_export){"test-ui.dll","Observe",0,0,observe};
     size_t count; e=fnv_windows_user32_exports(&count);memcpy(exports+n,e,count*sizeof(*e));n+=count;
-    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==8);
+    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==13);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;
     t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1c000;fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);
     if(argc==3 && !strcmp(argv[2],"--strict-stack"))t.stack_low=BASE+0x1be70;
@@ -81,6 +91,13 @@ int main(int argc,char **argv){
     assert(fnv_windows_boot_ui_set_backend(ui,desktop,&backend)==FNV_CPU_BUSY);
     strcpy((char *)arena+NAME-BASE,"Synthetic_Class");strcpy((char *)arena+TITLE-BASE,"Synthetic window");
     put(CLASS+4,0x401c00);put(CLASS+16,BASE);put(CLASS+36,NAME);
+    int host_swap=GetSystemMetrics(SM_SWAPBUTTON);uint32_t setting[]={1},metric[]={23};
+    assert(!call(9,setting,1,0) && call(10,metric,1,0));setting[0]=0;
+    assert(call(9,setting,1,0)==1 && !call(10,metric,1,0) && GetSystemMetrics(SM_SWAPBUTTON)==host_swap);
+    UINT host_double=GetDoubleClickTime();assert(call(11,NULL,0,0)==500);
+    setting[0]=1;assert(call(12,setting,1,0) && call(11,NULL,0,0)==1);
+    setting[0]=5001;assert(call(12,setting,1,0) && call(11,NULL,0,0)==5000);
+    setting[0]=0;assert(call(12,setting,1,0) && call(11,NULL,0,0)==500 && GetDoubleClickTime()==host_double);
     uint32_t a[]={CLASS};assert(call(0,a,1,0));
     uint32_t create[]={0,NAME,TITLE,WS_VISIBLE,0,0,320,240,0,0,BASE,0x12345678};
     if(argc==3){
@@ -93,6 +110,13 @@ int main(int argc,char **argv){
             HWND other=CreateWindowExA(0,wc.lpszClassName,"Oracle",0,0,0,320,240,NULL,NULL,wc.hInstance,(void *)0x12345678);
             assert((hwnd!=0)==(other!=NULL));
             if(hwnd){
+                void *backing=NULL;assert(fnv_windows_boot_ui_presentation(ui,hwnd,&backing)==FNV_CPU_OK);
+                assert(GetActiveWindow()==backing && call(8,NULL,0,0)==hwnd);
+                HANDLE child=CreateThread(NULL,0,other_queue,process,0,NULL);assert(child && WaitForSingleObject(child,5000)==WAIT_OBJECT_0 && CloseHandle(child));
+                SetActiveWindow(other);assert(GetActiveWindow()==other && !call(8,NULL,0,0));
+                SetActiveWindow(backing);assert(GetActiveWindow()==backing && call(8,NULL,0,0)==hwnd);
+                assert(fnv_windows_boot_ui_input_focus(ui,hwnd)==(GetForegroundWindow()==backing));
+                assert(!fnv_windows_boot_ui_input_focus(ui,0xdead));
                 uint32_t find[]={NAME,TITLE};assert(call(6,find,2,0)==hwnd);
                 uint32_t unreg[]={NAME,BASE};assert(!call(3,unreg,2,0) && call(4,NULL,0,0)==ERROR_CLASS_HAS_WINDOWS);
                 uint32_t destroy[]={hwnd};assert(call(2,destroy,1,0));assert(DestroyWindow(other));
@@ -112,5 +136,5 @@ int main(int argc,char **argv){
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_boot_ui_destroy(ui)==FNV_CPU_OK && fnv_windows_user32_destroy(desktop)==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK);
     assert(creates==destroys);assert(VirtualFree(arena,0,MEM_RELEASE));
     if(argc==3){puts("strict PASS");return 0;}
-    puts("{\"status\":\"PASS\",\"real_backing_windows\":4,\"lifecycle_oracle_cases\":3,\"engine_started\":false}");return 0;
+    puts("{\"status\":\"PASS\",\"real_backing_windows\":4,\"lifecycle_oracle_cases\":3,\"owner_queue_isolated\":true,\"virtual_mouse_settings\":true,\"engine_started\":false}");return 0;
 }

@@ -39,7 +39,7 @@ int main(int argc,char **argv){
     assert(fnv_windows_boot_ui_create(process,&wrong,&other)==FNV_CPU_INVALID && !other);
     assert(fnv_windows_boot_ui_create(process,&image,&ui)==FNV_CPU_OK);
     assert(fnv_windows_boot_ui_create(process,&image,&other)==FNV_CPU_BUSY && !other);
-    size_t n,bound;const struct fnv_cpu_export *e=fnv_windows_boot_ui_exports(&n);assert(n==8);
+    size_t n,bound;const struct fnv_cpu_export *e=fnv_windows_boot_ui_exports(&n);assert(n==12);
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,e,n,&bound)==FNV_NATIVE_OK && bound==7);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1c000;
     fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);init_class(0,0);

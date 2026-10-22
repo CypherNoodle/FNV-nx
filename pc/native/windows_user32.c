@@ -95,6 +95,7 @@ static void api_system_metrics(void){
     (void)fnv_windows_current_address_space_bytes(); /* Require attached guest thread. */
     /* SM_REMOTESESSION: the Switch guest has a local console, no Terminal
      * Services client. Do not infer unrelated metrics from this boolean. */
+    if(index==23){fnv_cpu_return_u32(fnv_windows_mouse_buttons(-1),4);return;}
     if(index!=0x1000u){recomp_unimpl("Windows system metric pending",index);return;}
     fnv_cpu_return_u32(0,4); /* Preserve LastError, including when the metric is zero. */
 }

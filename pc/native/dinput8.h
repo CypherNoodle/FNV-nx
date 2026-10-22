@@ -11,6 +11,8 @@ struct fnv_dinput8_config {
     uint32_t instance,objects_address,objects_bytes;int keyboard,mouse;
     struct fnv_guest_memory *memory;
     void *context;int (*valid_window)(void *,uint32_t);
+    /* Native snapshot probe, no guest/reentry; 0/1 focus, -1 unavailable. */
+    int (*has_input_focus)(void *,uint32_t);
 };
 enum fnv_cpu_result fnv_dinput8_create(struct fnv_windows_process *,const struct fnv_dinput8_config *,struct fnv_dinput8 **);
 enum fnv_cpu_result fnv_dinput8_destroy(struct fnv_dinput8 *);

@@ -5,12 +5,16 @@ import json
 import sys
 from pathlib import Path
 import test_windows_heap as shared
-SLOTS=[(4,5),(0,3),(1,1),(2,1),(3,4),(5,2),(7,1),(8,1),(9,3),(11,2),(13,3)]
+SLOTS=[(4,5),(0,3),(1,1),(2,1),(3,4),(5,2),(7,1),(8,1),(9,3),(11,2),(13,3),(5,3),(6,3),(10,5),(3,2)]
 def programs(raw):
+    raw.extend(bytes(12288-len(raw)))
+    struct.pack_into('<I',raw,0x98+56,0x4000)
+    struct.pack_into('<I',raw,0x98+224+8,len(raw)-512)
+    struct.pack_into('<I',raw,0x98+224+16,len(raw)-512)
     out={}
     for i,(slot,argc) in enumerate(SLOTS):
         code=bytes.fromhex('8b4424048b08')+bytes((0xff,0x74,0x24,argc*4))*argc+bytes((0xff,0x51,slot*4))+b'\xc2'+struct.pack('<H',argc*4)
-        out[0x401700+i*64]=code
+        out[0x402000+i*64]=code
     observe=struct.unpack_from('<I',raw,0x300+20+16)[0]+0x400000
     out[0x401c00]=bytes.fromhex('ff742408')*2+b'\xff\x15'+struct.pack('<I',observe)+bytes.fromhex('c20800')
     return out

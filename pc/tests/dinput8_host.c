@@ -17,8 +17,12 @@
 #define OBJECTS (BASE+0x82000)
 #define GUIDS (BASE+0x84000)
 #define STATE (BASE+0x87000)
+#define PROP (BASE+0x89000)
+#define COUNT_AT (BASE+0x89100)
+#define EVENTS (BASE+0x89200)
 static unsigned char *arena;
 static HWND native_window;
+static int focus_value=1;
 static unsigned enum_count,enum_limit;
 static void put(uint32_t at,uint32_t v){memcpy(arena+at-BASE,&v,4);}
 static uint32_t get(uint32_t at){uint32_t v;memcpy(&v,arena+at-BASE,4);return v;}
@@ -27,11 +31,12 @@ static void observe(void){
     assert(get(at+36)==18 || get(at+36)==19);assert(strstr((char *)arena+at+40-BASE,"FNV virtual "));
     enum_count++;fnv_cpu_return_u32(enum_count<enum_limit,8);
 }
+static int input_focus(void *context,uint32_t hwnd){(void)context;assert(hwnd==0xb0000001);return focus_value;}
 static int valid_window(void *context,uint32_t hwnd){(void)context;return hwnd==0xb0000001 && IsWindow(native_window);}
 static uint32_t call(int method,const uint32_t *args,unsigned n,int negative){
     struct fnv_cpu_state s,a;assert(fnv_cpu_get_state(&s)==FNV_CPU_OK);s.gpr[4]=BASE+0x1bf00;assert(fnv_cpu_set_state(&s)==FNV_CPU_OK);
     put(s.gpr[4],0x401500);for(unsigned i=0;i<n;i++)put(s.gpr[4]+4+i*4,args[i]);
-    struct fnv_cpu_fault fault;enum fnv_cpu_result r=fnv_cpu_execute(method<0?0x401500:0x401700+(unsigned)method*64,&fault);
+    struct fnv_cpu_fault fault;enum fnv_cpu_result r=fnv_cpu_execute(method<0?0x401500:0x402000+(unsigned)method*64,&fault);
     if(negative){assert(r==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED);return 0;}
     if(r!=FNV_CPU_OK)fprintf(stderr,"DI call %d: %s\n",method,fault.text);
     assert(r==FNV_CPU_OK && fnv_cpu_get_state(&a)==FNV_CPU_OK && a.gpr[4]==s.gpr[4]+4+n*4);return a.gpr[0];
@@ -49,7 +54,7 @@ int main(int argc,char **argv){
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,BYTES,&image)==FNV_NATIVE_OK);
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=BYTES;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;c.image_bytes=image.size;c.process_id=11;c.peb_address=BASE+0x8000;
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
-    struct fnv_dinput8_config cfg={0};cfg.instance=BASE;cfg.objects_address=BASE+0x40000;cfg.objects_bytes=4096;cfg.keyboard=cfg.mouse=1;cfg.valid_window=valid_window;
+    struct fnv_dinput8_config cfg={0};cfg.instance=BASE;cfg.objects_address=BASE+0x40000;cfg.objects_bytes=4096;cfg.keyboard=cfg.mouse=1;cfg.valid_window=valid_window;if(argc==2)cfg.has_input_focus=input_focus;
     struct fnv_dinput8 *di;assert(fnv_dinput8_create(process,&cfg,&di)==FNV_CPU_OK);
     size_t n,bound;const struct fnv_cpu_export *e=fnv_dinput8_exports(&n);struct fnv_cpu_export catalog[2];assert(n==1);catalog[0]=e[0];catalog[1]=(struct fnv_cpu_export){"di-test.dll","Observe",0,0,observe};
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,catalog,2,&bound)==FNV_NATIVE_OK && bound==2);
@@ -88,6 +93,9 @@ int main(int argc,char **argv){
         uint32_t status[]={root,GUID_AT};assert(call(5,status,2,0)==(uint32_t)IDirectInput8_GetDeviceStatus(native,guid));
         uint32_t make[]={root,GUID_AT,OUTPUT_AT,0};assert(!call(4,make,4,0));devices[kind]=get(OUTPUT_AT);
         IDirectInputDevice8A *device;assert(IDirectInput8_CreateDevice(native,guid,&device,NULL)==DI_OK);
+        for(unsigned csz=24;csz<=44;csz+=20){DIDEVCAPS caps={0};caps.dwSize=csz;put(PROP,csz);uint32_t cap_args[]={devices[kind],PROP};
+            assert(call(14,cap_args,2,0)==(uint32_t)IDirectInputDevice8_GetCapabilities(device,&caps));
+            assert(get(PROP)==csz && get(PROP+4)==(DIDC_ATTACHED|DIDC_EMULATED) && get(PROP+12)==(kind?3:0) && get(PROP+16)==(kind?8:256));}
         uint32_t state[]={devices[kind],kind?20:256,STATE};unsigned char before[256];memset(before,0xaa,sizeof(before));memcpy(arena+STATE-BASE,before,sizeof(before));
         HRESULT native_hr=IDirectInputDevice8_GetDeviceState(device,state[1],before);
         assert(call(8,state,3,0)==(uint32_t)native_hr && !memcmp(arena+STATE-BASE,before,sizeof(before)));
@@ -99,6 +107,15 @@ int main(int argc,char **argv){
         unsigned char saved=arena[GUIDS+8-BASE];arena[GUIDS+8-BASE]^=1;
         assert(call(9,set,2,0)==(uint32_t)DIERR_INVALIDPARAM);arena[GUIDS+8-BASE]=saved;
         uint32_t coop[]={devices[kind],0xb0000001,DISCL_NONEXCLUSIVE|DISCL_BACKGROUND};assert(call(10,coop,3,0)==(uint32_t)IDirectInputDevice8_SetCooperativeLevel(device,native_window,coop[2]));
+        DIPROPDWORD pd={0};pd.diph.dwSize=sizeof(pd);pd.diph.dwHeaderSize=sizeof(pd.diph);pd.diph.dwHow=DIPH_DEVICE;pd.dwData=8;
+        memcpy(arena+PROP-BASE,&pd,20);uint32_t property_args[]={devices[kind],1,PROP};
+        assert(call(12,property_args,3,0)==(uint32_t)IDirectInputDevice8_SetProperty(device,DIPROP_BUFFERSIZE,&pd.diph));
+        assert(call(11,property_args,3,0)==(uint32_t)IDirectInputDevice8_GetProperty(device,DIPROP_BUFFERSIZE,&pd.diph) && get(PROP+16)==pd.dwData);
+        DWORD native_count=1;DIDEVICEOBJECTDATA native_event={0};
+        HRESULT not_acquired=IDirectInputDevice8_GetDeviceData(device,sizeof(native_event),&native_event,&native_count,0);
+        put(COUNT_AT,1);uint32_t buffered_read[]={devices[kind],20,EVENTS,COUNT_AT,0};uint32_t buffered_hr=call(13,buffered_read,5,0);if(buffered_hr!=(uint32_t)not_acquired)fprintf(stderr,"buffered before Acquire ours=%08x native=%08lx count=%lu\n",buffered_hr,(unsigned long)not_acquired,(unsigned long)native_count);assert(buffered_hr==(uint32_t)not_acquired);
+        native_count=1;not_acquired=IDirectInputDevice8_GetDeviceData(device,16,&native_event,&native_count,0);
+        buffered_read[1]=16;put(COUNT_AT,1);assert(call(13,buffered_read,5,0)==(uint32_t)not_acquired);
         uint32_t one[]={devices[kind]};
         if(argc==3 && !strcmp(argv[2],"--strict-foreground")){
             coop[2]=DISCL_NONEXCLUSIVE|DISCL_FOREGROUND;assert(!call(10,coop,3,0));call(6,one,1,1);
@@ -115,11 +132,42 @@ int main(int argc,char **argv){
         uint32_t mouse[]={devices[1],20,STATE};assert(!call(8,mouse,3,0));DIMOUSESTATE2 expected={s.dx,s.dy,s.wheel,{0}};memcpy(expected.rgbButtons,s.buttons,8);assert(!memcmp(arena+STATE-BASE,&expected,20));
         assert(!call(8,mouse,3,0));expected.lX=expected.lY=expected.lZ=0;assert(!memcmp(arena+STATE-BASE,&expected,20));
     }
+    /* Controlled focus transitions: not a physical foreground-window test. */
+    uint32_t unacquire[]={devices[0]};assert(!call(7,unacquire,1,0));
+    uint32_t coop_fg[]={devices[0],0xb0000001,DISCL_NONEXCLUSIVE|DISCL_FOREGROUND};assert(!call(10,coop_fg,3,0));
+    /* Missing focus probe remains an explicit fault in --strict-foreground. */
+    assert(!call(6,unacquire,1,0));
+    unsigned char marker[256];memset(marker,0x5a,sizeof(marker));memcpy(arena+STATE-BASE,marker,sizeof(marker));
+    uint32_t keyboard_state[]={devices[0],256,STATE};focus_value=0;
+    assert(call(8,keyboard_state,3,0)==(uint32_t)DIERR_INPUTLOST && !memcmp(arena+STATE-BASE,marker,sizeof(marker)));
+    assert(call(6,unacquire,1,0)==(uint32_t)DIERR_OTHERAPPHASPRIO);
+    focus_value=1;assert(call(8,keyboard_state,3,0)==(uint32_t)DIERR_INPUTLOST);
+    assert(!call(6,unacquire,1,0) && !call(8,keyboard_state,3,0));
     struct fnv_di_snapshot move={0};move.dx=19;assert(fnv_dinput8_update(di,&move)==FNV_CPU_OK);
     uint32_t mouse_one[]={devices[1]};assert(call(6,mouse_one,1,0)==S_FALSE);
     uint32_t mouse_state[]={devices[1],20,STATE};assert(!call(8,mouse_state,3,0) && get(STATE)==19);
     move.keys[0]=1;assert(fnv_dinput8_update(di,&move)==FNV_CPU_INVALID);
     assert(!call(8,mouse_state,3,0) && get(STATE)==0);
+    /* Buffered reads and immediate motion have independent consumption. */
+    for(unsigned k=0;k<2;k++){put(COUNT_AT,UINT32_MAX);uint32_t flush[]={devices[k],20,0,COUNT_AT,0};assert(call(13,flush,5,0)<=1);}
+    struct fnv_di_snapshot buffered={0};buffered.keys[30]=128;buffered.dx=7;buffered.buttons[0]=128;
+    assert(fnv_dinput8_update(di,&buffered)==FNV_CPU_OK);
+    put(COUNT_AT,8);uint32_t read_events[]={devices[0],20,EVENTS,COUNT_AT,1};assert(!call(13,read_events,5,0) && get(COUNT_AT)==1 && get(EVENTS)==30 && get(EVENTS+4)==128);
+    uint32_t sequence=get(EVENTS+12);
+    read_events[2]=BASE+BYTES-20;put(COUNT_AT,UINT32_MAX);assert(!call(13,read_events,5,0) && get(COUNT_AT)==1 && get(BASE+BYTES-20)==30);
+    read_events[2]=0;put(COUNT_AT,UINT32_MAX);assert(!call(13,read_events,5,0) && get(COUNT_AT)==1);
+    read_events[1]=16;read_events[2]=EVENTS;put(COUNT_AT,8);assert(call(13,read_events,5,0)==(uint32_t)DIERR_INVALIDPARAM);
+    read_events[1]=20;read_events[4]=2;put(COUNT_AT,8);assert(call(13,read_events,5,0)==(uint32_t)DIERR_INVALIDPARAM && get(COUNT_AT)==8);
+    read_events[4]=1;
+put(COUNT_AT,8);assert(!call(13,read_events,5,0) && get(EVENTS+12)==sequence);
+    read_events[4]=0;put(COUNT_AT,1);assert(!call(13,read_events,5,0) && get(COUNT_AT)==1);
+    put(COUNT_AT,8);assert(!call(13,read_events,5,0) && !get(COUNT_AT));
+    read_events[0]=devices[1];put(COUNT_AT,8);assert(!call(13,read_events,5,0) && get(COUNT_AT)==2 && get(EVENTS)==0 && get(EVENTS+4)==7 && get(EVENTS+20)==12 && get(EVENTS+24)==128);
+    assert(!call(8,mouse_state,3,0) && get(STATE)==7);
+    for(unsigned k=0;k<10;k++){buffered.dx=0;buffered.keys[30]=k&1?128:0;assert(fnv_dinput8_update(di,&buffered)==FNV_CPU_OK);}
+    read_events[0]=devices[0];read_events[4]=1;put(COUNT_AT,8);assert(call(13,read_events,5,0)==(uint32_t)DI_BUFFEROVERFLOW && get(COUNT_AT)==8);
+    read_events[4]=0;put(COUNT_AT,8);assert(call(13,read_events,5,0)==(uint32_t)DI_BUFFEROVERFLOW);
+    put(COUNT_AT,8);assert(!call(13,read_events,5,0) && !get(COUNT_AT));
     for(unsigned i=0;i<2;i++){uint32_t one[]={devices[i]};assert(!call(7,one,1,0));assert(!call(3,one,1,0));}
     assert(!call(3,args,1,0));assert(IDirectInput8_Release(native)==0);assert(DestroyWindow(native_window));
     unsigned remaining=0;
@@ -128,5 +176,5 @@ int main(int argc,char **argv){
 finish:
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_dinput8_destroy(di)==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
     if(argc==3){puts("strict PASS");return 0;}
-    puts("{\"status\":\"PASS\",\"keyboard_mouse_snapshots\":1000,\"windows_standard_formats\":3,\"engine_started\":false}");return 0;
+    puts("{\"status\":\"PASS\",\"keyboard_mouse_snapshots\":1000,\"windows_standard_formats\":3,\"foreground_loss_reacquire\":true,\"buffered_input_checked\":true,\"capability_layouts_checked\":true,\"engine_started\":false}");return 0;
 }

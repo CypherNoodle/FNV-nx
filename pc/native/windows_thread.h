@@ -124,6 +124,10 @@ uint32_t fnv_windows_current_address_space_bytes(void);
 void fnv_windows_current_stack_bounds(uint32_t *low,uint32_t *high,uint32_t *thread_id);
 void fnv_windows_set_last_error(uint32_t value);
 /* Current-thread diagnostic label only; copied, max127 ASCII bytes. */
+/* Per-guest USER32 setting; -1 reads,0/1 updates. Never changes host policy. */
+uint32_t fnv_windows_mouse_buttons(int setting);
+/* Virtual setting: default500ms, -1 reads; Windows setters clamp at5000ms. */
+uint32_t fnv_windows_double_click_time(int64_t setting);
 int fnv_windows_set_debug_name(const char *);
 const char *fnv_windows_current_debug_name(void);
 #endif

@@ -11,12 +11,18 @@ struct fnv_boot_window_backend {
     void *context;
     int (*create)(void *,const struct fnv_boot_window_request *,void **);
     void (*destroy)(void *,void *);
+    /* Optional non-reentrant native probes. active is owner queue selection;
+     * input_focus is actual foreground/app focus. Return 0/1 only. */
+    int (*is_active)(void *,void *);
+    int (*input_focus)(void *,void *);
 };
 /* Configure before attach. desktop must outlive this provider. */
 enum fnv_cpu_result fnv_windows_boot_ui_set_backend(struct fnv_windows_boot_ui *,struct fnv_windows_user32 *,const struct fnv_boot_window_backend *);
 /* Borrowed native presentation object; never a host pointer in guest memory.
  * Owner thread only during window lifetime; release renderer before destroy. */
 enum fnv_cpu_result fnv_windows_boot_ui_presentation(struct fnv_windows_boot_ui *,uint32_t hwnd,void **);
+/* Current guest owner only. 1 focused,0 unfocused/invalid,-1 no probe. */
+int fnv_windows_boot_ui_input_focus(struct fnv_windows_boot_ui *,uint32_t hwnd);
 struct fnv_boot_class {uint32_t atom,style,procedure,instance,icon,brush;char name[256];};
 /* Bounded borderless top-level window lifecycle. CreateWindowEx requires
  * configured native presentation backing and invokes the guest procedure. */

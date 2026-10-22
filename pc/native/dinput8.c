@@ -3,6 +3,7 @@
 #include "dinput8.h"
 #include "guest_memory.h"
 #include "host_mutex.h"
+#include "host_wallclock.h"
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -17,9 +18,10 @@
 static const unsigned char iid_root[16]={0x30,0x80,0x79,0xbf,0x3a,0x48,0xa2,0x4d,0xaa,0x99,0x5d,0x64,0xed,0x36,0x97,0};
 static const unsigned char iid_device[16]={0x80,0x10,0xd4,0x54,0x15,0xdc,0x33,0x48,0xa4,0x1b,0x74,0x8f,0x73,0xa3,0x81,0x79};
 static const unsigned char iid_unknown[16]={0,0,0,0,0,0,0,0,0xc0,0,0,0,0,0,0,0x46};
-struct di_object {uint32_t refs,kind,parent,format,cooperative,acquired;int64_t last[3];};
+struct di_event {uint32_t offset,data,timestamp,sequence;};
+struct di_object {uint32_t refs,kind,parent,format,cooperative,acquired,window,lost,requested,capacity,head,queued,overflow;struct di_event *events;int64_t last[3];};
 struct fnv_dinput8 {struct fnv_cpu_runtime *cpu;struct fnv_dinput8_config config;fnv_host_mutex guard;
-    unsigned char *memory;uint32_t tokens[DI_METHODS],count;struct di_object objects[DI_CAPACITY];
+    unsigned char *memory;uint32_t tokens[DI_METHODS],count,sequence;struct di_object objects[DI_CAPACITY];
     struct fnv_di_snapshot snapshot;int64_t totals[3];};
 static struct fnv_dinput8 *active;
 static uint32_t rd(const unsigned char *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
@@ -77,7 +79,7 @@ static void ref(int add){
     uint32_t self=fnv_cpu_argument_u32(0),value=0;if(!current())return;
     fnv_host_mutex_lock(&active->guard);int i=index_of(self);
     if(i>=0){struct di_object *o=active->objects+i;
-        if(add){if(o->refs!=UINT32_MAX)value=++o->refs;}else {value=--o->refs;if(!value && o->parent)active->objects[o->parent-1].refs--;}}
+        if(add){if(o->refs!=UINT32_MAX)value=++o->refs;}else {value=--o->refs;if(!value){free(o->events);o->events=NULL;if(o->parent)active->objects[o->parent-1].refs--;}}}
     fnv_host_mutex_unlock(&active->guard);
     if(i<0 || (add && !value)){recomp_unimpl("DirectInput COM reference invalid",self);return;}fnv_cpu_return_u32(value,4);
 }
@@ -131,17 +133,28 @@ static void api_status(void){
     if(i>=0 && !active->objects[i].kind && ((kind==1 && active->config.keyboard)||(kind==2 && active->config.mouse)))hr=0;
     fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32(hr,8);
 }
+static int focused(uint32_t hwnd){
+    if(!active->config.has_input_focus){recomp_unimpl("DirectInput foreground focus tracking pending",hwnd);return 0;}
+    int value=active->config.has_input_focus(active->config.context,hwnd);
+    if(value!=0 && value!=1){recomp_unimpl("DirectInput foreground focus unavailable",hwnd);return 0;}
+    return value;
+}
 static void acquire(int on){
-    uint32_t self=fnv_cpu_argument_u32(0),hr=0;int foreground=0;if(!current())return;
-    fnv_host_mutex_lock(&active->guard);int i=index_of(self);
+    uint32_t self=fnv_cpu_argument_u32(0),hr=0;if(!current())return;
+    struct di_object before={0};fnv_host_mutex_lock(&active->guard);int i=index_of(self);
     if(i<0 || !active->objects[i].kind)hr=DI_INVALID;
-    else {struct di_object *o=active->objects+i;
-        if(on && (!o->format || !o->cooperative))hr=DI_NOTINITIALIZED;
-        else if(on && (o->cooperative&4))foreground=1;
-        else {hr=o->acquired==!!on?1:0;if(on && !o->acquired)memcpy(o->last,active->totals,sizeof(o->last));o->acquired=!!on;}}
+    else {before=active->objects[i];if(on && (!before.format || !before.cooperative))hr=DI_NOTINITIALIZED;}
     fnv_host_mutex_unlock(&active->guard);
-    if(foreground){recomp_unimpl("DirectInput foreground focus tracking pending",self);return;}
-    fnv_cpu_return_u32(hr,4);
+    if(hr){fnv_cpu_return_u32(hr,4);return;}
+    int focus=on && (before.cooperative&4)?focused(before.window):1;
+    fnv_host_mutex_lock(&active->guard);i=index_of(self);
+    if(i<0 || active->objects[i].cooperative!=before.cooperative || active->objects[i].window!=before.window || active->objects[i].format!=before.format)hr=DI_INVALID;
+    else {struct di_object *o=active->objects+i;
+        if(on && !focus){if(o->acquired)o->lost=1;o->acquired=0;hr=0x80070005u;}
+        else {hr=o->acquired==!!on?1:0;
+            if(on && !o->acquired)memcpy(o->last,active->totals,sizeof(o->last));
+            o->acquired=!!on;o->lost=0;if(!on || !hr){o->head=o->queued=o->overflow=0;}}}
+    fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32(hr,4);
 }
 static void api_acquire(void){acquire(1);}static void api_unacquire(void){acquire(0);}
 static void api_cooperative(void){
@@ -153,7 +166,7 @@ static void api_cooperative(void){
     fnv_host_mutex_lock(&active->guard);int i=index_of(self);
     if(i<0 || !active->objects[i].kind)hr=DI_INVALID;
     else if(active->objects[i].acquired)hr=DI_ACQUIRED;
-    else if(!hr)active->objects[i].cooperative=flags;
+    else if(!hr){active->objects[i].cooperative=flags;active->objects[i].window=window;}
     fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32(hr,12);
 }
 static void api_format(void){
@@ -188,24 +201,90 @@ static int32_t delta(int64_t now,int64_t last){
 }
 static void api_state(void){
     uint32_t self=fnv_cpu_argument_u32(0),bytes=fnv_cpu_argument_u32(1),out=fnv_cpu_argument_u32(2);if(!current())return;
-    unsigned char *p=range(out,bytes,1);if(!p)return;unsigned char data[256]={0};uint32_t hr=0;
+    unsigned char *p=range(out,bytes,1);if(!p)return;
+    struct di_object before={0};fnv_host_mutex_lock(&active->guard);int i=index_of(self);
+    if(i>=0)before=active->objects[i];
+    fnv_host_mutex_unlock(&active->guard);
+    int focus=before.acquired && (before.cooperative&4)?focused(before.window):1;
+    unsigned char data[256]={0};uint32_t hr=0;fnv_host_mutex_lock(&active->guard);i=index_of(self);
+    if(i<0 || !active->objects[i].kind)hr=DI_INVALID;
+    else {struct di_object *o=active->objects+i;
+        if(o->cooperative!=before.cooperative || o->window!=before.window || o->format!=before.format)hr=DI_INVALID;
+        else {
+            if(o->acquired && !focus){o->acquired=0;o->lost=1;o->head=o->queued=o->overflow=0;}
+            if(!o->acquired)hr=o->lost?0x8007001eu:DI_NOTACQUIRED;
+            else if(bytes!=o->format)hr=DI_INVALID;
+            else if(o->kind==1)memcpy(data,active->snapshot.keys,256);
+            else {for(unsigned j=0;j<3;j++)wr(data+j*4,(uint32_t)delta(active->totals[j],o->last[j]));
+                memcpy(data+12,active->snapshot.buttons,bytes-12);memcpy(o->last,active->totals,sizeof(o->last));}}}
+    fnv_host_mutex_unlock(&active->guard);if(!hr)memcpy(p,data,bytes);fnv_cpu_return_u32(hr,12);
+}
+static void api_caps(void){
+    uint32_t self=fnv_cpu_argument_u32(0),out=fnv_cpu_argument_u32(1);if(!current())return;
+    unsigned char *p=range(out,4,0);if(!p)return;uint32_t bytes=rd(p);
+    if(bytes!=24 && bytes!=44){fnv_cpu_return_u32(DI_INVALID,8);return;}
+    p=range(out,bytes,1);if(!p)return;unsigned char data[44]={0};uint32_t hr=0;
+    fnv_host_mutex_lock(&active->guard);int i=index_of(self);
+    if(i<0 || !active->objects[i].kind)hr=DI_INVALID;
+    else {uint32_t kind=active->objects[i].kind;
+        wr(data,bytes);wr(data+4,5);wr(data+8,kind==1?19:18);wr(data+12,kind==1?0:3);wr(data+16,kind==1?256:8);}
+    fnv_host_mutex_unlock(&active->guard);if(!hr)memcpy(p,data,bytes);fnv_cpu_return_u32(hr,8);
+}
+static void property(int get){
+    uint32_t self=fnv_cpu_argument_u32(0),id=fnv_cpu_argument_u32(1),at=fnv_cpu_argument_u32(2);if(!current())return;
+    if(id!=1){recomp_unimpl("DirectInput property pending",id);return;}
+    unsigned char *p=range(at,20,get);if(!p)return;
+    if(rd(p)!=20 || rd(p+4)!=16 || rd(p+8) || rd(p+12)){fnv_cpu_return_u32(DI_INVALID,12);return;}
+    uint32_t requested=get?0:rd(p+16),capacity=requested>4096?4096:requested,hr=0;
+    struct di_event *events=capacity?calloc(capacity,sizeof(*events)):NULL;
+    if(capacity && !events){fnv_cpu_return_u32(0x8007000e,12);return;}
     fnv_host_mutex_lock(&active->guard);int i=index_of(self);
     if(i<0 || !active->objects[i].kind)hr=DI_INVALID;
     else {struct di_object *o=active->objects+i;
-        if(!o->acquired)hr=DI_NOTACQUIRED;else if(bytes!=o->format)hr=DI_INVALID;
-        else if(o->kind==1)memcpy(data,active->snapshot.keys,256);
-        else {for(unsigned j=0;j<3;j++)wr(data+j*4,(uint32_t)delta(active->totals[j],o->last[j]));
-            memcpy(data+12,active->snapshot.buttons,bytes-12);memcpy(o->last,active->totals,sizeof(o->last));}}
-    fnv_host_mutex_unlock(&active->guard);if(!hr)memcpy(p,data,bytes);fnv_cpu_return_u32(hr,12);
+        if(get)requested=o->requested;
+        else if(o->acquired)hr=DI_ACQUIRED;
+        else {free(o->events);o->events=events;events=NULL;o->requested=requested;o->capacity=capacity;o->head=o->queued=o->overflow=0;}}
+    fnv_host_mutex_unlock(&active->guard);free(events);if(get && !hr)wr(p+16,requested);fnv_cpu_return_u32(hr,12);
+}
+static void api_get_property(void){property(1);}static void api_set_property(void){property(0);}
+static void api_data(void){
+    uint32_t self=fnv_cpu_argument_u32(0),stride=fnv_cpu_argument_u32(1),out=fnv_cpu_argument_u32(2),count_at=fnv_cpu_argument_u32(3),flags=fnv_cpu_argument_u32(4);if(!current())return;
+    unsigned char *np=range(count_at,4,1);if(!np)return;uint32_t requested=rd(np);
+    if(stride!=20 || flags>1){fnv_cpu_return_u32(DI_INVALID,20);return;}
+    struct di_object before={0};fnv_host_mutex_lock(&active->guard);int i=index_of(self);if(i>=0)before=active->objects[i];fnv_host_mutex_unlock(&active->guard);
+    int focus=before.acquired && (before.cooperative&4)?focused(before.window):1;
+    /* Bound guest validation to the maximum actual copy; UINT_MAX is a valid
+     * request to flush/query the whole queue, never a multi-gigabyte probe. */
+    uint32_t limit=requested<before.queued?requested:before.queued;unsigned char *p=out && limit?range(out,limit*stride,1):NULL;
+    if(out && limit && !p)return;
+    uint32_t hr=0,n=0;fnv_host_mutex_lock(&active->guard);i=index_of(self);
+    if(i<0 || !active->objects[i].kind)hr=DI_INVALID;
+    else {struct di_object *o=active->objects+i;
+        if(o->cooperative!=before.cooperative || o->window!=before.window || o->format!=before.format)hr=DI_INVALID;
+        else {
+            if(o->acquired && !focus){o->acquired=0;o->lost=1;o->head=o->queued=o->overflow=0;}
+            if(!o->acquired)hr=o->lost?0x8007001eu:DI_NOTACQUIRED;
+            else if(!o->capacity)hr=0x80040207u;
+            else {n=requested<o->queued?requested:o->queued;if(out && n>limit)n=limit;hr=o->overflow?1:0;
+                if(p)for(unsigned j=0;j<n;j++){struct di_event *e=o->events+(o->head+j)%o->capacity;
+                    wr(p+j*stride,e->offset);wr(p+j*stride+4,e->data);wr(p+j*stride+8,e->timestamp);wr(p+j*stride+12,e->sequence);
+                    if(stride==20)wr(p+j*stride+16,0);}
+                if(!flags){o->head=(o->head+n)%o->capacity;o->queued-=n;o->overflow=0;}}}}
+    fnv_host_mutex_unlock(&active->guard);if(!hr || hr==1)wr(np,n);fnv_cpu_return_u32(hr,20);
+}
+static void event(struct fnv_dinput8 *d,struct di_object *o,uint32_t offset,uint32_t data,uint32_t timestamp){
+    if(!o->capacity || !o->acquired || !o->format)return;
+    if(o->queued==o->capacity){o->head=(o->head+1)%o->capacity;o->queued--;o->overflow=1;}
+    o->events[(o->head+o->queued++)%o->capacity]=(struct di_event){offset,data,timestamp,d->sequence++};
 }
 #define PENDING(N) static void pending_##N(void){recomp_unimpl("DirectInput COM method pending",N);}
 PENDING(6) PENDING(7) PENDING(8) PENDING(9) PENDING(10)
-PENDING(14) PENDING(15) PENDING(16) PENDING(17) PENDING(21) PENDING(23)
+PENDING(15) PENDING(23)
 PENDING(25) PENDING(26) PENDING(27) PENDING(28) PENDING(29) PENDING(30) PENDING(31)
 PENDING(32) PENDING(33) PENDING(34) PENDING(35) PENDING(36) PENDING(37) PENDING(38)
 PENDING(39) PENDING(40) PENDING(41) PENDING(42)
 static fnv_cpu_function methods[DI_METHODS]={api_query,api_addref,api_release,api_create_device,api_enum,api_status,pending_6,pending_7,pending_8,pending_9,pending_10,
-    api_query,api_addref,api_release,pending_14,pending_15,pending_16,pending_17,api_acquire,api_unacquire,api_state,pending_21,api_format,pending_23,api_cooperative,
+    api_query,api_addref,api_release,api_caps,pending_15,api_get_property,api_set_property,api_acquire,api_unacquire,api_state,api_data,api_format,pending_23,api_cooperative,
     pending_25,pending_26,pending_27,pending_28,pending_29,pending_30,pending_31,pending_32,pending_33,pending_34,pending_35,pending_36,pending_37,pending_38,pending_39,pending_40,pending_41,pending_42};
 static const struct fnv_cpu_export exports[]={{"dinput8.dll","DirectInput8Create",0,0,api_factory}};
 const struct fnv_cpu_export *fnv_dinput8_exports(size_t *n){if(n)*n=1;return exports;}
@@ -231,14 +310,21 @@ enum fnv_cpu_result fnv_dinput8_create(struct fnv_windows_process *process,const
 enum fnv_cpu_result fnv_dinput8_destroy(struct fnv_dinput8 *d){
     if(!d || d!=active)return FNV_CPU_INVALID;
     enum fnv_cpu_result r=fnv_cpu_unregister_native(d->cpu,d->tokens[0],DI_METHODS);if(r)return r;
-    active=NULL;if(d->config.memory)fnv_vm_release_reference(d->config.memory);fnv_host_mutex_destroy(&d->guard);free(d);return FNV_CPU_OK;
+    active=NULL;for(unsigned i=0;i<d->count;i++)free(d->objects[i].events);
+    if(d->config.memory)fnv_vm_release_reference(d->config.memory);
+    fnv_host_mutex_destroy(&d->guard);free(d);return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_dinput8_update(struct fnv_dinput8 *d,const struct fnv_di_snapshot *s){
     if(!d || d!=active || !s)return FNV_CPU_INVALID;
     for(unsigned i=0;i<256;i++)if(s->keys[i]!=0 && s->keys[i]!=128)return FNV_CPU_INVALID;
     for(unsigned i=0;i<8;i++)if(s->buttons[i]!=0 && s->buttons[i]!=128)return FNV_CPU_INVALID;
+    uint64_t timestamp;if(!fnv_host_uptime_ms(&timestamp))return FNV_CPU_INVALID;
     int32_t inc[]={s->dx,s->dy,s->wheel};fnv_host_mutex_lock(&d->guard);
     for(unsigned i=0;i<3;i++)if((inc[i]>0 && d->totals[i]>INT64_MAX-inc[i]) || (inc[i]<0 && d->totals[i]<INT64_MIN-inc[i])){
         fnv_host_mutex_unlock(&d->guard);return FNV_CPU_INVALID;}
+    for(unsigned i=0;i<d->count;i++){struct di_object *o=d->objects+i;if(!o->refs || !o->acquired || !o->capacity)continue;
+        if(o->kind==1){for(unsigned k=0;k<256;k++)if(d->snapshot.keys[k]!=s->keys[k])event(d,o,k,s->keys[k],(uint32_t)timestamp);}
+        else if(o->kind==2){for(unsigned k=0;k<3;k++)if(inc[k])event(d,o,k*4,(uint32_t)inc[k],(uint32_t)timestamp);
+            for(unsigned k=0;k<o->format-12;k++)if(d->snapshot.buttons[k]!=s->buttons[k])event(d,o,12+k,s->buttons[k],(uint32_t)timestamp);}}
     d->snapshot=*s;for(unsigned i=0;i<3;i++)d->totals[i]+=inc[i];fnv_host_mutex_unlock(&d->guard);return FNV_CPU_OK;
 }

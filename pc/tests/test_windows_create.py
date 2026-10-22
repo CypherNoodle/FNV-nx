@@ -24,9 +24,9 @@ if __name__=='__main__':
         objects=[Path(row['object']) for row in core['objects']]
         extra.extend([a.x87_build.resolve(),*objects,*[Path(n) for n in core['source_sha256']]])
         link.extend(str(o) for o in objects);a.cc.append('-DFNV_CPU_EXTENDED_X87=1')
-    shared.NAMES=['RegisterClassA','CreateWindowExA','DestroyWindow','UnregisterClassA','GetLastError','Observe','FindWindowA','DefWindowProcA']
-    shared.ARGS=[1,12,1,2,0,4,2,4]
-    shared.DLLS=['user32.dll']*4+['kernel32.dll','test-ui.dll','user32.dll','user32.dll']
+    shared.NAMES=['RegisterClassA','CreateWindowExA','DestroyWindow','UnregisterClassA','GetLastError','Observe','FindWindowA','DefWindowProcA','GetActiveWindow','SwapMouseButton','GetSystemMetrics','GetDoubleClickTime','SetDoubleClickTime']
+    shared.ARGS=[1,12,1,2,0,4,2,4,0,1,1,0,1]
+    shared.DLLS=['user32.dll']*4+['kernel32.dll','test-ui.dll','user32.dll','user32.dll','user32.dll','user32.dll','user32.dll','user32.dll','user32.dll']
     shared.test(a,host_source='windows_create_host.c',wrapper_stride=96,guest_programs=programs,
         native_sources=('windows_boot_ui.c','pe_resources.c','windows_user32.c'),
         extra_inputs=(*extra,*[Path(__file__).resolve().parents[1]/'native'/n for n in ('windows_boot_ui.h','pe_resources.h','windows_user32.h')]),

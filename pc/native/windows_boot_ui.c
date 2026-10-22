@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 struct icon_record {uint32_t handle;uint16_t id;struct fnv_pe_resource group;};
-#define UI_EXPORTS 8
+#define UI_EXPORTS 12
 struct boot_window {uint32_t hwnd,atom,procedure,owner,phase;void *native;};
 struct fnv_windows_boot_ui {
     struct fnv_cpu_runtime *cpu;struct fnv_native_image image;fnv_host_mutex guard;
@@ -175,12 +175,37 @@ static void api_destroy_window(void){
     if(!w){fnv_windows_set_last_error(1400);fnv_cpu_return_u32(0,4);return;}
     (void)message(w,2,0,0);(void)message(w,0x82,0,0);release_window(active,w);fnv_cpu_return_u32(1,4);
 }
+static void api_get_active(void){
+    if(!ready())return;
+    uint32_t low,high,id;fnv_windows_current_stack_bounds(&low,&high,&id);(void)low;(void)high;
+    struct boot_window owned[16];unsigned n=0;uint32_t answer=0;
+    fnv_host_mutex_lock(&active->guard);
+    for(unsigned i=0;i<16;i++)if(active->windows[i].phase==2 && active->windows[i].owner==id)owned[n++]=active->windows[i];
+    fnv_host_mutex_unlock(&active->guard);
+    if(n && !active->backend.is_active){recomp_unimpl("Windows active-window probe unavailable",0);return;}
+    for(unsigned i=0;i<n;i++){
+        int selected=active->backend.is_active(active->backend.context,owned[i].native);
+        if(selected<0 || selected>1 || (selected && answer)){recomp_unimpl("Windows ambiguous active-window probe",0);return;}
+        if(selected)answer=owned[i].hwnd;
+    }
+    fnv_cpu_return_u32(answer,0);
+}
+static void api_swap_mouse(void){
+    uint32_t swap=fnv_cpu_argument_u32(0);if(!ready())return;
+    fnv_cpu_return_u32(fnv_windows_mouse_buttons(swap!=0),4);
+}
+static void api_double_click(void){if(ready())fnv_cpu_return_u32(fnv_windows_double_click_time(-1),0);}
+static void api_set_double_click(void){
+    uint32_t time=fnv_cpu_argument_u32(0);if(!ready())return;
+    (void)fnv_windows_double_click_time(time);fnv_cpu_return_u32(1,4);
+}
 static const struct fnv_cpu_export exports[]={
     {"user32.dll","LoadIconA",0,0,api_icon},{"gdi32.dll","GetStockObject",0,0,api_stock},
     {"user32.dll","RegisterClassA",0,0,api_register},{"user32.dll","UnregisterClassA",0,0,api_unregister},
     {"user32.dll","AdjustWindowRect",0,0,api_adjust},
     {"user32.dll","CreateWindowExA",0,0,api_create_window},{"user32.dll","DefWindowProcA",0,0,api_def_window},
-    {"user32.dll","DestroyWindow",0,0,api_destroy_window}
+    {"user32.dll","DestroyWindow",0,0,api_destroy_window},{"user32.dll","GetActiveWindow",0,0,api_get_active},{"user32.dll","SwapMouseButton",0,0,api_swap_mouse},
+    {"user32.dll","GetDoubleClickTime",0,0,api_double_click},{"user32.dll","SetDoubleClickTime",0,0,api_set_double_click}
 };
 const struct fnv_cpu_export *fnv_windows_boot_ui_exports(size_t *n){if(n)*n=UI_EXPORTS;return exports;}
 enum fnv_cpu_result fnv_windows_boot_ui_create(struct fnv_windows_process *process,const struct fnv_native_image *image,struct fnv_windows_boot_ui **out){
@@ -193,7 +218,7 @@ enum fnv_cpu_result fnv_windows_boot_ui_create(struct fnv_windows_process *proce
     struct fnv_windows_boot_ui *u=calloc(1,sizeof(*u));if(!u)return FNV_CPU_NO_MEMORY;
     if(!fnv_host_mutex_init(&u->guard)){free(u);return FNV_CPU_NO_MEMORY;}
     u->cpu=fnv_windows_runtime(process);u->image=*image;u->next_atom=0xc000;
-    fnv_cpu_function functions[UI_EXPORTS]={api_icon,api_stock,api_register,api_unregister,api_adjust,api_create_window,api_def_window,api_destroy_window};
+    fnv_cpu_function functions[UI_EXPORTS]={api_icon,api_stock,api_register,api_unregister,api_adjust,api_create_window,api_def_window,api_destroy_window,api_get_active,api_swap_mouse,api_double_click,api_set_double_click};
     enum fnv_cpu_result r=fnv_cpu_register_native(u->cpu,functions,UI_EXPORTS,u->tokens);
     if(r!=FNV_CPU_OK){fnv_host_mutex_destroy(&u->guard);free(u);return r;}active=u;*out=u;return FNV_CPU_OK;
 }
@@ -223,4 +248,11 @@ enum fnv_cpu_result fnv_windows_boot_ui_presentation(struct fnv_windows_boot_ui 
     fnv_host_mutex_lock(&u->guard);
     for(unsigned i=0;i<16;i++)if(u->windows[i].hwnd==hwnd && u->windows[i].phase && u->windows[i].owner==id)*out=u->windows[i].native;
     fnv_host_mutex_unlock(&u->guard);return *out?FNV_CPU_OK:FNV_CPU_INVALID;
+}
+
+int fnv_windows_boot_ui_input_focus(struct fnv_windows_boot_ui *u,uint32_t hwnd){
+    void *window=NULL;if(fnv_windows_boot_ui_presentation(u,hwnd,&window)!=FNV_CPU_OK)return 0;
+    if(!u->backend.input_focus)return -1;
+    int value=u->backend.input_focus(u->backend.context,window);
+    return value==0 || value==1?value:-1;
 }

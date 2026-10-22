@@ -63,7 +63,7 @@ struct fnv_windows_process {
     struct fnv_windows_config config;
     struct fnv_cpu_runtime *cpu;
     struct windows_thread *threads;
-    uint32_t allocated[FNV_WINDOWS_TLS_SLOTS/32];
+    uint32_t allocated[FNV_WINDOWS_TLS_SLOTS/32],mouse_swapped,double_click_ms;
     atomic_flag guard;
     fnv_host_mutex heap_guard;
     struct heap_store heap,*private_heaps;
@@ -136,6 +136,17 @@ static struct windows_thread *thread(void) {
 }
 static unsigned char *slot(struct windows_thread *t,uint32_t index) {
     return index<64?t->teb+TEB_SLOTS+index*4:t->expansion+(index-64)*4;
+}
+uint32_t fnv_windows_double_click_time(int64_t setting){
+    struct fnv_windows_process *p=thread()->process;lock(p);
+    uint32_t old=p->double_click_ms?p->double_click_ms:500;
+    if(setting>=0)p->double_click_ms=setting==0?500:setting>5000?5000:(uint32_t)setting;
+    unlock(p);return old;
+}
+uint32_t fnv_windows_mouse_buttons(int setting){
+    struct fnv_windows_process *p=thread()->process;lock(p);uint32_t old=p->mouse_swapped;
+    if(setting>=0)p->mouse_swapped=!!setting;
+    unlock(p);return old;
 }
 int fnv_windows_set_debug_name(const char *name){
     if(!name)return 0;
