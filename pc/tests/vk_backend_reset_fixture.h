@@ -7,6 +7,7 @@ static DWORD WINAPI reset_other_thread(void *unused){
     assert(call(F_COOPERATIVE,1,&device_at)==FNV_VK_INVALID);uint32_t args[]={device_at,DATA};assert(call(F_RESET,2,args)==FNV_VK_INVALID);assert(!fnv_cpu_detach());return 0;
 }
 static void exercise_reset(void){
+    uint32_t mat[17]={0},mat_out[17];mat[0]=0x3f000000;material_set(mat);
     float matrix[16],matrix_out[16],identity[16];matrix_identity(identity);
     memcpy(matrix,identity,64);matrix[12]=77;
     assert(!call(SB_BEGIN,1,&device_at));matrix_set(256,matrix);uint32_t matrix_block=end_block();
@@ -14,8 +15,10 @@ static void exercise_reset(void){
     assert(!call(F_COOPERATIVE,1,&device_at));reset_checks++;
     memcpy(ptr(DATA),reset_params,56);put(DATA,64);unsigned char saved[56];memcpy(saved,ptr(DATA),56);uint32_t args[]={device_at,DATA};
     assert(call(F_RESET,2,args)==FNV_VK_INVALID && !memcmp(ptr(DATA),saved,56));assert(call(F_COOPERATIVE,1,&device_at)==0x88760869u);reset_checks+=2;
+    material_get(mat_out);assert(!memcmp(mat,mat_out,68));
     matrix_get(256,matrix_out);assert(!memcmp(matrix,matrix_out,64));
     assert(!reset_call() && get(DATA)==32 && get(DATA+4)==32 && get(DATA+8)==21 && get(DATA+12)==1);assert(!call(F_COOPERATIVE,1,&device_at));reset_checks+=2;
+    memset(mat,0,68);material_get(mat_out);assert(!memcmp(mat,mat_out,68));
     for(unsigned state=0;state<512;state++)if(fnv_transform_index(state)>=0){matrix_get(state,matrix_out);assert(!memcmp(identity,matrix_out,64));}
     assert(!call(SB_APPLY,1,&matrix_block));matrix_get(256,matrix_out);assert(matrix_out[12]==77);assert(!release(matrix_block));matrix_set(256,identity);
     uint32_t rt[]={device_at,0,GUEST_OUT};assert(!call(GET_RT,3,rt));uint32_t back=get(GUEST_OUT);

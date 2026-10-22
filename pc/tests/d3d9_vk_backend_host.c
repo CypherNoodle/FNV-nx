@@ -45,6 +45,7 @@ static void pixels(uint32_t base,uint32_t patch,unsigned w,unsigned h,unsigned x
 #include "vk_backend_factory_fixture.h"
 #include "d3d9_transform_state.h"
 #include "vk_backend_transforms_fixture.h"
+#include "vk_backend_material_fixture.h"
 #include "vk_backend_reset_fixture.h"
 #ifndef FNV_VK_HOST_MAIN
 #define FNV_VK_HOST_MAIN main
@@ -82,7 +83,7 @@ int FNV_VK_HOST_MAIN(int argc,char **argv){
     size_t exports_count=0,bound_count=0;const struct fnv_cpu_export *exports=fnv_d3d9_com_exports(com,&exports_count);struct fnv_native_import imports[4];assert(exports_count==1);
     assert(!fnv_cpu_bind_imports(cpu,&image,imports,4,exports,exports_count,&bound_count) && bound_count==1);
     device_at=fnv_d3d9_com_device(com);
-    struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(!fnv_cpu_attach(cpu,&initial));exercise_factory();exercise_transforms();exercise_reset();exercise_com_present();
+    struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(!fnv_cpu_attach(cpu,&initial));exercise_factory();exercise_transforms();exercise_material();exercise_reset();exercise_com_present();
     uint32_t back_args[]={device_at,0,GUEST_OUT},ds_args[]={device_at,GUEST_OUT};assert(!call(GET_RT,3,back_args));uint32_t back=get(GUEST_OUT);
     assert(!call(GET_DS,2,ds_args));uint32_t auto_ds=get(GUEST_OUT);
     uint32_t rt=surface(0,16),ds=surface(1,16);target(rt,ds);uintptr_t old_color=native_color();

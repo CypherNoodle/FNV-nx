@@ -29,7 +29,7 @@ static void api_reset(void){
     }
     hr=fnv_d3d9_constants_create(c->config.vertex_floats,c->config.pixel_floats,&fresh);if(hr)goto failure;
     hr=c->config.backend.reset(c->config.backend.context,c->config.reset_timeout_ns);if(hr)goto failure;
-    fnv_transform_init(&c->transforms);
+    fnv_transform_init(&c->transforms);memset(c->material,0,sizeof(c->material));
     clear_bindings(c);for(unsigned i=0;i<16;++i)c->streams[i]=(struct stream){-1,0,0,1};
     struct fnv_d3d9_constants *old=c->constants;c->constants=fresh;fresh=NULL;fnv_d3d9_constants_destroy(old);
     c->reset_failed=0;memcpy(c->present_params,values,sizeof(values));

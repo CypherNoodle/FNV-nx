@@ -11,7 +11,7 @@ enum { DEVICE_SLOTS=119,METHODS=FNV_D3D9_COM_METHOD_COUNT,FACTORY_VTABLE=768,FAC
 enum { E_POINTER_VALUE=0x80004003u,E_NOINTERFACE_VALUE=0x80004002u };
 struct code { unsigned char *bytes;uint32_t size;enum fnv_d3d9_stage stage; };
 struct mip {uint32_t width,height,pitch,offset,locked,flags,left,top,right,bottom;};
-struct state_block {struct fnv_transform_state transforms;uint32_t transform_mask[9];uint32_t count,binding_mask;int bindings[18];struct fnv_d3d9_state_value entries[256];struct fnv_d3d9_constant_snapshot constants;};
+struct state_block {struct fnv_transform_state transforms;uint32_t transform_mask[9],material[17],material_set;uint32_t count,binding_mask;int bindings[18];struct fnv_d3d9_state_value entries[256];struct fnv_d3d9_constant_snapshot constants;};
 struct resource {
     uintptr_t handle;uint32_t references,pins,state_pins;struct code *code;enum fnv_d3d9_resource_kind kind;
     uint32_t data,size,usage,format,fvf,pool,locked,lock_offset,lock_bytes,lock_flags;
@@ -26,7 +26,7 @@ struct fnv_d3d9_com {
     struct fnv_cpu_runtime *cpu;
     struct fnv_d3d9_com_config config;
     struct fnv_d3d9_constants *constants;
-    struct fnv_transform_state transforms;
+    struct fnv_transform_state transforms;uint32_t material[17];
     struct code *catalog;
     struct resource *resources;
     unsigned char *objects;
@@ -753,6 +753,7 @@ CONSTANTS(vertex,FNV_D3D9_VERTEX)
 CONSTANTS(pixel,FNV_D3D9_PIXEL)
 static void unsupported(void){invalid("D3D9 COM method pending",fnv_cpu_argument_u32(0));}
 #include "d3d9_factory.inc"
+#include "d3d9_material_methods.inc"
 #include "d3d9_reset.inc"
 static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_release,api_get_device,api_get_function,
     api_create_vertex,api_create_pixel,vertex_sf,vertex_gf,vertex_si,vertex_gi,vertex_sb,vertex_gb,
@@ -769,7 +770,7 @@ static const fnv_cpu_function functions[METHODS]={api_query,api_addref,api_relea
     api_begin_scene,api_end_scene,api_draw_primitive,api_draw_indexed,
     api_direct3d9,api_adapter_count,api_mode_count,api_enum_modes,api_display_mode,api_check_type,api_check_format,
     api_factory_caps,api_create_device,api_device_parent,api_creation_parameters,
-    api_unavailable2,api_adapter_identifier,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock,api_set_transform,api_get_transform,api_multiply_transform};
+    api_unavailable2,api_adapter_identifier,api_unavailable5,api_depth_match,api_multisample,api_adapter_monitor,api_device_caps,api_present,api_reset,api_cooperative,api_draw_up,api_draw_indexed_up,api_set_fvf,api_get_fvf,api_begin_stateblock,api_end_stateblock,api_capture_stateblock,api_apply_stateblock,api_create_stateblock,api_set_transform,api_get_transform,api_multiply_transform,api_set_material,api_get_material};
 static void dispose(struct fnv_d3d9_com *c) {
     if(c->catalog)for(size_t i=0;i<c->config.catalog_count;i++)free(c->catalog[i].bytes);
     free(c->recording);free(c->catalog);free(c->resources);free(c->free_spans);fnv_d3d9_constants_destroy(c->constants);fnv_host_mutex_destroy(&c->guard);free(c);
@@ -855,6 +856,7 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     write32(c->objects+BLOCK_VTABLE+16,c->tokens[94]);write32(c->objects+BLOCK_VTABLE+20,c->tokens[95]);
     write32(c->objects+59*4,c->tokens[96]);write32(c->objects+60*4,c->tokens[92]);write32(c->objects+61*4,c->tokens[93]);
     for(unsigned i=0;i<3;i++)write32(c->objects+(44+i)*4,c->tokens[97+i]);
+    write32(c->objects+49*4,c->tokens[100]);write32(c->objects+50*4,c->tokens[101]);
     write32(c->objects+89*4,c->tokens[90]);write32(c->objects+90*4,c->tokens[91]);
     write32(c->objects+83*4,c->tokens[88]);write32(c->objects+84*4,c->tokens[89]);
     write32(c->objects+17*4,c->tokens[85]);
