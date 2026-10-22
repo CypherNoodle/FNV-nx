@@ -2,7 +2,7 @@
 #define FNV_D3D9_COM_H
 #include "cpu_runtime.h"
 #include "d3d9_constants.h"
-#define FNV_D3D9_COM_METHOD_COUNT 97u
+#define FNV_D3D9_COM_METHOD_COUNT 100u
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
 enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE,FNV_D3D9_STATEBLOCK };

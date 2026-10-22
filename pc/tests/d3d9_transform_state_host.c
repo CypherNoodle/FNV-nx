@@ -25,6 +25,19 @@ int main(void){
         assert(!fnv_transform_get(&bank,state,(float *)&actual));assert(SUCCEEDED(d->lpVtbl->GetTransform(d,(D3DTRANSFORMSTATETYPE)state,&expected)));
         assert(!memcmp(&actual,&expected,64));checks++;
     }
+    /* MultiplyTransform is not recorded by Windows BeginStateBlock. */
+    D3DMATRIX recorded={0},live={0},scale={0},observed;
+    for(unsigned i=0;i<4;i++){((float *)&recorded)[i*5]=1;((float *)&live)[i*5]=1;((float *)&scale)[i*5]=1;}
+    live._41=2;recorded._41=5;scale._11=3;
+    assert(SUCCEEDED(d->lpVtbl->SetTransform(d,D3DTS_WORLD,&live)));
+    assert(SUCCEEDED(d->lpVtbl->BeginStateBlock(d)));
+    assert(SUCCEEDED(d->lpVtbl->SetTransform(d,D3DTS_WORLD,&recorded)));
+    assert(SUCCEEDED(d->lpVtbl->MultiplyTransform(d,D3DTS_WORLD,&scale)));
+    IDirect3DStateBlock9 *block=NULL;assert(SUCCEEDED(d->lpVtbl->EndStateBlock(d,&block)));
+    assert(SUCCEEDED(d->lpVtbl->GetTransform(d,D3DTS_WORLD,&observed)) && observed._11==3 && observed._41==2);
+    assert(SUCCEEDED(block->lpVtbl->Apply(block)));
+    assert(SUCCEEDED(d->lpVtbl->GetTransform(d,D3DTS_WORLD,&observed)) && observed._11==1 && observed._41==5);
+    block->lpVtbl->Release(block);
     struct fnv_transform_state before=bank;float canary[16],input[16]={0};memset(canary,0xa5,64);
     for(unsigned state=0;state<512;state++)if(fnv_transform_index(state)<0){
         assert(fnv_transform_get(&bank,state,canary)==(uint32_t)D3DERR_INVALIDCALL);

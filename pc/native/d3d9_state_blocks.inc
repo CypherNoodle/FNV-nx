@@ -55,6 +55,10 @@ static void stateblock_operation(uint32_t operation){
             }else for(unsigned i=0;i<18;++i)if(b->binding_mask&(1u<<i))change_binding(c,block_slot(c,i),b->bindings[i]);
         }
         if(!hr)hr=fnv_d3d9_constants_snapshot(c->constants,&b->constants,operation);
+        if(!hr)for(unsigned i=0;i<266;i++)if(b->transform_mask[i/32]&(1u<<(i%32))){
+            if(operation==1)memcpy(b->transforms.matrices[i],c->transforms.matrices[i],64);
+            else memcpy(c->transforms.matrices[i],b->transforms.matrices[i],64);
+        }
     }
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,4);
 }
