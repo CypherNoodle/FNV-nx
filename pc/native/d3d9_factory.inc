@@ -14,15 +14,20 @@ static void api_direct3d9(void){
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,4);
 }
 static void api_adapter_count(void){struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);fnv_host_mutex_lock(&c->guard);factory_this(c,self);fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(1,4);}
+/* Enumeration ignores display alpha (EnumAdapterModes contract). The
+ * prepared render target remains A8R8G8B8; this does not add an XRGB target. */
+static int factory_display_format(const struct fnv_d3d9_com *c,uint32_t format){
+    return format==c->factory.color_format || (c->factory.color_format==21 && format==22);
+}
 static void api_mode_count(void){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),format=fnv_cpu_argument_u32(2);struct fnv_d3d9_com *c=module();
-    fnv_host_mutex_lock(&c->guard);factory_this(c,self);uint32_t result=!adapter && format==c->factory.color_format;fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("GetAdapterModeCount adapter=%u format=%u count=%u\n",adapter,format,result);fnv_cpu_return_u32(result,12);
+    fnv_host_mutex_lock(&c->guard);factory_this(c,self);uint32_t result=!adapter && factory_display_format(c,format);fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("GetAdapterModeCount adapter=%u format=%u count=%u\n",adapter,format,result);fnv_cpu_return_u32(result,12);
 }
 static void display_mode(int enumerate){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),format=enumerate?fnv_cpu_argument_u32(2):0,index=enumerate?fnv_cpu_argument_u32(3):0;
     struct fnv_d3d9_com *c=module();unsigned char *out=range(c,fnv_cpu_argument_u32(enumerate?4:2),16,1);uint32_t result=FNV_D3D9_INVALIDCALL;
     fnv_host_mutex_lock(&c->guard);factory_this(c,self);
-    if(out && !adapter && !index && (!enumerate || format==c->factory.color_format)){const uint32_t values[4]={c->factory.width,c->factory.height,c->factory.refresh_hz,c->factory.color_format};for(unsigned i=0;i<4;++i)write32(out+i*4,values[i]);result=0;}
+    if(out && !adapter && !index && (!enumerate || factory_display_format(c,format))){const uint32_t values[4]={c->factory.width,c->factory.height,c->factory.refresh_hz,enumerate?format:c->factory.color_format};for(unsigned i=0;i<4;++i)write32(out+i*4,values[i]);result=0;}
     fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("DisplayMode enumerate=%d adapter=%u format=%u index=%u hr=%08x\n",enumerate,adapter,format,index,result);fnv_cpu_return_u32(result,enumerate?20:12);
 }
 static void api_enum_modes(void){display_mode(1);}
@@ -30,14 +35,14 @@ static void api_display_mode(void){display_mode(0);}
 static void api_check_type(void){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),type=fnv_cpu_argument_u32(2),display=fnv_cpu_argument_u32(3),back=fnv_cpu_argument_u32(4),windowed=fnv_cpu_argument_u32(5);
     struct fnv_d3d9_com *c=module();fnv_host_mutex_lock(&c->guard);factory_this(c,self);
-    uint32_t result=adapter?FNV_D3D9_INVALIDCALL:type==1 && display==c->factory.color_format && (back==c->factory.color_format || (windowed && !back))?0:NOT_AVAILABLE;
+    uint32_t result=adapter?FNV_D3D9_INVALIDCALL:type==1 && factory_display_format(c,display) && (back==c->factory.color_format || (windowed && !back))?0:NOT_AVAILABLE;
     fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CheckDeviceType adapter=%u type=%u display=%u back=%u windowed=%u hr=%08x\n",adapter,type,display,back,windowed,result);fnv_cpu_return_u32(result,24);
 }
 static void api_check_format(void){
     struct fnv_d3d9_com *c=module();uint32_t args[6];for(unsigned i=0;i<6;++i)args[i]=fnv_cpu_argument_u32(i+1);
     uint32_t self=fnv_cpu_argument_u32(0);fnv_host_mutex_lock(&c->guard);factory_this(c,self);uint32_t result=NOT_AVAILABLE;
     if(args[0])result=FNV_D3D9_INVALIDCALL;
-    else if(args[1]==1 && args[2]==c->factory.color_format && c->factory.query)result=c->factory.query(c->factory.context,0,args,6,NULL,0);
+    else if(args[1]==1 && factory_display_format(c,args[2]) && c->factory.query)result=c->factory.query(c->factory.context,0,args,6,NULL,0);
     fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CheckDeviceFormat adapter=%u type=%u adapter_format=%u usage=%u resource=%u check=%u hr=%08x\n",args[0],args[1],args[2],args[3],args[4],args[5],result);fnv_cpu_return_u32(result,28);
 }
 static void get_caps(int factory){
@@ -74,7 +79,7 @@ static void api_depth_match(void){
     struct fnv_d3d9_com *c=module();uint32_t args[6];for(unsigned i=0;i<6;++i)args[i]=fnv_cpu_argument_u32(i);
     fnv_host_mutex_lock(&c->guard);factory_this(c,args[0]);uint32_t hr=NOT_AVAILABLE;
     if(args[1])hr=FNV_D3D9_INVALIDCALL;
-    else if(args[2]==1 && args[3]==c->factory.color_format && args[4]==21 && args[5]==75){
+    else if(args[2]==1 && factory_display_format(c,args[3]) && args[4]==21 && args[5]==75){
         hr=factory_surface_format(c,args[4],1);if(!hr)hr=factory_surface_format(c,args[5],2);
     }
     fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,24);

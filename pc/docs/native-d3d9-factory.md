@@ -140,3 +140,25 @@ Referencia: [GetAdapterIdentifier](https://learn.microsoft.com/en-us/windows/win
 Estado posterior: [GetDeviceCaps limitado](native-d3d9-caps.md) ya devuelve una
 imagen HAL valida de304 bytes para el proveedor Vulkan propio. No completa la
 cobertura D3D9 ni anuncia Shader Model sin soporte general verificado.
+
+## Display alpha compatibility
+
+The prepared A8R8G8B8 mode is also enumerated when queried as X8R8G8B8:
+D3D9 mode comparison ignores alpha. Enumeration preserves the requested
+format in D3DDISPLAYMODE. Adapter checks accept either display spelling while
+CheckDeviceType, depth matching and CreateDevice retain the implemented ARGB
+render-target requirement. This does not add an XRGB render target or shaders.
+
+Desktop validation `local/vulkan-display-alpha01/validation.json` passes80
+factory checks, including both enumeration forms, unchanged output for unsupported
+formats, ARGB render checks with XRGB display, and rejection of XRGB targets.
+The existing46 synthetic draws, pixel controls and251/256 completed submissions
+(offscreen/WSI) still pass. These are synthetic desktop results, not game frames.
+
+Private startup replay44 now enumerates XRGB successfully but still reaches
+MessageBoxA renderer rejection at204725 indirect calls. Its XRGB backbuffer
+requests remain unsupported; there is no CreateDevice call. This correction
+alone does not resolve the game's renderer selection. Shader caps are still
+limited. Further investigation must distinguish these filters from dimensions.
+
+Reference: [Microsoft EnumAdapterModes](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3d9-enumadaptermodes).

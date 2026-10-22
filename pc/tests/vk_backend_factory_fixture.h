@@ -52,6 +52,20 @@ static void exercise_factory(void){
     uint32_t mode_count[]={factory,0,21};assert(call(F_MODE_COUNT,3,mode_count)==1);mode_count[1]=1;assert(!call(F_MODE_COUNT,3,mode_count));factory_checks+=2;
     uint32_t mode[]={factory,0,21,0,DATA};memset(ptr(DATA),0xa5,32);assert(!call(F_ENUM,5,mode));assert(get(DATA)==32 && get(DATA+4)==32 && get(DATA+8)==60 && get(DATA+12)==21 && get(DATA+16)==0xa5a5a5a5);
     memset(ptr(DATA),0xa5,16);mode[3]=1;assert(call(F_ENUM,5,mode)==FNV_VK_INVALID);for(unsigned i=0;i<4;++i)assert(get(DATA+i*4)==0xa5a5a5a5);factory_checks+=2;
+    /* RGB display modes ignore alpha; target storage stays ARGB. */
+    mode_count[1]=0;mode_count[2]=22;assert(call(F_MODE_COUNT,3,mode_count)==1);
+    mode[2]=22;mode[3]=0;memset(ptr(DATA),0xa5,32);assert(!call(F_ENUM,5,mode));
+    assert(get(DATA)==32 && get(DATA+4)==32 && get(DATA+8)==60 && get(DATA+12)==22 && get(DATA+16)==0xa5a5a5a5);
+    mode_count[2]=23;assert(!call(F_MODE_COUNT,3,mode_count));
+    mode[2]=23;memset(ptr(DATA),0xa5,32);assert(call(F_ENUM,5,mode)==FNV_VK_INVALID);
+    for(unsigned i=0;i<32;i++)assert(ptr(DATA)[i]==0xa5);
+    uint32_t rgb_type[]={factory,0,1,22,21,1};assert(!call(F_TYPE,6,rgb_type));
+    rgb_type[2]=2;assert(call(F_TYPE,6,rgb_type)==0x8876086au);
+    uint32_t rgb_format[]={factory,0,1,22,1,1,21};assert(!call(F_FORMAT,7,rgb_format));
+    rgb_format[6]=22;assert(call(F_FORMAT,7,rgb_format)==0x8876086au);
+    uint32_t rgb_match[]={factory,0,1,22,21,75};assert(!call(F_DEPTH_MATCH,6,rgb_match));
+    rgb_match[4]=22;assert(call(F_DEPTH_MATCH,6,rgb_match)==0x8876086au);
+    factory_checks+=10;
     uint32_t display[]={factory,0,DATA};assert(!call(F_DISPLAY,3,display) && get(DATA)==32);
     uint32_t type[]={factory,0,1,21,21,1};assert(!call(F_TYPE,6,type));type[2]=2;assert(call(F_TYPE,6,type)==0x8876086au);factory_checks+=3;
     uint32_t format[]={factory,0,1,21,0,3,21};assert(!call(F_FORMAT,7,format));format[6]=0x31545844;assert(!call(F_FORMAT,7,format));
