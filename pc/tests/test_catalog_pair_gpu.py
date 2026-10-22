@@ -1,6 +1,6 @@
 """Compare an explicitly selected texture-copy shader pair on D3D9 and Vulkan.
 
-Bounded fixture: POSITION float4, TEXCOORD0 float2, sampler2D s0, no uniforms.
+Bounded fixture: POSITION float4, TEXCOORD0 float2, sampler2D s0, optional float banks.
 Selection from an original package does not prove the game binds that pair.
 All extracted bytecode and generated SPIR-V remain in private output.
 """
@@ -39,6 +39,9 @@ def run(a):
         dllpath=Path(os.environ['SystemRoot'])/'System32/d3dcompiler_47.dll';frozen[str(dllpath)]=sha(dllpath);dll=C.WinDLL(str(dllpath))
         own_vs=b'struct V{float4 p:POSITION;float2 uv:TEXCOORD0;};V main(V v){return v;}'
         own_ps=b'sampler2D image:register(s0);float4 main(float2 uv:TEXCOORD0):COLOR0{return tex2D(image,uv);}'
+        if a.constants:
+            own_vs=b'row_major float4x4 transform:register(c0);struct V{float4 p:POSITION;float2 uv:TEXCOORD0;};V main(V v){v.p=mul(v.p,transform);return v;}'
+            own_ps=b'float4 tint:register(c5);sampler2D image:register(s0);float4 main(float2 uv:TEXCOORD0):COLOR0{return tex2D(image,uv)*tint;}'
         for stage,source in (('vs',own_vs),('ps',own_ps)):(out/(stage+'.bin')).write_bytes(compile_hlsl(dll,source,(stage+'_3_0').encode()))
     descriptors={}
     for stage in ('vs','ps'):
@@ -46,30 +49,44 @@ def run(a):
         p=subprocess.run([str(linker),'--describe',str(path)],capture_output=True,text=True,env=env,timeout=30)
         assert not p.returncode,p.stderr;descriptors[stage]=json.loads(p.stdout)
     v,p=descriptors['vs'],descriptors['ps']
-    if v['stage']!=2 or v['inputs']!=[dict(usage=0,index=0),dict(usage=5,index=0)] or v['uniforms'] or v['samplers']:raise ValueError('vertex shader outside fixture contract')
-    if p['stage']!=1 or p['inputs']!=[dict(usage=5,index=0)] or p['uniforms'] or p['samplers']!=[dict(index=0,type=0,texbem=False)]:raise ValueError('pixel shader outside fixture contract')
+    if v['stage']!=2 or v['inputs']!=[dict(usage=0,index=0),dict(usage=5,index=0)] or v['samplers']:raise ValueError('vertex shader outside fixture contract')
+    if p['stage']!=1 or p['inputs']!=[dict(usage=5,index=0)] or p['samplers']!=[dict(index=0,type=0,texbem=False)]:raise ValueError('pixel shader outside fixture contract')
+    for d in (v,p):
+        active=[u for u in d['uniforms'] if not u['local']]
+        if not a.constants and active:raise ValueError('uniforms require explicit --constants fixture')
+        if any(u['kind']!=0 for u in active):raise ValueError('only float banks supported by this fixture')
+        if a.constants and not active:raise ValueError('constant fixture requires active uniforms in both stages')
     (out/'attributes.txt').write_text('0 0 3\n5 0 1\n')
     pair=translate(SimpleNamespace(vs=out/'vs.bin',ps=out/'ps.bin',attributes=out/'attributes.txt',linker=linker,output=out/'pair'))
-    assert not pair['stages']['vs']['uniform_plan']['bytes'] and not pair['stages']['ps']['uniform_plan']['bytes']
+    plans={s:pair['stages'][s]['uniform_plan'] for s in ('vs','ps')}
     locations={i['name']:i['location'] for i in pair['stages']['vs']['spirv']['interfaces'] if i['storage']==1 and 'location' in i}
     assert set(locations)=={'vs_v0','vs_v1'}
-    (out/'catalog_pair_fixture.h').write_text('static const struct fnv_uniform_plan vertex_plan={0},pixel_plan={0};\nstatic const struct fnv_vk_vertex_input vertex_inputs[]={{0,0,%d},{5,0,%d}};\n'%(locations['vs_v0'],locations['vs_v1']))
+    header=['#define FNV_CATALOG_CONSTANTS 1'] if a.constants else []
+    for stage,name in (('vs','vertex'),('ps','pixel')):
+        plan=plans[stage];pointer='NULL'
+        if plan['entries']:
+            header.append('static const struct fnv_uniform_entry '+name+'_entries[]={'+','.join('{'+','.join(str(e[k]) for k in ('kind','first','count','offset','stride'))+'}' for e in plan['entries'])+'};')
+            pointer=name+'_entries'
+        header.append('static const struct fnv_uniform_plan '+name+'_plan={'+str(plan['bytes'])+','+str(len(plan['entries']))+','+pointer+'};')
+    header.append('static const struct fnv_vk_vertex_input vertex_inputs[]={{0,0,%d},{5,0,%d}};'%(locations['vs_v0'],locations['vs_v1']))
+    (out/'catalog_pair_fixture.h').write_text('\n'.join(header)+'\n')
     command=[str(cc),'-std=c11','-O1','-Wall','-Wextra','-Werror','-fno-strict-aliasing','-ffp-contract=off','-I'+str(pc/'native'),'-I'+str(out),'-I'+str(a.headers.resolve()),str(pc/'tests/catalog_pair_gpu_host.c'),*[str(pc/'native'/n) for n in native],'-ld3d9','-luser32','-o',str(out/'gpu-test.exe')]
     b=subprocess.run(command,capture_output=True,text=True,env=env,timeout=120);(out/'compiler.log').write_text(b.stdout+b.stderr);assert not b.returncode,b.stderr
     args=[str(out/'gpu-test.exe'),str(out/'vs.bin'),str(out/'ps.bin'),str(out/'pair/vs.spv'),str(out/'pair/ps.spv')]
     p=subprocess.run(args,capture_output=True,text=True,env=env,timeout=60);(out/'normal.log').write_text(p.stdout+p.stderr);assert not p.returncode,p.stdout+p.stderr
     assert 'PASS catalog pair 6144 pixels' in p.stdout
-    for mode in ('wrong-uv','wrong-texture'):
+    controls=('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants','missing-pixel-center') if a.constants else ('wrong-uv','wrong-texture')
+    for mode in controls:
         bad=subprocess.run([*args,mode],capture_output=True,text=True,env=env,timeout=60);(out/(mode+'.log')).write_text(bad.stdout+bad.stderr)
         assert bad.returncode and 'catalog pixel mismatch' in bad.stderr
     assert all(sha(Path(n))==h for n,h in frozen.items())
-    report=dict(status='PASS',pixel_checks=6144,negative_controls=2,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
+    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),float_constants=a.constants,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
                 shader_sha256={s:sha(out/(s+'.bin')) for s in ('vs','ps')},spirv_sha256={s:sha(out/'pair'/(s+'.spv')) for s in ('vs','ps')},descriptors=descriptors)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ('status','pixel_checks','negative_controls','original_package_used','game_frame')}))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('output','linker','headers'):p.add_argument('--'+n,type=Path,required=True)
-    p.add_argument('--cc',required=True);p.add_argument('--package',type=Path)
+    p.add_argument('--cc',required=True);p.add_argument('--package',type=Path);p.add_argument('--constants',action='store_true')
     for n in ('package-sha256','vertex-sha256','pixel-sha256'):p.add_argument('--'+n)
     run(p.parse_args())

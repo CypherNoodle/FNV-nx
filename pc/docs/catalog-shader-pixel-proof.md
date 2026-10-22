@@ -62,6 +62,34 @@ To use original programs, the pixel test additionally requires `--package`,
 belong to that exact package and satisfy this fixture's interface contract.
 Neither filenames nor similar shader names are treated as pairing evidence.
 
+## Constant banks and pixel-center correction
+
+An additional explicitly selected original VS/PS pair now exercises four
+vertex float registers (c0..3) and pixel register c5. The fixture's optional
+`--constants` mode reflects upload plans instead of requiring empty UBOs.
+Synthetic matrices vary scale and translation, and pixel constants vary tint.
+The last frame uses a nonzero viewport origin with a smaller extent. Both the
+original pair and an own HLSL equivalent pass 6,144 pixel comparisons each.
+After submission the API constant banks are overwritten with zeros; pending
+draws still read the snapshot they received at submission.
+
+This exposed a real rasterization mismatch: D3D9 pixel centers are at integer
+coordinates, whereas Vulkan uses half-integer centers. The provider now adds
+0.5 to the framebuffer viewport X/Y origin after projection, retaining its
+negative-height Y convention. Guest viewport values, dimensions, scissor and
+shader constants stay unchanged. Bounds checks include the corrected origin.
+See [Microsoft's D3D9 pixel mapping](https://learn.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels)
+and [Khronos fragment-coordinate conventions](https://github.khronos.org/Vulkan-Site/glsl/latest/chapters/variables.html).
+
+Five negative controls detect wrong UV, wrong texture channels, incorrect VS
+constants, incorrect PS constants and removal of the viewport correction.
+The last control intercepts pipeline creation to remove just that correction,
+without altering original bytecode or the Windows reference. The fix also
+passes the existing 103-caller backend regression (46 draws, 251 headless and
+256 WSI submissions), the 9,216-pixel same-device fixed shader/Reset test and
+strict ARM64/libnx compilation. This is still desktop GPU validation, not a
+game frame or Switch performance result.
+
 ## Remaining integration
 
 The startup catalog still contains original D3D9 bytecodes only. It does not

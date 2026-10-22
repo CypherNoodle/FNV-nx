@@ -103,8 +103,8 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     if(fixed && (d->bound_shaders[0] || (fixed_bytes==64?d->lighting:(!d->lighting || d->specular || d->color_vertex))))goto done;
     if(!d->in_scene || !vs || !ps || !decl || !color || (primitive<4 || primitive>6) || (d->depth_state.enable && !depth))goto done;
     if(d->viewport[2]>d->properties.limits.maxViewportDimensions[0] || d->viewport[3]>d->properties.limits.maxViewportDimensions[1] ||
-       (double)d->viewport[0]<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]<d->properties.limits.viewportBoundsRange[0] ||
-       (double)d->viewport[0]+d->viewport[2]>d->properties.limits.viewportBoundsRange[1] || (double)d->viewport[1]+d->viewport[3]>d->properties.limits.viewportBoundsRange[1])goto done;
+       (double)d->viewport[0]+.5<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]+.5<d->properties.limits.viewportBoundsRange[0] ||
+       (double)d->viewport[0]+d->viewport[2]+.5>d->properties.limits.viewportBoundsRange[1] || (double)d->viewport[1]+d->viewport[3]+.5>d->properties.limits.viewportBoundsRange[1])goto done;
     struct program_entry *program=d->programs;while(program && (program->stages[0]!=vs->entry || program->stages[1]!=ps->entry))program=program->next;
     if(!program)goto done;
     struct fnv_geometry_input geometry={.elements=decl->elements,.element_count=decl->count,.indexed=(uint32_t)indexed,.primitive=primitive,
@@ -160,7 +160,10 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     d->v.UpdateDescriptorSets(d->device,write_count,writes,0,NULL);
     f->count=1;memset(f->commands,0,sizeof(*f->commands));hr=make_pass(d,f,0,color,depth);if(hr)goto rollback;
     float min_depth,max_depth;memcpy(&min_depth,d->viewport+4,4);memcpy(&max_depth,d->viewport+5,4);
-    VkViewport viewport={(float)d->viewport[0],(float)(d->viewport[1]+d->viewport[3]),(float)d->viewport[2],-(float)d->viewport[3],min_depth,max_depth};
+    /* D3D9 samples integer pixel centers; Vulkan samples half-integers.
+     * Move the post-projection viewport by half a pixel in framebuffer space.
+     * Keep guest viewport/scissor values and shader constants unchanged. */
+    VkViewport viewport={(float)d->viewport[0]+.5f,(float)(d->viewport[1]+d->viewport[3])+.5f,(float)d->viewport[2],-(float)d->viewport[3],min_depth,max_depth};
     VkRect2D scissor={{0,0},{color->width,color->height}};if(d->scissor_enabled)scissor=(VkRect2D){{(int32_t)d->scissor[0],(int32_t)d->scissor[1]},{d->scissor[2]-d->scissor[0],d->scissor[3]-d->scissor[1]}};
     VkPipelineShaderStageCreateInfo stages[2]={{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs->module,.pName="main"},
         {.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=ps->module,.pName="main"}};

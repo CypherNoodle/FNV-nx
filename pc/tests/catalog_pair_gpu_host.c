@@ -7,12 +7,35 @@
 #include <stdio.h>
 #undef NDEBUG
 #include <assert.h>
+/* Test-only Vulkan dispatch proxy: remove the viewport correction without
+ * changing guest vertices, shader programs or the Windows reference. */
+static PFN_vkGetInstanceProcAddr real_gpa;
+static PFN_vkGetDeviceProcAddr real_gdpa;
+static PFN_vkCreateGraphicsPipelines real_pipelines;
+static unsigned skip_pixel_center;
+static VKAPI_ATTR VkResult VKAPI_CALL test_pipelines(VkDevice d,VkPipelineCache cache,uint32_t count,const VkGraphicsPipelineCreateInfo *info,const VkAllocationCallbacks *allocator,VkPipeline *out){
+    if(!skip_pixel_center)return real_pipelines(d,cache,count,info,allocator,out);
+    assert(count==1 && info->pViewportState && info->pViewportState->viewportCount==1);
+    VkGraphicsPipelineCreateInfo next=*info;VkPipelineViewportStateCreateInfo state=*info->pViewportState;VkViewport viewport=*state.pViewports;
+    viewport.x-=.5f;viewport.y-=.5f;state.pViewports=&viewport;next.pViewportState=&state;
+    return real_pipelines(d,cache,count,&next,allocator,out);
+}
+static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL test_gdpa(VkDevice d,const char *name){
+    PFN_vkVoidFunction p=real_gdpa(d,name);
+    if(!strcmp(name,"vkCreateGraphicsPipelines")){assert(p);memcpy(&real_pipelines,&p,sizeof(p));return (PFN_vkVoidFunction)test_pipelines;}
+    return p;
+}
+static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL test_gpa(VkInstance instance,const char *name){
+    PFN_vkVoidFunction p=real_gpa(instance,name);
+    if(!strcmp(name,"vkGetDeviceProcAddr")){assert(p);memcpy(&real_gdpa,&p,sizeof(p));return (PFN_vkVoidFunction)test_gdpa;}
+    return p;
+}
 static unsigned char *load(const char *path,uint32_t *bytes){
     FILE *f=fopen(path,"rb");assert(f && !fseek(f,0,SEEK_END));long n=ftell(f);assert(n>0 && n<1048576);rewind(f);
     unsigned char *p=malloc((size_t)n);assert(p && fread(p,1,(size_t)n,f)==(size_t)n && !fclose(f));*bytes=(uint32_t)n;return p;
 }
 static const D3DVERTEXELEMENT9 elements[]={{0,0,D3DDECLTYPE_FLOAT4,0,D3DDECLUSAGE_POSITION,0},{0,16,D3DDECLTYPE_FLOAT2,0,D3DDECLUSAGE_TEXCOORD,0},D3DDECL_END()};
-static void oracle(const unsigned char *vs,const unsigned char *ps,const float *vertices,const unsigned char *texels,unsigned char *pixels){
+static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *ps,const float *vertices,const unsigned char *texels,const float *vc,const float *pc,unsigned char *pixels){
     HWND w=CreateWindowExA(0,"STATIC","Catalog shader oracle",WS_POPUP,0,0,32,32,NULL,NULL,GetModuleHandleA(NULL),NULL);assert(w);
     IDirect3D9 *api=Direct3DCreate9(32);assert(api);D3DPRESENT_PARAMETERS pp={0};pp.Windowed=1;pp.SwapEffect=D3DSWAPEFFECT_DISCARD;pp.hDeviceWindow=w;
     IDirect3DDevice9 *d=NULL;assert(!api->lpVtbl->CreateDevice(api,0,D3DDEVTYPE_HAL,w,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&pp,&d));
@@ -23,6 +46,7 @@ static void oracle(const unsigned char *vs,const unsigned char *ps,const float *
     assert(!d->lpVtbl->CreateVertexShader(d,(const DWORD*)vs,&v) && !d->lpVtbl->CreatePixelShader(d,(const DWORD*)ps,&p));
     assert(!d->lpVtbl->CreateVertexDeclaration(d,elements,&decl));
     assert(!d->lpVtbl->SetVertexShader(d,v) && !d->lpVtbl->SetPixelShader(d,p) && !d->lpVtbl->SetVertexDeclaration(d,decl));
+    assert(!d->lpVtbl->SetVertexShaderConstantF(d,0,vc,256) && !d->lpVtbl->SetPixelShaderConstantF(d,0,pc,224));
     assert(!d->lpVtbl->SetRenderState(d,D3DRS_CULLMODE,D3DCULL_NONE) && !d->lpVtbl->SetRenderState(d,D3DRS_ZENABLE,FALSE));
     assert(!d->lpVtbl->CreateTexture(d,2,2,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&texture,NULL));
     D3DLOCKED_RECT lock;assert(!texture->lpVtbl->LockRect(texture,0,&lock,NULL,0));
@@ -30,6 +54,7 @@ static void oracle(const unsigned char *vs,const unsigned char *ps,const float *
     assert(!texture->lpVtbl->UnlockRect(texture,0) && !d->lpVtbl->SetTexture(d,0,(IDirect3DBaseTexture9*)texture));
     assert(!d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,0,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
     assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
+    if(frame==5){D3DVIEWPORT9 viewport={4,2,24,28,0,1};assert(!d->lpVtbl->SetViewport(d,&viewport));}
     assert(!d->lpVtbl->BeginScene(d) && !d->lpVtbl->DrawPrimitiveUP(d,D3DPT_TRIANGLELIST,2,vertices,24) && !d->lpVtbl->EndScene(d));
     assert(!d->lpVtbl->GetRenderTargetData(d,target,read) && !read->lpVtbl->LockRect(read,&lock,NULL,D3DLOCK_READONLY));
     for(unsigned y=0;y<32;y++)memcpy(pixels+y*128,(const unsigned char*)lock.pBits+y*lock.Pitch,128);
@@ -40,6 +65,7 @@ static void oracle(const unsigned char *vs,const unsigned char *ps,const float *
 int main(int argc,char **argv){
     assert(argc==5 || argc==6);HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
     FARPROC proc=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&proc,sizeof(gp));
+    real_gpa=gp;gp=test_gpa;skip_pixel_center=argc==6 && !strcmp(argv[5],"missing-pixel-center");
     struct fnv_vk_config cfg={32,32,32,2,16,16u<<20,0};struct fnv_vk_backend *gpu;VkResult failure;
     assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));struct fnv_d3d9_shader_backend b;fnv_vk_backend_callbacks(gpu,&b);
     unsigned char *code[2],*spv[2];uint32_t cb[2],sb[2];uintptr_t shader[2];
@@ -55,6 +81,9 @@ int main(int argc,char **argv){
     uint32_t state[6]={1};assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,22,state,0));state[0]=0;assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,7,state,0));
     const float xy[12]={-1,1,1,1,1,-1,-1,1,1,-1,-1,-1};unsigned checks=0;
     for(unsigned frame=0;frame<6;frame++){
+        float vc[1024]={0},pc[896]={0};
+        vc[0]=vc[5]=(frame&1)?.75f:1;vc[10]=vc[15]=1;vc[12]=(frame&2)?.125f:0;
+        for(unsigned i=0;i<224;i++){pc[i*4]=.5f;pc[i*4+1]=.75f;pc[i*4+2]=(frame&1)?.25f:1;pc[i*4+3]=.625f;}
         float vertices[36];unsigned char texels[16]={31,83,211,193,173,47,109,127,71,229,53,89,251,139,17,241};
         for(unsigned i=0;i<16;i++)texels[i]^=(unsigned char)(frame*7);
         for(unsigned i=0;i<6;i++){
@@ -62,14 +91,28 @@ int main(int argc,char **argv){
             vertices[i*6+4]=frame>=4?(xy[i*2]+1)*.5f:((frame&1)?.75f:.25f);
             vertices[i*6+5]=frame>=4?(1-xy[i*2+1])*.5f:((frame&2)?.75f:.25f);
         }
-        unsigned char expected[4096];oracle(code[0],code[1],vertices,texels,expected);
+        unsigned char expected[4096];oracle(frame,code[0],code[1],vertices,texels,vc,pc,expected);
         if(argc==6 && !strcmp(argv[5],"wrong-uv"))for(unsigned i=0;i<6;i++)vertices[i*6+4]=.75f;
         if(argc==6 && !strcmp(argv[5],"wrong-texture"))for(unsigned i=0;i<4;i++){unsigned char t=texels[i*4];texels[i*4]=texels[i*4+2];texels[i*4+2]=t;}
+        if(argc==6 && !strcmp(argv[5],"wrong-vs-constants"))memset(vc,0,sizeof(vc));
+        if(argc==6 && !strcmp(argv[5],"wrong-ps-constants"))memset(pc,0,sizeof(pc));
+#ifdef FNV_CATALOG_CONSTANTS
+        uint32_t vbits[1024],pbits[896];memcpy(vbits,vc,sizeof(vbits));memcpy(pbits,pc,sizeof(pbits));
+        assert(b.upload_constants(gpu,FNV_D3D9_VERTEX,FNV_D3D9_FLOAT,0,256,vbits));
+        assert(b.upload_constants(gpu,FNV_D3D9_PIXEL,FNV_D3D9_FLOAT,0,224,pbits));
+#endif
         assert(!b.upload_texture(gpu,texture,0,0,0,2,2,0,8,texels) && !b.update_buffer(gpu,vb,0,144,0,vertices));
         assert(!b.clear(gpu,0,NULL,1,0xff000000,0,0));
+        if(frame==5){uint32_t viewport[6]={4,2,24,28,0,0x3f800000};assert(!b.state(gpu,FNV_D3D9_VIEWPORT,0,0,viewport,0));}
         /* This pixel oracle drains transfers deliberately; not engine pacing. */
         assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull) && !b.scene(gpu,1));
         assert(!b.draw(gpu,0,4,0,0,0,0,2) && !b.scene(gpu,0));
+#ifdef FNV_CATALOG_CONSTANTS
+        /* A submitted draw must retain its snapshot after later API updates. */
+        memset(vbits,0,sizeof(vbits));memset(pbits,0,sizeof(pbits));
+        assert(b.upload_constants(gpu,FNV_D3D9_VERTEX,FNV_D3D9_FLOAT,0,256,vbits));
+        assert(b.upload_constants(gpu,FNV_D3D9_PIXEL,FNV_D3D9_FLOAT,0,224,pbits));
+#endif
         uintptr_t color;assert(!b.get_target(gpu,0,0,&color));
         unsigned char actual[4096];assert(!fnv_vk_backend_read_color(gpu,color,actual,sizeof(actual),10000000000ull));b.release(gpu,color);
         for(unsigned i=0;i<4096;i++)if(abs((int)actual[i]-(int)expected[i])>1){fprintf(stderr,"catalog pixel mismatch frame=%u byte=%u actual=%u expected=%u\n",frame,i,actual[i],expected[i]);return 2;}
