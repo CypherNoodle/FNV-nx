@@ -77,7 +77,36 @@ static void uniform_metadata(const MOJOSHADER_parseData *p) {
     putchar(']');
 }
 
+static void attributes_metadata(const MOJOSHADER_attribute *a,int count) {
+    putchar('[');
+    for(int i=0;i<count;i++){
+        if(i)putchar(',');
+        printf("{\"usage\":%d,\"index\":%d}",a[i].usage,a[i].index);
+    }
+    putchar(']');
+}
+
+/* Reflection only: descriptions do not establish a runtime VS/PS pairing or
+ * a vertex declaration's element formats. Never guess those from semantics. */
+static int describe(const char *path) {
+    const MOJOSHADER_parseData *p=read_shader(path);
+    if(!p)return 4;
+    if(p->error_count){MOJOSHADER_freeParseData(p);return 4;}
+    printf("{\"stage\":%d,\"instructions\":%d,\"inputs\":",p->shader_type,p->instruction_count);
+    attributes_metadata(p->attributes,p->attribute_count);
+    printf(",\"outputs\":");attributes_metadata(p->outputs,p->output_count);
+    printf(",\"uniforms\":");uniform_metadata(p);
+    printf(",\"samplers\":[");
+    for(int i=0;i<p->sampler_count;i++){
+        const MOJOSHADER_sampler *s=p->samplers+i;
+        if(i)putchar(',');
+        printf("{\"index\":%d,\"type\":%d,\"texbem\":%s}",s->index,s->type,s->texbem?"true":"false");
+    }
+    puts("]}");MOJOSHADER_freeParseData(p);return 0;
+}
+
 int main(int argc, char **argv) {
+    if(argc==3 && !strcmp(argv[1],"--describe"))return describe(argv[2]);
     if(argc==4 && !strcmp(argv[1],"--audit-manifest"))return audit(argv[2],argv[3]);
     if (argc != 6) {
         fprintf(stderr, "usage: link_d3d9_spirv vs.bin ps.bin attributes.txt vs.spv ps.spv\n");
