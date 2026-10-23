@@ -22,3 +22,11 @@ static void api_filetime_system(void){
     for(unsigned i=0;i<8;++i){dst[i*2]=(unsigned char)fields[i];dst[i*2+1]=(unsigned char)(fields[i]>>8);}
     fnv_cpu_return_u32(1,8);
 }
+
+#include "host_timezone.h"
+static void api_timezone_information(void){
+    struct fnv_windows_process *p=thread()->process;uint32_t at=fnv_cpu_argument_u32(0),id=0,error=0;
+    unsigned char *dst=file_pointer(p,at,172,1),value[172];
+    if(!fnv_host_timezone(value,&id,&error)){write32(thread()->teb+TEB_ERROR,error);fnv_cpu_return_u32(UINT32_MAX,4);return;}
+    memcpy(dst,value,sizeof(value));fnv_cpu_return_u32(id,4);
+}

@@ -357,6 +357,7 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetSystemTimeAsFileTime",0,0,api_system_filetime},
     {"kernel32.dll","FileTimeToLocalFileTime",0,0,api_filetime_local},
     {"kernel32.dll","FileTimeToSystemTime",0,0,api_filetime_system},
+    {"kernel32.dll","GetTimeZoneInformation",0,0,api_timezone_information},
     {"kernel32.dll","GetStartupInfoA",0,0,api_startup_info},
     {"kernel32.dll","GetStartupInfoW",0,0,api_startup_info},
     {"kernel32.dll","GetStdHandle",0,0,api_std_handle},

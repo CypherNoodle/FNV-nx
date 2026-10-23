@@ -41,7 +41,8 @@ unit compile for ARM64/libnx.
 
 The private eight-worker startup diagnostic passes the current-directory call.
 The subsequent [calendar conversions](windows-calendar.md) are implemented; the
-next observed unimplemented API is `GetTimeZoneInformation`. It has read
+timezone import now also passes; the complete-asset fixture next stops on
+`D3DXGetImageInfoFromFileInMemory`. It has read
 262,144 bytes of the user's BSA, with zero engine draws/submissions. This does
 not demonstrate complete BSA parsing, XML loading, engine boot or a game frame.
 Production graphics caps remain unchanged; no new hardware test is requested.
