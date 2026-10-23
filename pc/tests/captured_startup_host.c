@@ -16,6 +16,9 @@
 #include "windows_display_win32.h"
 #include "dinput8.h"
 #include "dsound8.h"
+#ifdef FNV_STARTUP_XINPUT
+#include "xinput.h"
+#endif
 #ifdef FNV_STARTUP_VULKAN
 #include "d3d9_vk_backend.h"
 #ifdef FNV_STARTUP_SDP
@@ -274,6 +277,11 @@ int main(int argc,char **argv){
     struct fnv_dinput8_config input_config={0};input_config.instance=BASE;input_config.objects_address=input_pool.value;input_config.objects_bytes=65536;
     input_config.keyboard=input_config.mouse=1;input_config.memory=vm;input_config.context=boot_ui;input_config.valid_window=diagnostic_input_window_valid;input_config.has_input_focus=diagnostic_input_focus;
     struct fnv_dinput8 *dinput;assert(fnv_dinput8_create(process,&input_config,&dinput)==FNV_CPU_OK);
+#ifdef FNV_STARTUP_XINPUT
+    /* Controlled disconnected pads; this host diagnostic does not poll HID. */
+    struct fnv_xinput_config xinput_config={0};struct fnv_xinput *xinput;
+    assert(fnv_xinput_create(process,&xinput_config,&xinput)==FNV_CPU_OK);
+#endif
     struct fnv_vm_result sound_pool=fnv_vm_allocate(vm,0,4*1024*1024,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!sound_pool.error);
     struct fnv_pcm_queue *sound_queue;assert(fnv_pcm_create(2048,&sound_queue)==FNV_PCM_OK);
     struct fnv_dsound8_config sound_config={0};sound_config.arena_address=sound_pool.value;sound_config.arena_bytes=4*1024*1024;
@@ -287,7 +295,7 @@ int main(int argc,char **argv){
     HMODULE vulkan_loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(vulkan_loader);
     FARPROC vulkan_symbol=GetProcAddress(vulkan_loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr vulkan_gp;memcpy(&vulkan_gp,&vulkan_symbol,sizeof(vulkan_gp));assert(vulkan_gp);
     /* Prepared real offscreen device; not connected to WSI or game presentation. */
-    struct fnv_vk_config graphics_config={1280,720,128,2,128,128u<<20,0};struct fnv_vk_backend *graphics;VkResult graphics_failure;
+    struct fnv_vk_config graphics_config={.width=1280,.height=720,.resource_capacity=256,.frames=2,.commands=128,.memory_budget=128u<<20,.auto_depth=0};struct fnv_vk_backend *graphics;VkResult graphics_failure;
     assert(!fnv_vk_backend_create(vulkan_gp,&graphics_config,&graphics,&graphics_failure));
     assert(!fnv_vk_backend_presentation_format(graphics,22));
     assert(!fnv_vk_backend_draw_wait(graphics,10000000000ull));
@@ -295,7 +303,7 @@ int main(int argc,char **argv){
     struct fnv_vm_result graphics_buffers=fnv_vm_allocate(vm,0,16u<<20,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!graphics_buffers.error);
     struct fnv_d3d9_factory_profile graphics_profile={1280,720,22,0,60,graphics,startup_graphics_query};
     struct fnv_d3d9_com_config graphics_com_config={0};graphics_com_config.objects_address=graphics_objects.value;graphics_com_config.objects_bytes=65536;
-    graphics_com_config.resource_capacity=128;graphics_com_config.vertex_floats=256;graphics_com_config.pixel_floats=224;graphics_com_config.memory=vm;
+    graphics_com_config.resource_capacity=256;graphics_com_config.vertex_floats=256;graphics_com_config.pixel_floats=224;graphics_com_config.memory=vm;
     graphics_com_config.buffer_address=graphics_buffers.value;graphics_com_config.buffer_bytes=16u<<20;graphics_com_config.factory=&graphics_profile;
     fnv_vk_backend_callbacks(graphics,&graphics_com_config.backend);
 #ifdef FNV_STARTUP_SDP
@@ -329,6 +337,9 @@ int main(int argc,char **argv){
     e=fnv_windows_modules_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_windows_memory_exports(&n);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
     e=fnv_dinput8_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+#ifdef FNV_STARTUP_XINPUT
+    e=fnv_xinput_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
+#endif
     e=fnv_windows_debug_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
 #ifdef FNV_STARTUP_D3DX
     e=fnv_windows_d3dx_exports(&n);assert(known+n<=256 && extra_count+n<=FNV_NATIVE_MAX_IMPORTS);memcpy(catalog+known,e,n*sizeof(*e));known+=n;memcpy(extras+extra_count,e,n*sizeof(*e));extra_count+=n;
@@ -406,6 +417,10 @@ int main(int argc,char **argv){
     printf(",\"native_vulkan_startup\":{\"headless\":true,\"draws\":%llu,\"submissions\":%llu}",(unsigned long long)graphics_stats.draws,(unsigned long long)graphics_stats.submissions);
 #endif
     enum fnv_cpu_result detach=fnv_windows_thread_detach(),cleanup=FNV_CPU_BUSY;
+    int xinput_clean=1;
+#ifdef FNV_STARTUP_XINPUT
+    xinput_clean=detach==FNV_CPU_OK && !workers.active && fnv_xinput_destroy(xinput)==FNV_CPU_OK;
+#endif
     int graphics_clean=1;
 #ifdef FNV_STARTUP_VULKAN
     graphics_clean=0;
@@ -416,7 +431,7 @@ int main(int argc,char **argv){
     }
     printf(",\"native_vulkan_cleanup_complete\":%s",graphics_clean?"true":"false");
 #endif
-    if(detach==FNV_CPU_OK && !workers.active && graphics_clean && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_windows_display_destroy(display)==FNV_CPU_OK && fnv_dinput8_destroy(dinput)==FNV_CPU_OK && fnv_dsound8_destroy(sound)==FNV_CPU_OK && !fnv_vm_free(vm,sound_pool.value,0,FNV_VM_RELEASE).error && !fnv_vm_free(vm,input_pool.value,0,FNV_VM_RELEASE).error && fnv_steam_callbacks_destroy(steam_callbacks)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK && fnv_windows_boot_ui_destroy(boot_ui)==FNV_CPU_OK && fnv_windows_user32_destroy(user32)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
+    if(detach==FNV_CPU_OK && !workers.active && xinput_clean && graphics_clean && fnv_windows_modules_destroy(modules)==FNV_CPU_OK && fnv_windows_display_destroy(display)==FNV_CPU_OK && fnv_dinput8_destroy(dinput)==FNV_CPU_OK && fnv_dsound8_destroy(sound)==FNV_CPU_OK && !fnv_vm_free(vm,sound_pool.value,0,FNV_VM_RELEASE).error && !fnv_vm_free(vm,input_pool.value,0,FNV_VM_RELEASE).error && fnv_steam_callbacks_destroy(steam_callbacks)==FNV_CPU_OK && fnv_windows_system_destroy(system)==FNV_CPU_OK && fnv_windows_boot_ui_destroy(boot_ui)==FNV_CPU_OK && fnv_windows_user32_destroy(user32)==FNV_CPU_OK)cleanup=fnv_windows_destroy(process);
 #ifdef FNV_STARTUP_VULKAN
     /* On teardown failure, retain remaining backing until process exit. */
 #endif

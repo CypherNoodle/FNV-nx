@@ -46,15 +46,31 @@ checked. The complete five-function translation unit cross-compiled for
 Switch ARM64. The successful intermediate host replay advanced from 209,617
 to 420,922 calls before the next missing destination; adding that fifth entry
 then exposed a native null-object read during graphics resource initialization.
-The null read remains unresolved; it is not counted as a successful replay.
+That failing replay is not counted as successful. Subsequent resource observations
+isolated fixture exhaustion: all four requested 1280x720 ARGB render textures
+received `OUTOFMEMORY` with 128 resource slots occupied. The request arguments
+were supported; non-POT sizing was also accepted. Raising both diagnostic tables
+to the backend's existing 256-slot limit removed this null read and advanced to
+446,501 calls, stopping cleanly at a new exact target-math replay request. This
+changes fixture capacity, not caps, texture semantics or the GPU memory budget.
+Evaluating that exact ARM64 math request advanced to the game's ordinal
+`XINPUT1_3.dll!#2` import. The existing XInput adapter already implements that
+ordinal; it had not been included in this startup fixture. Optional
+`FNV_STARTUP_XINPUT` now installs its named and ordinal exports and tears down
+the provider after workers stop. Link `pc/native/xinput.c` when enabling it.
+All four pads remain disconnected in this desktop fixture. This is not HID
+polling or a new hardware input test. The first connected diagnostic advanced
+to 451,918 calls before another exact target-math request.
+Further exact math evaluations reached 451,933 calls, then exposed a different
+null read in the engine. That later failure remains under investigation; it is
+not evidence that graphics initialization or the engine has completed.
 
 These experiments inject hardware vertex processing, shader versions and two
 texture stages into a private host fixture. Production caps remain unchanged.
 An earlier PS 1.3 fixture caused a null HLSL profile: this path selects PS 2.0
 or newer. Using experimental SM3 removed that particular failure, but does not
-establish broad SM3 backend support. Resource observations now show repeated
-null returns before the eventual dereference; the preceding cause still needs
-to be isolated.
+establish broad SM3 backend support. This run does not prove that 256 slots are
+sufficient for gameplay, or that resource pressure cannot occur later.
 
 There are still zero engine draws/submissions in these startup diagnostics.
 They do not demonstrate cold EXE boot, a game frame, Switch presentation or
