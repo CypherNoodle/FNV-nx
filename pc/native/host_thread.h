@@ -2,6 +2,7 @@
 #define FNV_HOST_THREAD_H
 /* Own the native joinable thread until join. This is not a guest HANDLE. */
 #include <stddef.h>
+#include <stdint.h>
 typedef void (*fnv_host_thread_entry)(void *);
 #ifdef __SWITCH__
 #include <switch/kernel/thread.h>
@@ -49,4 +50,24 @@ static inline void fnv_host_thread_sleep(unsigned ms){
     while(nanosleep(&span,&span) && errno==EINTR){}
 }
 #endif
+/* Bounded relative levels -2..2. Horizon uses the application's 0x2c base;
+ * lower native numbers run first. This is policy, not Windows priority-class
+ * emulation. POSIX SCHED_OTHER cannot express these levels: report unsupported. */
+static inline uint32_t fnv_host_thread_priority(fnv_host_thread *t,int set,int32_t *level){
+#ifdef __SWITCH__
+    Handle handle=t?t->thread.handle:CUR_THREAD_HANDLE;
+    if(set)return R_SUCCEEDED(svcSetThreadPriority(handle,0x2c-*level*2))?0:5;
+    int32_t priority;Result r=svcGetThreadPriority(&priority,handle);if(R_FAILED(r))return 5;
+    int32_t delta=0x2c-priority;
+    if(delta<-4 || delta>4 || delta%2)return 50;
+    *level=delta/2;return 0;
+#elif defined(_WIN32)
+    HANDLE handle=t?t->handle:GetCurrentThread();
+    if(set)return SetThreadPriority(handle,*level)?0:GetLastError();
+    int value=GetThreadPriority(handle);if(value==THREAD_PRIORITY_ERROR_RETURN)return GetLastError();
+    *level=value;return 0;
+#else
+    (void)t;(void)set;(void)level;return 50;
+#endif
+}
 #endif

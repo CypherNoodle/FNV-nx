@@ -38,11 +38,13 @@ between main-thread static TLS and the dedicated heap: eight 128 KiB stacks,
 per-worker TEB pages and 68 KiB TLS budgets fit without changing the heap or VM.
 Runtime range validation and the eight-worker experiment accepted this layout.
 
-With eight workers the diagnostic stops explicitly on `SetThreadPriority`,
-instead of waiting for an I/O worker that could not be created. This API remains
-unimplemented in this chunk. The eight-worker run reports a primary API fault
-and peer stops; it is not counted as a successful engine boot or a loaded menu.
-There are still no engine draws or submissions in that diagnostic.
+With eight workers the diagnostic first stopped explicitly on `SetThreadPriority`,
+instead of waiting for an I/O worker that could not be created. The subsequent
+[thread-priority bridge](windows-thread-priority.md) removes that stop and the
+I/O worker reads 262,144 bytes before the next missing API,
+`GetCurrentDirectoryA`. The run reports API faults and peer stops; it is not
+counted as a successful engine boot or a loaded menu. There are still no engine
+draws or submissions in that diagnostic.
 
 ## Capability status
 

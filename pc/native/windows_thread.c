@@ -346,6 +346,8 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","ExitThread",0,0,api_thread_exit},
     {"kernel32.dll","GetExitCodeThread",0,0,api_thread_exit_code},
     {"kernel32.dll","ResumeThread",0,0,api_thread_resume},
+    {"kernel32.dll","SetThreadPriority",0,0,api_thread_set_priority},
+    {"kernel32.dll","GetThreadPriority",0,0,api_thread_get_priority},
     {"kernel32.dll","GetCurrentThread",0,0,api_current_thread},
     {"kernel32.dll","GetThreadId",0,0,api_thread_handle_id},
     {"kernel32.dll","QueryPerformanceCounter",0,0,api_performance_counter},

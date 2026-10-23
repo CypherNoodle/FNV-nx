@@ -156,3 +156,26 @@ static void api_thread_resume(void){
     if(value==UINT32_MAX)fnv_windows_set_last_error(6);
     fnv_cpu_return_u32(value,4);
 }
+static void thread_priority(int set){
+    uint32_t handle=fnv_cpu_argument_u32(0),error=6;
+    int32_t level=set?(int32_t)fnv_cpu_argument_u32(1):0;
+    struct fnv_windows_process *p=thread()->process;
+    if(set && (level<-2 || level>2)){
+        /* Extreme/background modes require a separate scheduling contract. */
+        error=level==-15 || level==15 || level==0x10000 || level==0x20000?50:87;
+    }else if(handle==0xfffffffeu)error=fnv_host_thread_priority(NULL,set,&level);
+    else if(p->workers){
+        fnv_host_mutex_lock(&p->worker_guard);fnv_host_mutex_lock(&p->kernel_guard);
+        struct kernel_object *o=event_lookup(p,handle);
+        if(o && o->state->kind==KERNEL_THREAD){
+            for(uint32_t i=0;i<p->config.worker_capacity;++i){struct managed_worker *w=p->workers+i;
+                if(w->phase && w->object==o){error=fnv_host_thread_priority(&w->host,set,&level);break;}
+            }
+        }
+        fnv_host_mutex_unlock(&p->kernel_guard);fnv_host_mutex_unlock(&p->worker_guard);
+    }
+    if(error)fnv_windows_set_last_error(error);
+    fnv_cpu_return_u32(error?(set?0:0x7fffffffu):(set?1:(uint32_t)level),set?8:4);
+}
+static void api_thread_set_priority(void){thread_priority(1);}
+static void api_thread_get_priority(void){thread_priority(0);}
