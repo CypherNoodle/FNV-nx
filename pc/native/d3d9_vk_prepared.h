@@ -20,4 +20,8 @@ struct fnv_vk_prepared_program {
  * can leave partial registrations: destroy the backend, do not retry on it.
  * Success copies all consumed storage, creates no shader objects or draws. */
 uint32_t fnv_vk_prepare_program(struct fnv_vk_backend *,const struct fnv_vk_prepared_program *,const struct fnv_d3d9_shader_code *,size_t catalog_count);
+/* Preflight every program's membership and basic shape before any registration.
+ * Subsequent backend failure can be partial. Failed index is SIZE_MAX on
+ * success/invalid batch arguments, otherwise the first failing program index. */
+uint32_t fnv_vk_prepare_programs(struct fnv_vk_backend *,const struct fnv_vk_prepared_program *const *,size_t programs_count,const struct fnv_d3d9_shader_code *,size_t catalog_count,size_t *failed_index);
 #endif

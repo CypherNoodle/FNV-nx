@@ -12,7 +12,7 @@ import struct
 from inspect_spirv import inspect
 from spirv_uniform_layout import reflect
 
-def emit(fixture,inputs,sampler_mask,output):
+def render(fixture,inputs,sampler_mask):
     if not inputs or len(inputs)>32 or any(len(i)!=3 for i in inputs):raise ValueError('invalid input mappings')
     if len({tuple(i[:2]) for i in inputs})!=len(inputs) or len({i[2] for i in inputs})!=len(inputs):raise ValueError('invalid input mappings')
     if any(len(i)!=3 or not 0<=i[0]<=13 or not 0<=i[1]<=15 or not 0<=i[2]<32 for i in inputs) or sampler_mask&~65535:raise ValueError('unsupported mapping/mask')
@@ -43,9 +43,14 @@ def emit(fixture,inputs,sampler_mask,output):
     header.append('static const struct fnv_vk_vertex_input startup_inputs[]={'+','.join('{'+','.join(map(str,i))+'}' for i in inputs)+'};')
     header.append('static const struct fnv_vk_prepared_program fnv_startup_program={{'+','.join(stages)+'},startup_inputs,'+str(len(inputs))+','+str(sampler_mask)+'};')
     if any(hashlib.sha256(Path(p).read_bytes()).hexdigest()!=h for p,h in frozen.items()):raise ValueError('input changed')
+    text='\n'.join(header)+'\n'
+    return text,dict(status='PASS',input_sha256=frozen,header_sha256=digest(text.encode('ascii')),tool_sha256=digest(Path(__file__).read_bytes()),private_generated_output=True,semantic_validation=False,game_started=False)
+
+def emit(fixture,inputs,sampler_mask,output):
+    text,report=render(fixture,inputs,sampler_mask)
     output.parent.mkdir(parents=True,exist_ok=True)
-    with output.open('x',encoding='ascii',newline='\n') as f:f.write('\n'.join(header)+'\n')
-    return dict(status='PASS',input_sha256=frozen,header_sha256=digest(output.read_bytes()),tool_sha256=digest(Path(__file__).read_bytes()),private_generated_output=True,semantic_validation=False,game_started=False)
+    with output.open('x',encoding='ascii',newline='\n') as f:f.write(text)
+    return report
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--fixture',type=Path,required=True);p.add_argument('--output',type=Path,required=True)

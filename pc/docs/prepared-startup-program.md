@@ -5,6 +5,9 @@ before creating its D3D9 COM adapter. This connects the previously separate
 original SDP catalog and prepared Vulkan shader registrations. It does not
 change caps, bypass startup checks or cause the engine to issue a draw.
 
+It also accepts a [multi-program bundle](prepared-startup-bundle.md), with shared
+data and batch membership preflight, through the same build-header option.
+
 `fnv_vk_prepare_program` checks both bytecodes against the loaded catalog
 before registering either stage, then registers SPIR-V and reflected uniform
 plans and links the explicit input-location map and sampler mask. Catalog

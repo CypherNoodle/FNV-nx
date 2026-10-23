@@ -100,11 +100,21 @@ static void api_create_device(void){
     struct fnv_d3d9_com *c=module();unsigned char *params=range(c,at,56,1),*out=range(c,out_at,4,1);uint32_t values[14],result=FNV_D3D9_INVALIDCALL;
     if(!params || !out || ((uint64_t)at<(uint64_t)out_at+4 && (uint64_t)out_at<(uint64_t)at+56)){fnv_cpu_return_u32(result,28);return;}
     for(unsigned i=0;i<14;++i)values[i]=read32(params+i*4);
+    FACTORY_TRACE("CreateDevice adapter=%u type=%u behavior=%08x size=%ux%u color=%u buffers=%u msaa=%u quality=%u swap=%u windowed=%u auto_depth=%u depth=%u flags=%08x refresh=%u interval=%u\n",adapter,type,behavior,values[0],values[1],values[2],values[3],values[4],values[5],values[6],values[8],values[9],values[10],values[11],values[12],values[13]);
     fnv_host_mutex_lock(&c->guard);factory_this(c,self);write32(out,0);
     if(adapter || c->factory_created || !c->device_references)goto done;
     if(type!=1){result=NOT_AVAILABLE;goto done;}
     values[8]=values[8]!=0;values[9]=values[9]!=0;
-    if((behavior&~(2u|4u|64u)) || !(behavior&64u) || (!focus && !values[7]) || (!values[8] && !focus))goto done;
+    uint32_t processing=behavior&(64u|128u);
+    if((behavior&~(2u|4u|64u|128u)) || (processing!=64u && processing!=128u) || (!focus && !values[7]) || (!values[8] && !focus))goto done;
+    if(processing==128u){
+        /* The provider owns the processing contract. Do not accept HW creation
+         * merely because a Vulkan device exists or some programs are linked. */
+        unsigned char caps[304]={0};uint32_t query_args[2]={adapter,type};
+        result=c->factory.query?c->factory.query(c->factory.context,1,query_args,2,caps,sizeof(caps)):NOT_AVAILABLE;
+        if(result)goto done;
+        if(!(read32(caps+28)&0x00010000u)){result=NOT_AVAILABLE;goto done;}
+    }
     if(values[8]){if(!values[0])values[0]=c->factory.width;if(!values[1])values[1]=c->factory.height;if(!values[2])values[2]=c->factory.color_format;}
     if(!values[3])values[3]=1;
     if(values[0]!=c->factory.width || values[1]!=c->factory.height || values[2]!=c->factory.color_format || values[3]!=1 || values[4] || values[5] || values[6]!=1 ||
@@ -115,7 +125,7 @@ static void api_create_device(void){
     c->creator=(uintptr_t)&creator_marker;memcpy(c->present_params,values,sizeof(values));
     for(unsigned i=0;i<14;++i)write32(params+i*4,values[i]);
     write32(out,device_address(c));result=0;
-done:fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,28);
+done:fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CreateDevice result=%08x behavior=%08x\n",result,behavior);fnv_cpu_return_u32(result,28);
 }
 static void api_device_parent(void){
     struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);unsigned char *out=range(c,fnv_cpu_argument_u32(1),4,1);uint32_t result=FNV_D3D9_INVALIDCALL;

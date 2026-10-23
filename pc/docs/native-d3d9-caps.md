@@ -21,6 +21,9 @@ a operaciones existentes. Border arbitrario no se anuncia: nuestro sampler
 solo admite tres colores de borde. Tampoco se anuncian stencil, cube/volume,
 MRT, sRGB, luces, hardware T&L fijo, clip planes, instancing ni fixed function.
 Un shader Vulkan preparado para un caso sintetico no acredita esas funciones.
+Existen ahora rutas fijas limitadas de matrices y una luz direccional, pero las
+caps generales siguen desactivadas. La [auditoria de creacion hardware](hardware-vertex-creation.md)
+separa las capacidades declaradas, el modo CreateDevice y la presentacion.
 
 VertexShaderVersion, PixelShaderVersion y los limites de instrucciones/constantes
 de shader quedan en0. El catalogo offline puede aceptar shaders concretos sin

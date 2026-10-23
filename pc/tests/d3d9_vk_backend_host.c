@@ -52,7 +52,8 @@ static void pixels(uint32_t base,uint32_t patch,unsigned w,unsigned h,unsigned x
 #define FNV_VK_HOST_MAIN main
 #endif
 int FNV_VK_HOST_MAIN(int argc,char **argv){
-    assert(argc==6 && (!strcmp(argv[3],"normal") || !strcmp(argv[3],"present") || !strcmp(argv[3],"wrong-clamp") || !strcmp(argv[3],"wrong-cull") || !strcmp(argv[3],"wrong-blend") || !strcmp(argv[3],"wrong-bc-alpha")));force_clamp=!strcmp(argv[3],"wrong-clamp");force_wrong_cull=!strcmp(argv[3],"wrong-cull");force_wrong_blend=!strcmp(argv[3],"wrong-blend");force_bc_opaque=!strcmp(argv[3],"wrong-bc-alpha");
+    hardware_requested=argc==6 && !strcmp(argv[3],"hardware");
+    assert(argc==6 && (hardware_requested || !strcmp(argv[3],"normal") || !strcmp(argv[3],"present") || !strcmp(argv[3],"wrong-clamp") || !strcmp(argv[3],"wrong-cull") || !strcmp(argv[3],"wrong-blend") || !strcmp(argv[3],"wrong-bc-alpha")));force_clamp=!strcmp(argv[3],"wrong-clamp");force_wrong_cull=!strcmp(argv[3],"wrong-cull");force_wrong_blend=!strcmp(argv[3],"wrong-blend");force_bc_opaque=!strcmp(argv[3],"wrong-bc-alpha");
     HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
     FARPROC symbol=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&symbol,sizeof(gp));assert(gp);
     original_gpa=gp;gp=proxy_gpa;

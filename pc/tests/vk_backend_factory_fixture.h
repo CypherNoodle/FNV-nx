@@ -1,12 +1,16 @@
 enum {F_IMPORT=65,F_COUNT,F_MODE_COUNT,F_ENUM,F_DISPLAY,F_TYPE,F_FORMAT,F_CAPS,F_DEVICE,F_PARENT,F_CREATION,F_DEVICE_CAPS,F_MONITOR,F_UNAVAILABLE,F_MSAA,F_DEPTH_MATCH};
 enum {F_IDENTIFIER=93};
 static uint32_t factory_public;
-static unsigned factory_checks,identifier_failure,caps_failure;
+static unsigned factory_checks,identifier_failure,caps_failure,hardware_requested,caps_hwtl;
 _Static_assert(sizeof(D3DCAPS9)==304,"D3DCAPS9 packed scalar ABI");
 static uint32_t factory_query(void *ctx,uint32_t kind,const uint32_t *args,uint32_t count,void *output,uint32_t bytes){
     if(kind==2){assert(count==2 && bytes==1104);if(identifier_failure){memset(output,0x33,bytes);return 0x8876086au;}return fnv_vk_backend_adapter_identifier(ctx,output,bytes);}
     if(kind==0){assert(count==6 && !output && !bytes);return fnv_vk_backend_check_format(ctx,args[3],args[4],args[5]);}
-    assert(kind==1 && count==2 && bytes==304);if(!caps_failure)return fnv_vk_backend_device_caps(ctx,output,bytes);memset(output,0x33,bytes);return 0x8876086au; /* Full caps not implemented. */
+    assert(kind==1 && count==2 && bytes==304);if(!caps_failure){uint32_t hr=fnv_vk_backend_device_caps(ctx,output,bytes);
+        /* Test-only provider declaration; production Vulkan caps stay unchanged. */
+        if(!hr && caps_hwtl)((unsigned char*)output)[30]|=1;
+        return hr;}
+    memset(output,0x33,bytes);return 0x8876086au;
 }
 /* Independent Vulkan query: the bridge must describe a real enumerated device. */
 static void check_adapter_properties(PFN_vkGetInstanceProcAddr gp){
@@ -95,16 +99,26 @@ static void exercise_factory(void){
     match[4]=21;match[1]=1;assert(call(F_DEPTH_MATCH,6,match)==FNV_VK_INVALID);factory_checks++;
     const uint32_t present[14]={0,0,0,0,0,0,1,0,1,1,75,0,0,1};
     uint32_t create[]={factory,0,1,0x1234,0x46,DATA,GUEST_OUT};
+    for(unsigned failure=0;failure<5;++failure){
+        uint32_t args[7];memcpy(args,create,28);args[4]=failure==0?0x80u:failure==1?0xc0u:failure==2?0x100u:0x80u;
+        caps_failure=failure==3;caps_hwtl=failure>=3;
+        if(failure==4)args[4]|=0x10u; /* pure devices remain unsupported */
+        memcpy(ptr(DATA),present,56);put(GUEST_OUT,0xa5a5a5a5);
+        uint32_t expected=failure==0 || failure==3?0x8876086au:FNV_VK_INVALID;
+        assert(call(F_DEVICE,7,args)==expected && !get(GUEST_OUT) && !memcmp(ptr(DATA),present,56));factory_checks++;
+    }
+    caps_failure=0;caps_hwtl=0;
     for(unsigned failure=0;failure<11;++failure){uint32_t params[14];memcpy(params,present,56);uint32_t args[7];memcpy(args,create,28);
         if(failure==0)args[1]=1;else if(failure==1)args[2]=2;else if(failure==2)args[4]=32;else if(failure==3)params[0]=64;
         else if(failure==4)params[4]=4;else if(failure==5)params[3]=2;else if(failure==6)params[10]=71;else if(failure==7)params[11]=1;
         else if(failure==8)params[13]=0x80000000;else if(failure==9)params[8]=0;else params[12]=30;
         memcpy(ptr(DATA),params,56);put(GUEST_OUT,0xa5a5a5a5);assert(call(F_DEVICE,7,args)!=0 && !get(GUEST_OUT));assert(!memcmp(ptr(DATA),params,56));factory_checks++;
     }
+    if(hardware_requested){create[4]=0x86;caps_hwtl=1;actual_caps.DevCaps|=D3DDEVCAPS_HWTRANSFORMANDLIGHT;}
     memcpy(ptr(DATA),present,56);assert(!call(F_DEVICE,7,create));assert(get(GUEST_OUT)==device_at && get(DATA)==32 && get(DATA+4)==32 && get(DATA+8)==21 && get(DATA+12)==1);factory_checks++;
     uint32_t repeated[14];memcpy(repeated,ptr(DATA),56);assert(call(F_DEVICE,7,create)==FNV_VK_INVALID && !get(GUEST_OUT) && !memcmp(repeated,ptr(DATA),56));factory_checks++;
-    uint32_t creation[]={device_at,DATA};memset(ptr(DATA),0xa5,32);assert(!call(F_CREATION,2,creation));assert(get(DATA)==0 && get(DATA+4)==1 && get(DATA+8)==0x1234 && get(DATA+12)==0x46 && get(DATA+16)==0xa5a5a5a5);factory_checks++;
-    memset(ptr(DATA),0xa5,320);assert(call(F_DEVICE_CAPS,2,creation)==0x8876086au);for(unsigned i=0;i<320;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;
+    uint32_t creation[]={device_at,DATA};memset(ptr(DATA),0xa5,32);assert(!call(F_CREATION,2,creation));assert(get(DATA)==0 && get(DATA+4)==1 && get(DATA+8)==0x1234 && get(DATA+12)==create[4] && get(DATA+16)==0xa5a5a5a5);factory_checks++;
+    caps_failure=1;memset(ptr(DATA),0xa5,320);assert(call(F_DEVICE_CAPS,2,creation)==0x8876086au);for(unsigned i=0;i<320;++i)assert(ptr(DATA)[i]==0xa5);factory_checks++;
     caps_failure=0;assert(!call(F_DEVICE_CAPS,2,creation));assert(!memcmp(ptr(DATA),&actual_caps,sizeof(actual_caps)));for(unsigned i=304;i<320;++i)assert(ptr(DATA)[i]==0xa5);caps_failure=1;factory_checks++;
     assert(release(factory)==1);uint32_t parent[]={device_at,GUEST_OUT};assert(!call(F_PARENT,2,parent) && get(GUEST_OUT)==factory);assert(release(factory)==1);factory_checks++;
     factory_public=call(F_IMPORT,1,&version);assert(factory_public==factory);factory_checks++;

@@ -19,7 +19,7 @@ struct fnv_vk_stats {
     uint32_t live_surfaces,queued_commands,pending_frames;
     VkResult last_result;
     uint32_t live_buffers,buffer_versions,live_textures,texture_versions;
-    uint32_t live_shaders,live_declarations,shader_catalog_entries;
+    uint32_t live_shaders,live_declarations,shader_catalog_entries,linked_programs;
     uint64_t draws;
     uint64_t presentation_requests,acquire_timeouts;
     uint32_t swapchain_images,present_mode; /* Vulkan mode; valid with images. */
@@ -37,6 +37,11 @@ struct fnv_vk_stats {
  * No fake shader/draw provider: unsupported callback extensions remain null.
  * Backend methods serialize internally; no callbacks/reentry under its lock. */
 uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr,const struct fnv_vk_config *,struct fnv_vk_backend **,VkResult *failure);
+/* Exclusive initialization, before COM construction or exposing the backbuffer.
+ * Select ARGB8 (21, default) or XRGB8 (22) for the implicit presentation surface.
+ * Storage remains BGRA8; X is unspecified and WSI uses opaque composition.
+ * Does not add XRGB render textures or alter explicit offscreen surfaces. */
+uint32_t fnv_vk_backend_presentation_format(struct fnv_vk_backend *,uint32_t);
 /* Optional native WSI. Caller owns the platform window until backend teardown;
  * backend owns a successfully returned Vulkan surface. EXT maintenance1 is
  * required so presentation completion is observed before semaphore teardown.

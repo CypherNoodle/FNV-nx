@@ -284,12 +284,13 @@ int main(int argc,char **argv){
     HMODULE vulkan_loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(vulkan_loader);
     FARPROC vulkan_symbol=GetProcAddress(vulkan_loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr vulkan_gp;memcpy(&vulkan_gp,&vulkan_symbol,sizeof(vulkan_gp));assert(vulkan_gp);
     /* Prepared real offscreen device; not connected to WSI or game presentation. */
-    struct fnv_vk_config graphics_config={1280,720,128,2,128,128u<<20,1};struct fnv_vk_backend *graphics;VkResult graphics_failure;
+    struct fnv_vk_config graphics_config={1280,720,128,2,128,128u<<20,0};struct fnv_vk_backend *graphics;VkResult graphics_failure;
     assert(!fnv_vk_backend_create(vulkan_gp,&graphics_config,&graphics,&graphics_failure));
+    assert(!fnv_vk_backend_presentation_format(graphics,22));
     assert(!fnv_vk_backend_draw_wait(graphics,10000000000ull));
     struct fnv_vm_result graphics_objects=fnv_vm_allocate(vm,0,65536,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!graphics_objects.error);
     struct fnv_vm_result graphics_buffers=fnv_vm_allocate(vm,0,16u<<20,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);assert(!graphics_buffers.error);
-    struct fnv_d3d9_factory_profile graphics_profile={1280,720,21,75,60,graphics,startup_graphics_query};
+    struct fnv_d3d9_factory_profile graphics_profile={1280,720,22,0,60,graphics,startup_graphics_query};
     struct fnv_d3d9_com_config graphics_com_config={0};graphics_com_config.objects_address=graphics_objects.value;graphics_com_config.objects_bytes=65536;
     graphics_com_config.resource_capacity=128;graphics_com_config.vertex_floats=256;graphics_com_config.pixel_floats=224;graphics_com_config.memory=vm;
     graphics_com_config.buffer_address=graphics_buffers.value;graphics_com_config.buffer_bytes=16u<<20;graphics_com_config.factory=&graphics_profile;
@@ -305,8 +306,15 @@ int main(int argc,char **argv){
     }
 #endif
 #ifdef FNV_STARTUP_PROGRAM_HEADER
+#ifdef FNV_STARTUP_PROGRAM_COUNT
+    size_t failed_program=SIZE_MAX;uint32_t prepared=fnv_vk_prepare_programs(graphics,fnv_startup_programs,FNV_STARTUP_PROGRAM_COUNT,graphics_com_config.catalog,graphics_com_config.catalog_count,&failed_program);
+    if(prepared)fprintf(stderr,"FNV_STARTUP_PROGRAM failed_index=%zu hr=%08x\n",failed_program,prepared);
+    assert(!prepared);
+#else
     assert(!fnv_vk_prepare_program(graphics,&fnv_startup_program,graphics_com_config.catalog,graphics_com_config.catalog_count));
-    fprintf(stderr,"FNV_STARTUP_PROGRAM shaders=2 linked_pairs=1 caps_unchanged=1\n");
+#endif
+    struct fnv_vk_stats prepared_stats;assert(!fnv_vk_backend_stats(graphics,&prepared_stats));
+    fprintf(stderr,"FNV_STARTUP_PROGRAM shaders=%u linked_pairs=%u caps_unchanged=1\n",prepared_stats.shader_catalog_entries,prepared_stats.linked_programs);
 #endif
     struct fnv_d3d9_com *graphics_com;assert(fnv_d3d9_com_create(fnv_windows_runtime(process),&graphics_com_config,&graphics_com)==FNV_CPU_OK);
 #ifdef FNV_STARTUP_SDP

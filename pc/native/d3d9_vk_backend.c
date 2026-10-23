@@ -81,7 +81,7 @@ struct fnv_vk_backend {
     uintptr_t bound_shaders[2],declaration,fixed_vertex,fixed_directional,fixed_pixel[3];uint32_t texture_stage[2][6];uint32_t lighting,normalize_normals,color_vertex,specular,ambient;struct fnv_uniform_state *uniforms;
     uint32_t buffer_versions,texture_versions;struct texture_resource *textures;uintptr_t texture_bindings[16];
     struct clear_command *commands;uint32_t count;
-    uintptr_t next_id,back,auto_depth,color,depth;
+    uintptr_t next_id,back,auto_depth,color,depth;uint32_t presentation_format;
     uint32_t viewport[6],scissor[4];uint64_t device_refs,allocated,submissions,completions,draw_timeout_ns,draw_waits;
     VkResult last;int lost,in_scene,queue_touched;uint32_t scissor_enabled;
 };
@@ -415,7 +415,14 @@ static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_
 }
 static uint32_t describe(void *ctx,uintptr_t id,uint32_t values[8]){
     struct fnv_vk_backend *d=ctx;if(!values)return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);uint32_t hr=FNV_VK_INVALID;
-    if(s){const uint32_t v[8]={s->depth?75u:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}fnv_host_mutex_unlock(&d->guard);return hr;
+    if(s){const uint32_t v[8]={s->depth?75u:s->id==d->back && d->presentation_format?d->presentation_format:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}fnv_host_mutex_unlock(&d->guard);return hr;
+}
+uint32_t fnv_vk_backend_presentation_format(struct fnv_vk_backend *d,uint32_t format){
+    if(!d || (format!=21 && format!=22))return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);struct surface *back=find(d,d->back);uint32_t hr=FNV_VK_INVALID;
+    if(d->lost || !d->device_refs)hr=FNV_VK_LOST;
+    else if(d->device_refs==1 && back && !back->refs && !d->draws && !d->submissions && !d->count && !d->in_scene){d->presentation_format=format;hr=0;}
+    fnv_host_mutex_unlock(&d->guard);return hr;
 }
 static uint32_t set_target(void *ctx,int depth,uint32_t index,uintptr_t id){
     struct fnv_vk_backend *d=ctx;if(index || (depth!=0 && depth!=1))return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);
@@ -546,7 +553,7 @@ uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out)
     struct fnv_vk_stats s={.allocated_bytes=d->allocated,.submissions=d->submissions,.completions=d->completions,.device_references=d->device_refs,.queued_commands=d->count,.last_result=d->last};
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
-    s.shader_catalog_entries=d->catalog_count;s.draws=d->draws;s.resets=d->resets;s.draw_waits=d->draw_waits;
+    s.shader_catalog_entries=d->catalog_count;s.linked_programs=d->program_count;s.draws=d->draws;s.resets=d->resets;s.draw_waits=d->draw_waits;
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;

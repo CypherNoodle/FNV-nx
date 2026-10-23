@@ -844,7 +844,7 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     struct fnv_d3d9_com *c=calloc(1,sizeof(*c));if(!c)return FNV_CPU_NO_MEMORY;
     if(!fnv_host_mutex_init(&c->guard)){free(c);return FNV_CPU_NO_MEMORY;}
     c->config=*cfg;if(cfg->factory){c->factory=*cfg->factory;c->config.factory=&c->factory;
-        if(!c->factory.width || !c->factory.height || c->factory.color_format!=21 || (c->factory.depth_format && c->factory.depth_format!=75) || !factory_prepared(cfg,&c->factory)) {dispose(c);return FNV_CPU_INVALID;}
+        if(!c->factory.width || !c->factory.height || (c->factory.color_format!=21 && c->factory.color_format!=22) || (c->factory.depth_format && c->factory.depth_format!=75) || !factory_prepared(cfg,&c->factory)) {dispose(c);return FNV_CPU_INVALID;}
         c->factory_refs=1;}
     fnv_transform_init(&c->transforms);
     c->cpu=cpu;c->objects=objects;c->buffer_memory=buffer_memory;
