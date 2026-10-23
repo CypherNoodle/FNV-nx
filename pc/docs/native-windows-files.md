@@ -26,8 +26,16 @@ conversion Unicode general. La distincion de mayusculas al abrir depende del
 filesystem host. Las claves para compartir aperturas se comparan en ASCII sin
 mayusculas; no detectan aliases de symlinks, hardlinks o nombres cortos.
 
+CreateFileA/W acepta SECURITY_ATTRIBUTES32 opcional de 12 bytes con descriptor
+nulo. Valida todo el rango guest, convierte bInheritHandle como BOOL (cualquier
+valor no cero) y conserva ese bit en los metadatos del handle. No implementa
+creacion de procesos ni herencia entre procesos guest, y no transmite ese bit
+al descriptor FILE del host. Layouts distintos y descriptores personalizados
+siguen devolviendo 50. La estructura es un bloque guest32, nunca un struct o
+puntero nativo del host. Referencia: [SECURITY_ATTRIBUTES de Microsoft](https://learn.microsoft.com/en-us/windows/win32/api/wtypesbase/ns-wtypesbase-security_attributes).
+
 No hay busqueda de archivos, rutas absolutas guest, unidades Windows, dispositivos,
-streams alternativos, SECURITY_ATTRIBUTES, templates, OVERLAPPED, IOCP ni cancelacion.
+streams alternativos, templates, OVERLAPPED, IOCP ni cancelacion.
 WriteFile es sincrono, exige un handle con permiso de escritura y rechaza OVERLAPPED.
 Las escrituras relativas a `Data` u otras rutas del juego fallan cerradas; no hay
 todavia renombrado, archivos mapeados,
@@ -185,3 +193,20 @@ El proveedor y la integracion libnx pasan compilacion estricta. Estas pruebas
 no son una medicion de la SD ni una ejecucion de newlib en consola; la validacion
 fisica de las transiciones queda pendiente. Sincronizar al cerrar puede costar
 latencia de SD, que aun no se ha medido con el motor.
+
+
+Validacion de SECURITY_ATTRIBUTES32:
+- `test_windows_file_security.py` compara 2000 aperturas ANSI/wide y lecturas
+  con CreateFile de Windows, usando BOOL 0, 1, 2 y 0x80000000. Tambien verifica
+  los bits del handle nativo del oraculo, el error de exito cero, las
+  restricciones de descriptor/layout y que se mantienen el sandbox y los
+  permisos de escritura. Un caso separado rechaza un struct que sale del arena.
+- La comparacion encontro que CreateFile exitoso dejaba un LastError guest
+  anterior. Ahora publica cero o ERROR_ALREADY_EXISTS segun la disposition.
+  El fallo conserva su error concreto. No afecta a LastError de ReadFile/Seek.
+- Pasan las regresiones anteriores de 2000 operaciones de archivo, cursor
+  compartido, perfiles escribibles, alternancia lectura/escritura y errores de
+  flush/cierre. La fixture de Shell usa el mismo stack host de 8 MiB que la de
+  archivos; la reserva anterior de 2 MiB desbordaba antes de completar la suite.
+- La compilacion ARM64 de los callers sinteticos pasa; no es una prueba de SD
+  en hardware ni demuestra que el motor haya arrancado.

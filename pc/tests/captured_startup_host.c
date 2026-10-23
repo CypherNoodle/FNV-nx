@@ -234,7 +234,7 @@ int main(int argc,char **argv){
     SetUnhandledExceptionFilter(report_host_exception);
     assert(argc==8+FNV_STARTUP_CAPTURED_TEXT);
     arena_bytes=number(argv[argc-5]);uint32_t vm_bytes=number(argv[argc-4]),commit_limit=number(argv[argc-3]);
-    uint32_t worker_capacity=number(argv[argc-1]);assert(worker_capacity==0 || worker_capacity==4);
+    uint32_t worker_capacity=number(argv[argc-1]);assert(worker_capacity==0 || worker_capacity==4 || worker_capacity==8);
 #ifdef FNV_CPU_X87_QUAD_MATH
     assert(fnv_startup_math_replay_open(argv[argc-2]));
 #else
@@ -262,7 +262,10 @@ int main(int argc,char **argv){
     c.parameters_address=BASE+0x2100000;c.parameters_bytes=0x10000;c.command_line="FalloutNV.exe";c.image_path="FalloutNV.exe";
     c.kernel_handle_capacity=1024;c.critical_section_capacity=256;c.file_root=argv[2];c.file_handle_capacity=128;
     if(worker_capacity){
-        c.worker_address=BASE+0x2250000;c.worker_bytes=0x100000;c.worker_capacity=worker_capacity;
+        /* Eight diagnostic workers fit above main TLS and below the heap.
+         * Keep the old four-worker layout for earlier exact replay fixtures. */
+        c.worker_address=BASE+(worker_capacity==8?0x2240000:0x2250000);
+        c.worker_bytes=worker_capacity==8?0x1c0000:0x100000;c.worker_capacity=worker_capacity;
         c.worker_stack_bytes=0x20000;c.worker_tls_bytes=0x11000;c.worker_host_stack_bytes=0x100000;
     }
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);

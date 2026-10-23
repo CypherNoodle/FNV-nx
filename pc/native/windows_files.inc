@@ -6,7 +6,7 @@
 #include <string.h>
 struct file_slot {
     FILE *stream;struct fnv_host_directory *search;fnv_host_mutex io_guard;fnv_host_condition idle;
-    uint32_t generation,live,pins,next,share,access,kind,search_done,opening,closing,last_io;
+    uint32_t generation,live,pins,next,share,access,kind,search_done,opening,closing,last_io,inheritable;
     char key[512];
     char pattern[260];
 };
@@ -215,10 +215,19 @@ enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *p,struct 
 static void file_create(int wide){
     uint32_t at=fnv_cpu_argument_u32(0),access=fnv_cpu_argument_u32(1),share=fnv_cpu_argument_u32(2),security=fnv_cpu_argument_u32(3);
     uint32_t disposition=fnv_cpu_argument_u32(4),flags=fnv_cpu_argument_u32(5),template=fnv_cpu_argument_u32(6);
-    struct fnv_windows_process *p=file_process();uint32_t error=0,success_error=0,handle=UINT32_MAX;char path[512],key[512],full[1538];int profile=0;
+    struct fnv_windows_process *p=file_process();uint32_t error=0,success_error=0,handle=UINT32_MAX,inheritable=0;char path[512],key[512],full[1538];int profile=0;
     int writable=access==0x40000000u || access==0xc0000000u;
-    if((access!=0x80000000u && !writable) || security || template || disposition<1 || disposition>5 || (share&~7u) || (flags&~0x1800ffffu))error=50;
-    else error=(uint32_t)file_path_with_profile(p,at,wide,path,key,&profile);
+    if((access!=0x80000000u && !writable) || template || disposition<1 || disposition>5 || (share&~7u) || (flags&~0x1800ffffu))error=50;
+    else if(security){
+        /* Packed SECURITY_ATTRIBUTES32, never a native host pointer. A NULL
+         * descriptor uses the host filesystem's normal access checks. Guest
+         * process creation is unsupported; retain the inheritance bit as guest
+         * metadata rather than forwarding it to the host FILE descriptor. */
+        const unsigned char *attributes=file_pointer(p,security,12,0);
+        if(read32(attributes)!=12 || read32(attributes+4))error=50;
+        else inheritable=read32(attributes+8)!=0;
+    }
+    if(!error)error=(uint32_t)file_path_with_profile(p,at,wide,path,key,&profile);
     if(!error && (writable ? !profile : disposition!=3))error=50;
     if(!error){struct file_slot *reserved=file_reserve_open(p,access,share,key,&error);
         if(reserved){size_t n=strlen(p->file_root);memcpy(full,p->file_root,n);full[n++]='/';memcpy(full+n,path,strlen(path)+1);
@@ -228,7 +237,7 @@ static void file_create(int wide){
                 if(error==2){char *last=strrchr(full,'/');if(last){*last=0;if(!fnv_host_file_directory(full))error=3;}}}
             else {uint64_t size;if(!fnv_host_file_size(stream,&size))error=5;
                 if(!error){fnv_host_mutex_lock(&p->files_guard);reserved->generation++;reserved->live=1;reserved->opening=0;
-                    reserved->kind=1;reserved->stream=stream;handle=0xd0000000u|(reserved->generation<<(p->file_bits+2))|((uint32_t)(reserved-p->files)<<2);
+                    reserved->kind=1;reserved->stream=stream;reserved->inheritable=inheritable;handle=0xd0000000u|(reserved->generation<<(p->file_bits+2))|((uint32_t)(reserved-p->files)<<2);
                     p->file_stats.live_handles++;p->file_stats.opens++;stream=NULL;fnv_host_mutex_unlock(&p->files_guard);
                     if(existed && (disposition==2 || disposition==4))success_error=183;}
                 if(stream)fclose(stream);
@@ -236,8 +245,7 @@ static void file_create(int wide){
             if(error)file_cancel_open(p,reserved);
         }
     }
-    if(error)fnv_windows_set_last_error(error);
-    else if(success_error)fnv_windows_set_last_error(success_error);
+    fnv_windows_set_last_error(error?error:success_error);
     fnv_cpu_return_u32(handle,28);
 }
 static void api_file_create_a(void){file_create(0);}static void api_file_create_w(void){file_create(1);}
