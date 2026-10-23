@@ -39,8 +39,9 @@ sandbox/write cases, query the mapped root and strictly reject an output that
 crosses the guest arena boundary. Synthetic callers and the runtime translation
 unit compile for ARM64/libnx.
 
-The private eight-worker startup diagnostic passes the current-directory call
-and stops on the unimplemented `FileTimeToLocalFileTime` API. It has read
+The private eight-worker startup diagnostic passes the current-directory call.
+The subsequent [calendar conversions](windows-calendar.md) are implemented; the
+next observed unimplemented API is `GetTimeZoneInformation`. It has read
 262,144 bytes of the user's BSA, with zero engine draws/submissions. This does
 not demonstrate complete BSA parsing, XML loading, engine boot or a game frame.
 Production graphics caps remain unchanged; no new hardware test is requested.

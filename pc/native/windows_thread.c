@@ -261,6 +261,7 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *,uint32_t
 #include "windows_workers.inc"
 #include "windows_time.inc"
 #include "windows_files.inc"
+#include "windows_calendar.inc"
 #include "windows_shell.inc"
 #include "windows_profiles.inc"
 #include "windows_directory.inc"
@@ -354,6 +355,8 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","QueryPerformanceFrequency",0,0,api_performance_frequency},
     {"kernel32.dll","GetTickCount",0,0,api_tick_count},
     {"kernel32.dll","GetSystemTimeAsFileTime",0,0,api_system_filetime},
+    {"kernel32.dll","FileTimeToLocalFileTime",0,0,api_filetime_local},
+    {"kernel32.dll","FileTimeToSystemTime",0,0,api_filetime_system},
     {"kernel32.dll","GetStartupInfoA",0,0,api_startup_info},
     {"kernel32.dll","GetStartupInfoW",0,0,api_startup_info},
     {"kernel32.dll","GetStdHandle",0,0,api_std_handle},

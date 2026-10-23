@@ -10,4 +10,5 @@ if __name__=='__main__':
     shared.NAMES=['QueryPerformanceCounter','QueryPerformanceFrequency','Sleep','GetLastError','SetLastError','GetTickCount','GetSystemTimeAsFileTime','GetStartupInfoA','GetStartupInfoW']
     shared.ARGS=[1,1,1,0,1,0,1,1,1]
     shared.test(p.parse_args(),host_source='windows_time_host.c',extra_inputs=(Path(__file__).resolve(),),
-                strict_modes=('--strict-counter','--strict-frequency','--strict-clock-backwards','--strict-clock-failure','--strict-filetime','--strict-startup-info'))
+                strict_modes=('--strict-counter','--strict-frequency','--strict-clock-backwards','--strict-clock-failure','--strict-filetime','--strict-startup-info'),
+                linker_options=('-Wl,--stack,8388608',))
