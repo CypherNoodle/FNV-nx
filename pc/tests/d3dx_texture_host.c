@@ -42,10 +42,10 @@ static int compare_pixels(IDirect3DTexture9 *actual,IDirect3DTexture9 *oracle,un
     IDirect3DSurface9_Release(a);IDirect3DSurface9_Release(b);IDirect3DSurface9_Release(x);IDirect3DSurface9_Release(y);return equal;
 }
 int main(int argc,char **argv){
-    assert(argc==4);HWND window=setup(argv);unsigned levels,checks=0,rollbacks=0,source_checks=0,tail_differences=0;
+    assert(argc==4);HWND window=setup(argv);unsigned levels,checks=0,rollbacks=0,source_checks=0,tail_differences=0,generated_checks=0,generation_rollbacks=0;
     uint32_t bytes=make_dds(8,8,D3DFMT_DXT1,&levels);memcpy(ptr(code_at),image_data,bytes);
     uint32_t args[]={device_at,code_at,bytes,GUEST_OUT};
-    if(strcmp(argv[3],"normal")){if(!strcmp(argv[3],"dds_shape"))put(code_at+16,7);else put(code_at+28,1);
+    if(strcmp(argv[3],"normal")){if(!strcmp(argv[3],"dds_shape"))put(code_at+16,7);else {bytes=make_dds(8,8,D3DFMT_DXT2,&levels);memcpy(ptr(code_at),image_data,bytes);put(code_at+28,1);args[2]=bytes;}
         struct fnv_cpu_fault f;assert(invoke(28,4,args,NULL,&f)==FNV_CPU_GUEST_FAULT && f.kind==FNV_CPU_UNIMPLEMENTED);
     }else {
         HMODULE lib=LoadLibraryExA("d3dx9_38.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(lib);
@@ -67,6 +67,26 @@ int main(int argc,char **argv){
             }
             assert(!release(texture));IDirect3DTexture9_Release(oracle);
         }
+        /* Missing BC3 levels: flat red/alpha137 has an independent exact
+         * pixel expectation, and can also be compared with native D3DX. */
+        for(unsigned sample=0;sample<36;++sample){unsigned format=(sample%3==0?D3DFMT_DXT1:sample%3==1?D3DFMT_DXT3:D3DFMT_DXT5),unit=format==D3DFMT_DXT1?8:16;unsigned width=1u<<(2+sample%5),height=1u<<(2+sample/3%4),supplied=1+sample%2;
+            bytes=make_dds(width,height,format,&levels);fnv_dds_put32(image_data+28,supplied);
+            uint32_t provided_bytes=128;for(unsigned level=0,w=width,h=height;level<supplied;++level){unsigned size=((w+3)/4)*((h+3)/4)*unit;
+                for(unsigned i=0;i<size;i+=unit){unsigned char *block=image_data+provided_bytes+i;memset(block,0,unit);
+                    if(format==D3DFMT_DXT1)block[1]=block[3]=0xf8;
+                    else {if(format==D3DFMT_DXT3)memset(block,0x88,8);else block[0]=block[1]=137;block[9]=block[11]=0xf8;}}
+                provided_bytes+=size;w=w>1?w/2:1;h=h>1?h/2:1;}
+            memcpy(ptr(code_at),image_data,provided_bytes);args[1]=code_at;args[2]=provided_bytes;args[3]=GUEST_OUT;
+            IDirect3DTexture9 *oracle=NULL;assert(SUCCEEDED(create(device,image_data,provided_bytes,&oracle)) && !call(28,4,args));
+            uint32_t texture=get(GUEST_OUT);IDirect3DTexture9 *actual=(IDirect3DTexture9*)last_texture;
+            assert(IDirect3DTexture9_GetLevelCount(actual)==levels && IDirect3DTexture9_GetLevelCount(oracle)==levels);
+            for(unsigned level=0;level<levels;++level){D3DSURFACE_DESC desc;assert(SUCCEEDED(IDirect3DTexture9_GetLevelDesc(actual,level,&desc)));
+                assert(compare_pixels(actual,oracle,level,desc.Width,desc.Height));generated_checks++;}
+            assert(!release(texture));IDirect3DTexture9_Release(oracle);
+            if(!sample){ULONG before=device_refs();for(unsigned level=0;level<levels;++level){fail_texture_level=level;put(GUEST_OUT,0xdeadbeef);unsigned releases=deleted;
+                assert(call(28,4,args)==0x80004005 && get(GUEST_OUT)==0xdeadbeef && deleted==releases+1 && device_refs()==before);generation_rollbacks++;}
+                fail_texture_level=UINT32_MAX;}
+        }
         bytes=make_dds(64,64,21,&levels);memcpy(ptr(code_at),image_data,bytes);args[2]=bytes;args[3]=GUEST_OUT;
         ULONG refs=device_refs();unsigned deleted_before=deleted;
         for(unsigned n=0;n<140;++n){fail_texture_level=n%levels;put(GUEST_OUT,0xa5a5a5a5);unsigned destroyed=deleted;
@@ -81,5 +101,5 @@ int main(int argc,char **argv){
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK && !fnv_vm_destroy(vm).error);
     assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);
-    printf("{\"status\":\"PASS\",\"native_mip_pixel_agreements\":%u,\"native_compressed_tail_differences\":%u,\"exact_dds_mip_copies\":%u,\"upload_rollbacks\":%u,\"gpu_rendered\":false}\n",checks,tail_differences,source_checks,rollbacks);return 0;
+    printf("{\"status\":\"PASS\",\"native_mip_pixel_agreements\":%u,\"native_compressed_tail_differences\":%u,\"exact_dds_mip_copies\":%u,\"upload_rollbacks\":%u,\"generated_mip_pixel_checks\":%u,\"generation_rollbacks\":%u,\"gpu_rendered\":false}\n",checks,tail_differences,source_checks,rollbacks,generated_checks,generation_rollbacks);return 0;
 }

@@ -57,7 +57,8 @@ def build(a):
                 if not re.match(r'\s*#\s*include\s*[<"]',line) or 'cpu_runtime.h' in line:
                     raise ValueError('Cannot reuse a unit depending on the replaced CPU header: '+str(path))
     sources=['cpu_runtime.c','windows_thread.c','guest_memory.c','memory_horizon.c','windows_memory.c','d3d9_constants.c','d3d9_com.c']
-    headers=['windows_thread.h','guest_memory.h','memory_horizon.h','windows_memory.h','d3d9_constants.h','d3d9_com.h','d3d9_dds_texture.inc','dds_image_info.h','host_mutex.h']
+    headers=['windows_thread.h','guest_memory.h','memory_horizon.h','windows_memory.h','d3d9_constants.h','d3d9_com.h','d3d9_dds_texture.inc','bc_mip_chain.inc','dds_image_info.h','host_mutex.h']
+    for path in (pc/'third_party/stb_dxt/stb_dxt.h',pc/'third_party/stb_dxt/provenance.json'):frozen[path]=sha(path)
     for name in sources+headers:
         p=pc/'native'/name;frozen[p]=sha(p)
     for p in (a.libnx.resolve()/'include').rglob('*.h'):frozen[p]=sha(p)

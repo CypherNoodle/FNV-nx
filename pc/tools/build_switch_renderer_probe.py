@@ -41,9 +41,10 @@ def build(a):
     if proof['source_sha256'].get(str(shared))!=sha(shared):raise ValueError('Combined checks differ from accepted desktop test')
     for source in sources:
         if source.parent==pc/'native' and source.name!='d3d9_vk_horizon.c' and proof['source_sha256'].get(str(source))!=sha(source):raise ValueError('Native source differs from accepted desktop test: '+source.name)
-    for path in (*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc'))):
+    third_party=[pc/'third_party/stb_dxt/stb_dxt.h',pc/'third_party/stb_dxt/provenance.json']
+    for path in (*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),*third_party):
         if proof['source_sha256'].get(str(path))!=sha(path):raise ValueError('Native header differs from accepted desktop test: '+path.name)
-    files=[*sources,shared,catalog,a.fixture_validation.resolve(),Path(__file__).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),
+    files=[*sources,*third_party,shared,catalog,a.fixture_validation.resolve(),Path(__file__).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),
         linked/'normal.vs.spv',linked/'normal.ps.spv',a.mesa.resolve(),a.cc.resolve(),a.nm.resolve(),a.readelf.resolve(),a.elf2nro.resolve(),a.nacptool.resolve(),a.icon.resolve(),nx/'switch.specs',nx/'switch.ld',nx/'lib/libnx.a',
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]
     files.extend(sorted(port.glob('*.a')))

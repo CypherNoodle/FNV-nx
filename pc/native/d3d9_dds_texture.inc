@@ -2,6 +2,7 @@
  * allocator, backend object, shadows and reference accounting, not a parallel
  * texture registry. Only complete POT 2D DDS chains need no filtering. */
 #include "dds_image_info.h"
+#include "bc_mip_chain.inc"
 static void api_dds_texture(void){
     uint32_t self=fnv_cpu_argument_u32(0),src=fnv_cpu_argument_u32(1),bytes=fnv_cpu_argument_u32(2),at=fnv_cpu_argument_u32(3);
     struct fnv_d3d9_com *c=module();unsigned char *out=range(c,at,4,1);
@@ -18,7 +19,7 @@ static void api_dds_texture(void){
     if(read32(info+20)!=3 || (width&(width-1)) || (height&(height-1)) || width>16384 || height>16384)
         invalid("D3DX texture resampling or resource shape pending",src);
     for(uint32_t n=width>height?width:height;n>1;n>>=1)maximum++;
-    if(levels!=maximum)invalid("D3DX texture mip generation pending",src);
+    if(levels>maximum || (levels<maximum && format!=0x31545844 && format!=0x33545844 && format!=0x35545844))invalid("D3DX texture mip generation pending",src);
     if(format==0x32545844 || format==0x34545844)invalid("D3DX premultiplied DDS conversion pending",format);
     if(!texture_format(format,&block,&unit))invalid("D3DX texture format conversion pending",format);
     if(!c->config.backend.create_texture || !c->config.backend.upload_texture || !c->buffer_memory)
@@ -26,7 +27,10 @@ static void api_dds_texture(void){
     fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);fnv_host_mutex_unlock(&c->guard);
     /* Input may alias the dedicated shadow pool or output. Keep it stable
      * across allocation and all backend calls, without retaining guest data. */
-    unsigned char *snapshot=malloc(bytes);if(!snapshot){fnv_cpu_return_u32(FNV_D3D9_OUTOFMEMORY,16);return;}memcpy(snapshot,data,bytes);
+    unsigned char *snapshot=NULL;
+    if(levels<maximum){result=fnv_bc_complete_dds(data,bytes,width,height,levels,maximum,format,c->config.buffer_bytes,&snapshot,&bytes);
+        if(result){fnv_cpu_return_u32(result,16);return;}levels=maximum;
+    }else {snapshot=malloc(bytes);if(!snapshot){fnv_cpu_return_u32(FNV_D3D9_OUTOFMEMORY,16);return;}memcpy(snapshot,data,bytes);}
     uint32_t texture=0;result=create_texture(c,self,width,height,levels,0,format,1,0,&texture);
     if(!result){
         fnv_host_mutex_lock(&c->guard);int index=object(c,texture,0);struct resource *r=c->resources+index;

@@ -24,11 +24,11 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
     native=['cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
         'guest_memory.c','guest_memory.h','memory_horizon.c','memory_horizon.h','host_mutex.h',
-        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h','d3d9_dds_texture.inc','dds_image_info.h','d3d9_factory.inc','d3d9_directional_vertex.h','d3d9_normal_transform.h','d3d9_light_state.h','d3d9_light_methods.inc','d3d9_material_methods.inc','d3d9_state_blocks.inc','d3d9_fvf.h','d3d9_fvf.inc','d3d9_up.inc','d3d9_reset.inc']
+        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h','d3d9_dds_texture.inc','bc_mip_chain.inc','dds_image_info.h','d3d9_factory.inc','d3d9_directional_vertex.h','d3d9_normal_transform.h','d3d9_light_state.h','d3d9_light_methods.inc','d3d9_material_methods.inc','d3d9_state_blocks.inc','d3d9_fvf.h','d3d9_fvf.inc','d3d9_up.inc','d3d9_reset.inc']
     slots=SLOTS if slots is None else slots
     modes=('normal','unknown','unsupported','stale','unregistered','parent','capacity','alias') if modes is None else modes
     inputs=[Path(__file__).resolve(),pc/'tests/d3d9_com_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',pc/'tools/shader_packages.py',
-        *[pc/'native'/n for n in native],*[Path(p) for p in (*extra_args,*extra_inputs,*extra_sources)],*sorted(a.shaders.resolve().glob('*.sdp')),
+        *[pc/'native'/n for n in native],pc/'third_party/stb_dxt/stb_dxt.h',pc/'third_party/stb_dxt/provenance.json',*[Path(p) for p in (*extra_args,*extra_inputs,*extra_sources)],*sorted(a.shaders.resolve().glob('*.sdp')),
         *[p for d in (sdk/'templates/runtime',sdk/'src/kernel') for p in d.rglob('*.h')]]
     frozen={p:sha(p) for p in inputs}
     unique={}
