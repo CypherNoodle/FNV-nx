@@ -109,4 +109,14 @@ static void api_file_type(void){
     if(f){value=1;file_release(p,f);}else fnv_windows_set_last_error(6);
     fnv_cpu_return_u32(value,4);
 }
-
+static void current_directory(int wide){
+    uint32_t capacity=fnv_cpu_argument_u32(0),at=fnv_cpu_argument_u32(1);
+    (void)file_process();
+    uint32_t length=(uint32_t)sizeof(file_virtual_game_root)-1;
+    if(capacity<=length){fnv_cpu_return_u32(length+1,8);return;}
+    unsigned char *out=file_pointer(thread()->process,at,(length+1)*(wide?2u:1u),1);
+    for(uint32_t i=0;i<=length;++i){out[i*(wide?2u:1u)]=(unsigned char)file_virtual_game_root[i];if(wide)out[i*2+1]=0;}
+    fnv_cpu_return_u32(length,8);
+}
+static void api_current_directory_a(void){current_directory(0);}
+static void api_current_directory_w(void){current_directory(1);}

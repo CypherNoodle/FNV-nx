@@ -373,6 +373,8 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetCommandLineW",0,0,api_command_w},
     {"kernel32.dll","GetModuleFileNameA",0,0,api_module_filename_a},
     {"kernel32.dll","GetModuleFileNameW",0,0,api_module_filename_w},
+    {"kernel32.dll","GetCurrentDirectoryA",0,0,api_current_directory_a},
+    {"kernel32.dll","GetCurrentDirectoryW",0,0,api_current_directory_w},
     {"kernel32.dll","LocalFree",0,0,api_local_free},
     {"shell32.dll","CommandLineToArgvW",0,0,api_command_argv},
     {"kernel32.dll","CreateFileA",0,0,api_file_create_a},

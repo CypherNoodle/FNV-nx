@@ -73,6 +73,19 @@ static size_t file_virtual_profile_prefix(const char *source){
     }
     return sizeof(prefix)-1;
 }
+/* Guest identity of file_root. This is not an absolute path on the host. */
+static const char file_virtual_game_root[]="C:\\FNV-nx";
+static size_t file_virtual_game_prefix(const char *source){
+    size_t n=sizeof(file_virtual_game_root)-1;
+    for(size_t i=0;i<n;++i){unsigned a=(unsigned char)source[i],b=(unsigned char)file_virtual_game_root[i];
+        if(!a)return 0;
+        if(a=='/')a='\\';
+        if(a>='A' && a<='Z')a+=32;
+        if(b>='A' && b<='Z')b+=32;
+        if(a!=b)return 0;
+    }
+    return !source[n] || source[n]=='/' || source[n]=='\\'?n:0;
+}
 static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,char *path,char *key,int mode,int *profile){
     char source[512];int ended=0;
     for(size_t i=0;i<sizeof(source);++i){uint64_t pos=(uint64_t)at+i*(wide?2:1);unsigned width=wide?2:1;
@@ -87,6 +100,10 @@ static int file_path_mode(struct fnv_windows_process *p,uint32_t at,int wide,cha
     if(prefix){
         char tail[sizeof(source)];size_t tail_bytes=strlen(source+prefix)+1;
         memcpy(tail,source+prefix,tail_bytes);memcpy(source,tail,tail_bytes);profile_floor=2;
+    }else if((prefix=file_virtual_game_prefix(source))!=0){
+        if(source[prefix])prefix++;
+        memmove(source,source+prefix,strlen(source+prefix)+1);
+        if(!source[0]){source[0]='.';source[1]=0;}
     }
     size_t length=strlen(source);int trailing=length && (source[length-1]=='/' || source[length-1]=='\\');
     if(trailing && mode!=2)return 3;

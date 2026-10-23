@@ -1,7 +1,7 @@
 # Acceso a archivos desde Win32 guest
 
 WindowsThread incorpora CreateFileA/W, ReadFile, WriteFile, GetFileSize/Ex y SetFilePointer/Ex.
-El catalogo base contiene 98 exports, incluyendo
+El catalogo base contiene 100 exports, incluyendo
 [atributos y enumeracion](native-windows-directory.md) y servicios del CRT. CloseHandle usa el mismo import existente y
 dirige los handles de archivo al proveedor; no reemplaza ni duplica ese export.
 Eventos, mutex, semaforos y threads conservan su tabla y comportamiento.
@@ -34,7 +34,10 @@ al descriptor FILE del host. Layouts distintos y descriptores personalizados
 siguen devolviendo 50. La estructura es un bloque guest32, nunca un struct o
 puntero nativo del host. Referencia: [SECURITY_ATTRIBUTES de Microsoft](https://learn.microsoft.com/en-us/windows/win32/api/wtypesbase/ns-wtypesbase-security_attributes).
 
-No hay busqueda de archivos, rutas absolutas guest, unidades Windows, dispositivos,
+El [directorio virtual del juego](windows-current-directory.md) es `C:\FNV-nx`.
+Ese prefijo absoluto exacto se resuelve bajo file_root con las mismas reglas de
+sandbox y lectura; no habilita otras unidades ni rutas absolutas del host.
+No hay busqueda de archivos, otras rutas absolutas guest, unidades Windows, dispositivos,
 streams alternativos, templates, OVERLAPPED, IOCP ni cancelacion.
 WriteFile es sincrono, exige un handle con permiso de escritura y rechaza OVERLAPPED.
 Las escrituras relativas a `Data` u otras rutas del juego fallan cerradas; no hay
