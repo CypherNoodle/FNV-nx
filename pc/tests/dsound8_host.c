@@ -208,7 +208,44 @@ int main(int argc,char **argv){
     for(unsigned i=0;i<6;i++){assert(!output[i]);sample_checks++;}
     assert(cursor(pair[0])==12); /* Focus mutes, it does not stop the clock. */
     assert(fnv_dsound8_set_focus(sound,1)==FNV_CPU_OK);
+    /* Movie PCM shares saturation with game voices, and rolls back on FULL. */
+    int16_t movie[16];for(unsigned i=0;i<16;i++)movie[i]=(int16_t)(i&1?-20000:20000);
+    struct fnv_dsound_movie_stats ms;
+    assert(fnv_dsound8_movie_write(sound,movie,8)==FNV_PCM_OK);
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);
+    for(unsigned i=0;i<16;i++)assert(output[i]==(i&1?-32768:20000));
     for(unsigned k=0;k<2;k++)release(pair[k]);release(root);
+    assert(fnv_dsound8_movie_reset(sound)==FNV_PCM_OK);
+    int16_t *ring=malloc(48000*4);assert(ring);
+    for(unsigned f=0;f<48000;f++){ring[f*2]=(int16_t)(f%30000);ring[f*2+1]=(int16_t)-(int)(f%30000);}
+    assert(fnv_dsound8_movie_write(sound,ring,48000)==FNV_PCM_OK);
+    assert(fnv_dsound8_movie_write(sound,movie,1)==FNV_PCM_FULL);
+    memset(output,0,sizeof(output));assert(fnv_pcm_write(queue,output,1024)==FNV_PCM_OK);
+    assert(fnv_dsound8_pump(sound,512)==FNV_PCM_FULL);read_exact(output,1024);
+    assert(fnv_dsound8_movie_stats(sound,&ms)==FNV_PCM_OK&&ms.queued==48000&&!ms.played);
+    assert(fnv_dsound8_movie_pause(sound,1)==FNV_PCM_OK);
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned i=0;i<16;i++)assert(!output[i]);
+    assert(fnv_dsound8_movie_pause(sound,0)==FNV_PCM_OK);
+    assert(fnv_dsound8_set_focus(sound,0)==FNV_CPU_OK);
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned i=0;i<16;i++)assert(!output[i]);
+    assert(fnv_dsound8_set_focus(sound,1)==FNV_CPU_OK);
+    for(unsigned f=0;f<48000;){unsigned n=48000-f<512?48000-f:512;
+        assert(fnv_dsound8_pump(sound,n)==FNV_PCM_OK);read_exact(output,n);
+        for(unsigned i=0;i<n*2;i++){assert(output[i]==ring[f*2+i]);sample_checks++;}f+=n;}
+    assert(fnv_dsound8_movie_stats(sound,&ms)==FNV_PCM_OK&&!ms.queued&&ms.played==48000);
+    /* Advance ring head, then append a full ring spanning both segments. */
+    assert(fnv_dsound8_movie_write(sound,movie,8)==FNV_PCM_OK);
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);
+    assert(fnv_dsound8_movie_write(sound,ring,48000)==FNV_PCM_OK);
+    for(unsigned f=0;f<48000;){unsigned n=48000-f<512?48000-f:512;
+        assert(fnv_dsound8_pump(sound,n)==FNV_PCM_OK);read_exact(output,n);
+        for(unsigned i=0;i<n*2;i++){assert(output[i]==ring[f*2+i]);sample_checks++;}f+=n;}
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned i=0;i<16;i++)assert(!output[i]);
+    assert(fnv_dsound8_movie_stats(sound,&ms)==FNV_PCM_OK&&!ms.queued&&ms.played==96008);
+    assert(fnv_dsound8_movie_pause(sound,2)==FNV_PCM_INVALID);
+    assert(fnv_dsound8_movie_write(sound,NULL,1)==FNV_PCM_INVALID);
+    assert(fnv_dsound8_movie_write(sound,ring,48001)==FNV_PCM_INVALID);
+    assert(fnv_dsound8_movie_reset(sound)==FNV_PCM_OK);free(ring);
 finish:
     assert(DestroyWindow(window));assert(fnv_windows_thread_detach()==FNV_CPU_OK&&fnv_dsound8_destroy(sound)==FNV_CPU_OK&&fnv_windows_destroy(process)==FNV_CPU_OK);fnv_pcm_destroy(queue);assert(VirtualFree(arena,0,MEM_RELEASE));
     if(argc==3){puts("strict PASS");return 0;}

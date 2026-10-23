@@ -1,8 +1,10 @@
-# Puentes nativos de audio y video (pendientes)
+# Puentes nativos de audio y video
 
 Ya existe [salida PCM y XInput](native-input-audio.md), con backend audout/HID
 compilado para Horizon. Tambien existe [MP3 streaming nativo](native-mp3.md).
-Vorbis/Bink y el enlace de estos componentes al motor siguen pendientes.
+Ya hay un [adaptador Bink sobre FFmpeg y seleccion de sonido](native-bink.md),
+con decodificacion real en PC y enlace ARM64/libnx. Vorbis y la reproduccion
+Bink completa dentro del motor siguen pendientes.
 
 ## MP3 y formatos encontrados
 
@@ -11,8 +13,9 @@ con extension .mp3 y un .bik. Dos muestras MP3 tienen cabecera ID3; no es un
 inventario de audio dentro de BSA ni una validacion completa de todos los frames.
 MP3 ya tiene decoder minimp3 y conversion streaming a stereo 48000 s16, con
 pruebas reales de pistas a 44,1/48 kHz. La cola no remuestrea: esa conversion
-ocurre antes en pcm_convert. Vorbis y audio Bink siguen pendientes; FFmpeg es
-una opcion para Bink. Los bridges de audio Windows tampoco estan implementados.
+ocurre antes en pcm_convert. El adaptador FFmpeg de Bink ya devuelve RGBA y
+PCM estereo 48 kHz; falta conectar esa salida al reproductor del motor y al
+mezclador. DirectSound8 ya tiene un proveedor PCM; Vorbis sigue pendiente.
 
 WINMM importa mmioOpenA/Descend/Close/Read/Ascend/GetInfo/Advance y timeGetTime;
 ole32 incluye CoCreateInstance. DSOUND usa ordinal 11; DINPUT8 importa
@@ -49,9 +52,11 @@ sincronizacion del juego. Una cola sin limite ocultaria una fuga/latencia; medir
 relleno, underruns y tiempos de decodificacion. Los callbacks guest requieren
 analisis de reentrada antes de trasladar la decodificacion a otro hilo.
 
-Para Bink se propone FFmpeg (demuxer Bink y decodificadores de video/audio),
-frames al renderer Vulkan y audio al mismo mezclador/reloj. Falta implementar
-los nueve wrappers stdcall, su vida util y un objeto BINK guest32: el juego puede
+Para Bink ya se compilan el demuxer y los decodificadores FFmpeg para PC y
+Switch; se han decodificado frames y audio del video original en PC. El puente
+de seleccion de sonido cubre dos exports stdcall. Siguen pendientes los otros
+siete, conectar los eventos PCM al nuevo ring del mezclador, los frames al renderer
+y un objeto BINK guest32: el juego puede
 leer campos del handle directamente. Una funcion con el mismo nombre no prueba
 compatibilidad del layout. Pause/Wait/NextFrame y CopyToBufferRect deben conservar
 temporizacion, pitch, formato y limites del destino. No convertir videos del
@@ -59,7 +64,8 @@ usuario ni incorporar DLL x86 al NRO esperando que funcionen nativamente.
 
 Primero: auditoria de callers/layouts y callbacks, despues fixtures propios con
 PCM y video conocidos, luego comparacion de muestras/frames y prueba Switch.
-Ninguno de estos proveedores esta implementado por esta documentacion.
+Los componentes verificados y sus limites se detallan en native-bink.md;
+no se ha demostrado reproduccion Bink dentro del motor ni en la consola.
 atimgpud.dll y GDFFalloutNV.dll quedan excluidos del paquete Switch; no se
 modifica la instalacion Steam ni se fabrican exports exitosos.
 
