@@ -6,11 +6,11 @@
 #include <vulkan/vulkan_core.h>
 struct fnv_vk_backend;
 struct fnv_vk_prepared_program;
-/* Trusted offline pair with optional stage variants. Exclusive init only;
+/* Trusted offline pair with optional stage variants. Exclusive host setup only;
  * no replacement of an existing original pair. Later failure may be partial. */
 uint32_t fnv_vk_backend_prepare_variant(struct fnv_vk_backend *,const struct fnv_vk_prepared_program *);
 struct fnv_vk_config {
-    uint32_t width,height,resource_capacity,frames,commands;
+    uint32_t width,height,resource_capacity,frames,commands; /* resource capacity: 2..2048 */
     uint64_t memory_budget;
     uint32_t auto_depth; /* D24S8, optional. Offscreen color is ARGB8. */
 };
@@ -105,6 +105,13 @@ uint32_t fnv_vk_backend_read_buffer(struct fnv_vk_backend *,uintptr_t,uint32_t o
 /* Diagnostic readback: RGBA8 for converted textures, tightly packed BC blocks
  * for DXT1/3/5. This is not a D3D9 application method or decoder. */
 uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *,uintptr_t,uint32_t level,void *,size_t,uint64_t timeout_ns);
+/* Admit exact original tokens already validated by a trusted offline tool.
+ * Copies bytes, idempotent by stage+tokens. This does not validate shader
+ * instructions, compile SPIR-V, link a pair or change advertised caps.
+ * Enables owned Create/Bind/Release shader resources before a program is ready;
+ * Draw rejects until both originals have an explicitly prepared linked pair.
+ * Later payload registration preserves existing resource identities. */
+uint32_t fnv_vk_backend_declare_shader(struct fnv_vk_backend *,enum fnv_d3d9_stage,const void *code,uint32_t code_bytes);
 /* Trusted host-side offline catalog: copy exact D3D9 tokens, prevalidated and
  * linked SPIR-V with entry main, and its reflected uniform plan. No runtime
  * translation or guest-provided SPIR-V. Basic header/stage checks are not a

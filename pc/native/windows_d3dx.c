@@ -37,7 +37,7 @@ static void api_image_info_memory(void){
     fnv_cpu_return_u32(result,12);
 }
 static int supported(float f){return isfinite(f) && (f==0 || fpclassify(f)!=FP_SUBNORMAL);}
-static void api_matrix_multiply(void){
+static void matrix_multiply(int transpose){
     uint32_t out=fnv_cpu_argument_u32(0),left=fnv_cpu_argument_u32(1),right=fnv_cpu_argument_u32(2);
     unsigned char *destination=checked(out,1),*a=checked(left,0),*b=checked(right,0);
     if(!destination || !a || !b)return;
@@ -60,10 +60,12 @@ static void api_matrix_multiply(void){
             if(!supported(value)){recomp_unimpl("D3DX matrix sum unsupported",out);return;}
             value=value+products[3];}
         if(!supported(value)){recomp_unimpl("D3DX matrix sum unsupported",out);return;}
-        result[row*4+col]=value;
+        result[transpose?col*4+row:row*4+col]=value;
     }
     memcpy(destination,result,64);fnv_cpu_return_u32(out,12);
 }
+static void api_matrix_multiply(void){matrix_multiply(0);}
+static void api_matrix_multiply_transpose(void){matrix_multiply(1);}
 static void api_perf_options(void){
     uint32_t options=fnv_cpu_argument_u32(0);
     if(options>1){recomp_unimpl("D3DPERF profiler options unsupported",options);return;}
@@ -73,6 +75,7 @@ static void api_perf_options(void){
 }
 static const struct fnv_cpu_export exports[]={
     {"d3dx9_38.dll","D3DXMatrixMultiply",0,0,api_matrix_multiply},
+    {"d3dx9_38.dll","D3DXMatrixMultiplyTranspose",0,0,api_matrix_multiply_transpose},
     {"d3dx9_38.dll","D3DXGetImageInfoFromFileInMemory",0,0,api_image_info_memory},
     {"d3d9.dll","D3DPERF_SetOptions",0,0,api_perf_options}};
 const struct fnv_cpu_export *fnv_windows_d3dx_exports(size_t *count){if(count)*count=sizeof(exports)/sizeof(*exports);return exports;}

@@ -122,7 +122,8 @@ static struct declaration_resource *find_declaration(struct fnv_vk_backend *d,ui
 }
 static void collect_shader(struct fnv_vk_backend *d,struct shader_resource *s){
     if(!s || !s->id || s->refs || s->pins)return;
-    d->v.DestroyShaderModule(d->device,s->module,NULL);memset(s,0,sizeof(*s));
+    if(s->module)d->v.DestroyShaderModule(d->device,s->module,NULL);
+    memset(s,0,sizeof(*s));
 }
 static void collect_declaration(struct declaration_resource *v){
     if(v && v->id && !v->refs && !v->pins)memset(v,0,sizeof(*v));
@@ -691,7 +692,7 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     if(!out)return FNV_VK_INVALID;
     *out=NULL;
     if(!gp || !cfg || !cfg->width || !cfg->height || cfg->frames<1 || cfg->frames>3 || cfg->commands<1 || cfg->commands>128 ||
-       cfg->resource_capacity<2 || cfg->resource_capacity>256 || !cfg->memory_budget || cfg->auto_depth>1)return FNV_VK_INVALID;
+       cfg->resource_capacity<2 || cfg->resource_capacity>2048 || !cfg->memory_budget || cfg->auto_depth>1)return FNV_VK_INVALID;
     if(window && (!window->extension || !window->create_surface || window->vsync>1))return FNV_VK_INVALID;
     struct fnv_vk_backend *d=calloc(1,sizeof(*d));if(!d)return FNV_VK_OOM;
     if(!fnv_host_mutex_init(&d->guard)){free(d);return FNV_VK_OOM;}

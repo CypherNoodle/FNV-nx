@@ -56,11 +56,13 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL test_gpa(VkInstance instance,con
 }
 #include "catalog_pair_oracle.h"
 int main(int argc,char **argv){
+    int deferred=argc==6 && !strcmp(argv[5],"deferred-shaders");
     assert(argc==5 || argc==6);HMODULE loader=LoadLibraryExW(L"vulkan-1.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(loader);
     FARPROC proc=GetProcAddress(loader,"vkGetInstanceProcAddr");PFN_vkGetInstanceProcAddr gp;memcpy(&gp,&proc,sizeof(gp));
     real_gpa=gp;gp=test_gpa;skip_pixel_center=argc==6 && !strcmp(argv[5],"missing-pixel-center");
     skip_variant_locations=argc==6 && !strcmp(argv[5],"wrong-variant-locations");
     struct fnv_vk_config cfg={32,32,32,2,16,16u<<20,0};struct fnv_vk_backend *gpu;VkResult failure;
+    if(deferred)cfg.resource_capacity=2048;
     assert(!fnv_vk_backend_create(gp,&cfg,&gpu,&failure));struct fnv_d3d9_shader_backend b;fnv_vk_backend_callbacks(gpu,&b);
 #if defined(FNV_CATALOG_TWO_TEXTURES) || defined(FNV_CATALOG_RENDER_TEXTURE)
     assert(fnv_vk_backend_draw_wait(gpu,UINT64_MAX)==FNV_VK_INVALID);
@@ -89,7 +91,21 @@ int main(int argc,char **argv){
     /* Missing PS in original package must not even install the VS. */
     assert(fnv_vk_prepare_program(gpu,&prepared,catalog,1)==FNV_VK_INVALID);
     struct fnv_vk_stats stats;assert(!fnv_vk_backend_stats(gpu,&stats) && !stats.shader_catalog_entries);
-    assert(!fnv_vk_prepare_program(gpu,&prepared,catalog,2));
+    if(deferred){
+        for(unsigned i=0;i<2;i++){
+            unsigned char *copy=malloc(cb[i]);assert(copy);memcpy(copy,code[i],cb[i]);
+            assert(fnv_vk_backend_declare_shader(gpu,1-i,copy,cb[i])==FNV_VK_INVALID);
+            assert(!fnv_vk_backend_declare_shader(gpu,i,copy,cb[i]));memset(copy,0,cb[i]);free(copy);
+            assert(!fnv_vk_backend_declare_shader(gpu,i,code[i],cb[i]));
+            assert(!b.create(gpu,i,code[i],cb[i],shader+i) && !b.bind_shader(gpu,i,shader[i]));
+            assert(b.bind_shader(gpu,1-i,shader[i])==FNV_VK_INVALID);
+        }
+        assert(!fnv_vk_backend_stats(gpu,&stats) && stats.shader_catalog_entries==2 && stats.live_shaders==2 && !live_shader_modules);
+        assert(fnv_vk_backend_link_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,2,FNV_CATALOG_SAMPLER_MASK)==FNV_VK_INVALID);
+        uintptr_t dropped[600];for(unsigned i=0;i<600;i++)assert(!b.create(gpu,0,code[0],cb[0],dropped+i));
+        for(unsigned i=0;i<600;i++)b.release(gpu,dropped[i]);
+        assert(!live_shader_modules);
+    }else assert(!fnv_vk_prepare_program(gpu,&prepared,catalog,2));
 #ifdef FNV_CATALOG_SHARED_PROGRAM
     struct fnv_vk_prepared_program other=prepared;
     other.stages[1]=(struct fnv_vk_prepared_stage){shared_ps,shared_ps_spv,sizeof(shared_ps),sizeof(shared_ps_spv),shared_pixel_plan};
@@ -117,7 +133,7 @@ int main(int argc,char **argv){
     assert(!fnv_vk_backend_ensure_program(gpu,code[0],cb[0],code[1],cb[1],vertex_inputs,2,1));
     uintptr_t other_shader;assert(!b.create(gpu,1,shared_ps,sizeof(shared_ps),&other_shader));
 #endif
-    for(unsigned i=0;i<2;i++){assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));}
+    if(!deferred)for(unsigned i=0;i<2;i++){assert(!b.create(gpu,i,code[i],cb[i],shader+i));assert(!b.bind_shader(gpu,i,shader[i]));}
     uintptr_t decl,texture,vb;
     assert(!b.create_declaration(gpu,elements,3,&decl) && !b.bind_declaration(gpu,decl));
 #ifdef FNV_CATALOG_MIPS
@@ -194,6 +210,15 @@ int main(int argc,char **argv){
         assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
 #endif
         assert(!b.scene(gpu,1));
+        if(deferred && !frame){
+            struct fnv_vk_stats before,after;assert(!fnv_vk_backend_stats(gpu,&before));
+            assert(b.draw(gpu,0,4,0,0,0,0,2)==FNV_VK_INVALID);
+            assert(!fnv_vk_backend_stats(gpu,&after) && before.submissions==after.submissions && !after.draws && !live_shader_modules);
+            assert(!fnv_vk_prepare_program(gpu,&prepared,catalog,2));
+            assert(!fnv_vk_backend_stats(gpu,&after) && after.shader_catalog_entries==4 && after.live_shaders==2);
+            for(unsigned i=0;i<2;i++)assert(!fnv_vk_backend_declare_shader(gpu,i,code[i],cb[i]));
+            assert(!fnv_vk_backend_stats(gpu,&after) && after.shader_catalog_entries==4);
+        }
         force_draw_timeout=argc==6 && !strcmp(argv[5],"draw-timeout");
 #ifdef FNV_CATALOG_PROGRAM_VARIANT
         if(!frame && argc==6 && !strcmp(argv[5],"variant-module-failure")){
@@ -245,5 +270,5 @@ int main(int argc,char **argv){
     assert(!fnv_vk_backend_wait(gpu,10000000000ull) && !fnv_vk_backend_stats(gpu,&stats));
     assert(stats.allocated_bytes==baseline.allocated_bytes && stats.live_surfaces==baseline.live_surfaces && !stats.live_textures && !stats.texture_versions && !stats.live_buffers && !stats.live_shaders && !stats.live_declarations && !stats.pending_frames);
 #endif
-    b.device_release(gpu);assert(!fnv_vk_backend_destroy(gpu) && !live_shader_modules);FreeLibrary(loader);printf("PASS catalog pair %u pixels\n",checks);return 0;
+    b.device_release(gpu);assert(!fnv_vk_backend_destroy(gpu) && !live_shader_modules);FreeLibrary(loader);if(deferred)puts("PASS deferred shader identities survive payload registration");printf("PASS catalog pair %u pixels\n",checks);return 0;
 }

@@ -95,7 +95,7 @@ engine experiment uses the Vulkan provider and passes complete-chain DDS creatio
 The actual COM translation unit compiles for ARM64/libnx with strict warnings.
 No new Switch hardware run has been performed.
 
-## Current engine stop
+## Shader loading and current engine stop
 
 The private startup experiment passes the previously missing BC3 and BC1 chains.
 A runtime-observed missing function entry was separately audited and translated
@@ -104,10 +104,12 @@ folder in its private asset fixture; adding the user's original packages moves
 the stop to shader creation. A bounded observation of all 1,412 requested bytes
 matches a water pixel shader in package 002, whereas the prepared catalog used
 package 003. Selecting package 002 alone does not supply its translated programs
-and still ends in a null shader access. Read-only creation tracing records
-816 requests, 811 rejected by the provider because their programs are not
-prepared. The next step is preparing the actual
-requested programs and checking HRESULT handling, not bypassing the catalog.
+and initially still ended in a null shader access: tracing recorded 816 requests,
+811 rejected by the provider because their programs were not prepared. The
+[shader resource admission bridge](deferred-shader-resources.md) now separates
+validated resource creation from drawing, which still requires prepared Vulkan
+programs. With that bridge and D3DXMatrixMultiplyTranspose, the private experiment
+passes those stops and now requests binkw32.dll!_BinkSetSoundSystem@8.
 
 No engine frame, cold EXE boot or new Switch hardware run is demonstrated.
 Production caps and the paused Xbox route are unchanged.

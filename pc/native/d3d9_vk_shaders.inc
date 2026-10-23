@@ -26,6 +26,20 @@ static int shader_payload(const struct shader_catalog *e,const void *spirv,uint3
     }
     return 1;
 }
+/* Trusted host admission of offline-validated D3D9 tokens. No GPU executable is
+ * implied: Draw still requires an explicitly linked, prepared program. */
+uint32_t fnv_vk_backend_declare_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage stage,const void *code,uint32_t bytes){
+    if(!d || !shader_header(stage,code,bytes))return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
+    if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
+    for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->stage==stage && e->code_bytes==bytes && !memcmp(e->code,code,bytes)){hr=0;goto done;}
+    if(d->catalog_count>=4096){hr=FNV_VK_OOM;goto done;}
+    struct shader_catalog *entry=calloc(1,sizeof(*entry));if(!entry){hr=FNV_VK_OOM;goto done;}
+    entry->code=malloc(bytes);if(!entry->code){free(entry);hr=FNV_VK_OOM;goto done;}
+    memcpy(entry->code,code,bytes);entry->code_bytes=bytes;entry->stage=stage;
+    entry->next=d->catalog;d->catalog=entry;d->catalog_count++;hr=0;
+done:fnv_host_mutex_unlock(&d->guard);return hr;
+}
 static uint32_t register_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage stage,const void *code,uint32_t code_bytes,const void *spirv,uint32_t spirv_bytes,const struct fnv_uniform_plan *plan,int reuse){
     if(!d || !shader_header(stage,code,code_bytes) || !spirv_header(stage,spirv,spirv_bytes) || !plan || (plan->count && !plan->entries))return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
@@ -33,6 +47,7 @@ static uint32_t register_shader(struct fnv_vk_backend *d,enum fnv_d3d9_stage sta
     if(!reuse && d->catalog_count>=4096){hr=FNV_VK_OOM;goto done;}
     int duplicate=0;
     for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->stage==stage && e->code_bytes==code_bytes && !memcmp(e->code,code,code_bytes)){
+        if(!e->spirv_bytes)continue;
         duplicate=1;if(!reuse)goto done;
         if(shader_payload(e,spirv,spirv_bytes,plan)){hr=0;goto done;}
     }
@@ -64,7 +79,7 @@ static uint32_t create_shader(void *ctx,enum fnv_d3d9_stage stage,const void *co
     if(resource_count(d)>=d->config.resource_capacity){hr=FNV_VK_OOM;goto done;}
     struct shader_resource *s=NULL;for(uint32_t i=0;i<d->config.resource_capacity;++i)if(!d->shaders[i].id){s=d->shaders+i;break;}
     VkShaderModuleCreateInfo ci={.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,.codeSize=entry->spirv_bytes,.pCode=entry->spirv};
-    VkShaderModule module=VK_NULL_HANDLE;hr=result(d,d->v.CreateShaderModule(d->device,&ci,NULL,&module));if(hr)goto done;
+    VkShaderModule module=VK_NULL_HANDLE;hr=entry->spirv_bytes?result(d,d->v.CreateShaderModule(d->device,&ci,NULL,&module)):0;if(hr)goto done;
     *s=(struct shader_resource){.id=++d->next_id,.refs=1,.entry=entry,.module=module};d->device_refs++;*out=s->id;
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }

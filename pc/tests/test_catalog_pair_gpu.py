@@ -92,8 +92,12 @@ def run(a):
         for mode,text in (('draw-timeout','PASS draw watchdog retains pending GPU work'),('nonblocking-ring','PASS nonblocking ring retry')):
             trial=subprocess.run([*args,mode],capture_output=True,text=True,env=env,timeout=60);(out/(mode+'.log')).write_text(trial.stdout+trial.stderr)
             assert not trial.returncode and text in trial.stdout,trial.stdout+trial.stderr
+    if not a.render_texture and not a.two_textures and not a.mip_clamp:
+        deferred=subprocess.run([*args,'deferred-shaders'],capture_output=True,text=True,env=env,timeout=60)
+        (out/'deferred-shaders.log').write_text(deferred.stdout+deferred.stderr)
+        assert not deferred.returncode and 'PASS deferred shader identities' in deferred.stdout,deferred.stdout+deferred.stderr
     assert all(sha(Path(n))==h for n,h in frozen.items())
-    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),render_texture=a.render_texture,draw_pressure_waits=pressure_waits,draw_watchdog_checked=a.two_textures,nonblocking_retry_checked=a.two_textures,two_textures=a.two_textures,mip_clamp=a.mip_clamp,float_constants=a.constants,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
+    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),render_texture=a.render_texture,draw_pressure_waits=pressure_waits,draw_watchdog_checked=a.two_textures,nonblocking_retry_checked=a.two_textures,two_textures=a.two_textures,mip_clamp=a.mip_clamp,float_constants=a.constants,deferred_shader_pixels=6144 if not (a.render_texture or a.two_textures or a.mip_clamp) else 0,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
                 shader_sha256={s:sha(out/(s+'.bin')) for s in ('vs','ps')},spirv_sha256={s:sha(out/'pair'/(s+'.spv')) for s in ('vs','ps')},descriptors=descriptors)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ('status','pixel_checks','negative_controls','original_package_used','game_frame')}))
 

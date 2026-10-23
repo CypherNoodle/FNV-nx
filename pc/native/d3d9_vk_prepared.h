@@ -13,7 +13,8 @@ struct fnv_vk_prepared_program {
     const struct fnv_vk_vertex_input *inputs;
     uint32_t input_count,sampler_mask;
 };
-/* Call during exclusive initialization of a fresh backend, before COM create.
+/* Call during exclusive host configuration, without concurrent draws or GPU
+ * work in flight. Existing shader resource identities remain valid.
  * Identical payloads are shared; distinct original pairs may select different
  * linked payloads for the same original stage. An existing pair is immutable.
  * Missing membership fails before registration. A later failure

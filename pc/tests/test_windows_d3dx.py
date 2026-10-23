@@ -10,10 +10,10 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('sdk','python-deps','output'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True);a=p.parse_args()
-    shared.NAMES=['D3DXMatrixMultiply','GetLastError','SetLastError','D3DPERF_SetOptions'];shared.ARGS=[3,0,1,1];shared.DLLS=['d3dx9_38.dll','kernel32.dll','kernel32.dll','d3d9.dll']
+    shared.NAMES=['D3DXMatrixMultiply','GetLastError','SetLastError','D3DPERF_SetOptions','D3DXMatrixMultiplyTranspose'];shared.ARGS=[3,0,1,1,3];shared.DLLS=['d3dx9_38.dll','kernel32.dll','kernel32.dll','d3d9.dll','d3dx9_38.dll']
     pc=Path(__file__).resolve().parents[1];oracle=pc/'tests/d3dx_matrix_x86_oracle.ps1';dll32=Path('C:/Windows/SysWOW64/d3dx9_38.dll')
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();frozen={str(p):sha(p) for p in (oracle,dll32)}
-    shared.test(a,host_source='windows_d3dx_host.c',native_sources=('windows_d3dx.c',),extra_inputs=(Path(__file__).resolve(),pc/'native/windows_d3dx.h',pc/'native/dds_image_info.h',Path('C:/Windows/System32/d3dx9_38.dll'),oracle,dll32),linker_options=('-Wl,--stack,8388608',),strict_modes=('--strict-null','--strict-range','--strict-nan','--strict-denormal','--strict-overflow','--strict-rounding','--strict-perf'))
+    shared.test(a,host_source='windows_d3dx_host.c',native_sources=('windows_d3dx.c',),extra_inputs=(Path(__file__).resolve(),pc/'native/windows_d3dx.h',pc/'native/dds_image_info.h',Path('C:/Windows/System32/d3dx9_38.dll'),oracle,dll32),linker_options=('-Wl,--stack,8388608',),strict_modes=('--strict-null','--strict-range','--strict-nan','--strict-denormal','--strict-overflow','--strict-rounding','--strict-perf','--strict-transpose-range'))
     source=a.output.resolve()/'x86-input.bin';output=a.output.resolve()/'x86-oracle.bin';seed=0x71acdef
     with source.open('xb') as stream:
         stream.write(struct.pack('<I',10000))
@@ -27,6 +27,12 @@ if __name__=='__main__':
     result=subprocess.run(command,capture_output=True,text=True,timeout=60);(a.output/'x86-oracle.log').write_text(result.stdout+result.stderr);assert not result.returncode,result.stderr
     result=subprocess.run([str(a.output.resolve()/'heap-test.exe'),str(a.output.resolve()/'fixture.exe'),'--x86-oracle',str(output)],capture_output=True,text=True,timeout=45)
     (a.output/'x86-host.log').write_text(result.stdout+result.stderr);assert not result.returncode,result.stderr
+    transpose_output=a.output.resolve()/'x86-transpose.bin'
+    command[command.index('-OutputPath')+1]=str(transpose_output);command.append('-Transpose')
+    result=subprocess.run(command,capture_output=True,text=True,timeout=60);(a.output/'x86-transpose-oracle.log').write_text(result.stdout+result.stderr);assert not result.returncode,result.stderr
+    for mode,extra in (('--transpose',[]),('--x86-transpose',[str(transpose_output)])):
+        result=subprocess.run([str(a.output.resolve()/'heap-test.exe'),str(a.output.resolve()/'fixture.exe'),mode,*extra],capture_output=True,text=True,timeout=45)
+        (a.output/(mode[2:]+'.log')).write_text(result.stdout+result.stderr);assert not result.returncode,result.stderr
     assert all(sha(Path(p))==h for p,h in frozen.items())
-    report=json.loads((a.output/'validation.json').read_text());report.update(x86_windows_oracle=True,x86_matrix_comparisons=10000,x86_oracle_sha256=sha(output))
-    (a.output/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print('PASS x86 Windows D3DX 10000 matrices, four aliases and seven strict stops')
+    report=json.loads((a.output/'validation.json').read_text());report.update(x86_windows_oracle=True,x86_matrix_comparisons=10000,x86_transpose_comparisons=10000,x64_transpose_comparisons=10000,x86_oracle_sha256=sha(output))
+    (a.output/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print('PASS x86 Windows D3DX 10000 matrices, multiply/transpose, four aliases and eight strict stops')

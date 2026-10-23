@@ -17,7 +17,7 @@ static uint32_t link_program(struct fnv_vk_backend *d,const void *vertex,uint32_
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct program_entry next={.count=count,.mask=mask};
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     for(struct shader_catalog *e=d->catalog;e;e=e->next){const void *code=e->stage?pixel:vertex;uint32_t bytes=e->stage?pixel_bytes:vertex_bytes;
-        if(!next.stages[e->stage] && e->code_bytes==bytes && !memcmp(e->code,code,bytes) && (!variant || shader_payload(e,variant->stages[e->stage].spirv,variant->stages[e->stage].spirv_bytes,&variant->stages[e->stage].plan)))next.stages[e->stage]=e;}
+        if(e->spirv_bytes && !next.stages[e->stage] && e->code_bytes==bytes && !memcmp(e->code,code,bytes) && (!variant || shader_payload(e,variant->stages[e->stage].spirv,variant->stages[e->stage].spirv_bytes,&variant->stages[e->stage].plan)))next.stages[e->stage]=e;}
     if(!next.stages[0] || !next.stages[1] || count>d->properties.limits.maxVertexInputAttributes)goto done;
     uint32_t samplers=0;for(unsigned i=0;i<16;++i)samplers+=(mask>>i)&1;
     if(samplers>d->properties.limits.maxPerStageDescriptorSamplers || samplers>d->properties.limits.maxPerStageDescriptorSampledImages)goto done;

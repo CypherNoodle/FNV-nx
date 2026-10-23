@@ -1,11 +1,13 @@
-# Native D3DX matrix multiply and profiler options
+# Native D3DX matrix multiply, transpose and profiler options
 
-The same three-export provider also supplies [legacy DDS metadata](native-dds-image-info.md).
+The same four-export provider also supplies [legacy DDS metadata](native-dds-image-info.md).
 [Texture creation](native-dds-texture.md) is supplied separately by the COM module
-for complete power-of-two 2D DDS chains.
+for supported power-of-two 2D DDS chains.
 
 `windows_d3dx.c` supplies an original x86 stdcall bridge for
-`d3dx9_38.dll!D3DXMatrixMultiply`. It computes row-major `left * right`, returns
+`d3dx9_38.dll!D3DXMatrixMultiply` and `D3DXMatrixMultiplyTranspose`.
+They compute row-major `left * right`, optionally transpose the completed result,
+and return
 the guest output pointer and removes 12 argument bytes. All input matrices are
 snapshotted before committing output, supporting output aliasing either input
 or partially overlapping it. Flat guest bounds and optional VM permissions are
@@ -74,3 +76,20 @@ game code, shader binaries and generated code remain private.
 
 References: [D3DXMatrixMultiply](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dxmatrixmultiply),
 [D3DPERF_SetOptions](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3d9/nf-d3d9-d3dperf_setoptions).
+
+## Multiply-transpose verification
+
+The shared arithmetic helper commits either normal or transposed indices only
+after snapshotting both inputs and checking every intermediate. No intermediate
+result is written to guest output. The original x86 D3DX transpose result matched
+the transposed x86 multiply result in 10,000 wider fractional cases; the translated
+stdcall bridge then passed an independent 10,000-case original-x86 transpose
+oracle plus 10,000 Windows-x64 transpose cases. Both retain four alias modes,
+returned pointer, stack and LastError checks. An additional inaccessible-output
+transpose case checks unchanged output on rejection (eight strict stops total).
+Existing bounded arithmetic limitations apply to both exports.
+
+In the private shader-admission startup experiment, this export advances the
+explicit stop from matrix transpose to `_BinkSetSoundSystem@8`. That is a Bink
+bridge gap, not evidence of a rendered frame. The ARM64/libnx translation unit
+compiles with strict warnings; no new Switch test is requested for this change.
