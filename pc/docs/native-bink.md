@@ -62,6 +62,42 @@ adapter/probe and links a private ARM64/libnx smoke ELF. Final linking has no
 unresolved strong symbols or TEXTREL. It does not run the decoder on Switch,
 package an NRO, display frames or establish game performance.
 
+## Packed frame copy
+
+`native/bink_copy.c` copies decoder RGBA rectangles into positive-pitch Bink
+surface32 (BGRX) and32R (RGBX) destinations, with X cleared to zero. It supports
+COPYALL and explicit NOSCALING, or the default unscaled profile. Alpha/scaling
+formats and negative pitch remain explicit unsupported/invalid inputs. The
+caller supplies actual source/destination capacities; the helper checks the
+entire declared backing, coordinates and overlap before any write. It does not
+interpret guest addresses or upload a Vulkan texture.
+
+The captured PC caller requests surface32, optionally COPYALL, with destination
+origin zero, a locked-buffer pitch and source rectangle parameters. The new
+helper covers that observed format; it is not yet a guest export. A read-only
+x86 original-DLL oracle decodes frame90 with sound disabled and compares full
+copies against translated rectangles in four native32-bit formats: 2,768,896
+byte comparisons and unchanged allocation guards/row padding. It also checks
+32/32R channel reversal on a non-gray frame. The source has no alpha; its zero
+alpha results do not establish alpha-video support. Channel sums compared with
+FFmpeg RGBA support BGRX orientation, but the decoders differ slightly in color
+conversion; this is not a claim of bit-identical native/FFmpeg output.
+
+`tests/test_bink_copy.py` additionally exercises own colored RGBA fixtures,
+source/destination offsets, padding, supported flag combinations, overflow-size
+coordinates, truncated capacities, overlap and unsupported modes. Rejected
+cases leave all output untouched. An optional `--devkitpro` cross-compiles the
+helper for ARM64; `--original-bink` and `--video` run the native oracle without
+exporting decoded media. Both DLL and video identities are frozen in the private
+proof. No Switch execution is implied.
+
+The real-video decoder probe also passes every returned RGBA frame through this
+helper into a padded BGRX buffer and checks channel order, X and untouched row
+padding. The 120-frame introduction test and the two-frame EOF fixture pass;
+RGBA/PCM hashes remain unchanged from the decoder-only baseline. The combined
+decoder/copy/probe links for ARM64/libnx with no strong undefined symbols or
+TEXTREL. No Vulkan texture upload or guest movie ABI is claimed by these tests.
+
 ## Movie PCM mixer input
 
 `fnv_dsound8_movie_write` copies stereo S16/48 kHz PCM into a dedicated,

@@ -1,10 +1,12 @@
 /* Read-only private media probe. Never plays audio or writes decoded assets. */
 #include "bink_decoder.h"
+#include "bink_copy.h"
 #include "host_file.h"
 #include "host_clock.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <string.h>
 struct input {FILE *file;uint64_t size,reads,bytes;int mode;};
 static int read_bytes(void *context,unsigned char *p,int size){
     struct input *s=context;if(size<1 || s->mode==1 || (s->mode==2 && s->bytes>=65536))return -1;
@@ -29,13 +31,23 @@ int main(int argc,char **argv){
     if(!fnv_host_file_size(input.file,&input.size) || input.size>INT64_MAX){fclose(input.file);return 3;}
     struct fnv_bink_io io={&input,read_bytes,seek_bytes};struct fnv_bink_decoder *decoder=NULL;struct fnv_bink_info info;
     if(!fnv_bink_decoder_open(&io,&decoder,&info)){fclose(input.file);puts("{\"status\":\"REJECTED\",\"phase\":\"open\"}");return 4;}
+    uint32_t copy_pitch=info.width*4+16;size_t copy_bytes=(size_t)copy_pitch*info.height;
+    unsigned char *packed=malloc(copy_bytes);if(!packed){fnv_bink_decoder_close(decoder);fclose(input.file);return 5;}memset(packed,0xa5,copy_bytes);
     unsigned videos=0,audios=0;uint64_t samples=0,vhash=14695981039346656037ull,ahash=vhash,start=0,finish=0;int64_t last_video=-1,last_audio=-1;
-    if(!fnv_host_now_ns(&start)){fnv_bink_decoder_close(decoder);fclose(input.file);return 5;}
+    if(!fnv_host_now_ns(&start)){free(packed);fnv_bink_decoder_close(decoder);fclose(input.file);return 5;}
     enum fnv_bink_decode_result result=FNV_BINK_END;
     while(videos<maximum){
         struct fnv_bink_frame frame;result=fnv_bink_decoder_next(decoder,&frame);
         if(result==FNV_BINK_VIDEO){
             if(frame.pts_us<=last_video || !frame.rgba || frame.width!=info.width || frame.height!=info.height || frame.pitch!=info.width*4){result=FNV_BINK_DECODE_ERROR;break;}
+            if(fnv_bink_copy_rect(&frame,(size_t)frame.pitch*frame.height,packed,copy_bytes,(int32_t)copy_pitch,info.height,0,0,0,0,info.width,info.height,0x80000003u)!=FNV_BINK_COPY_OK){result=FNV_BINK_DECODE_ERROR;break;}
+            int mismatch=0;
+            for(unsigned y=0;y<frame.height;y++){
+                for(unsigned x=0;x<frame.width;x++){const unsigned char *s=frame.rgba+(size_t)y*frame.pitch+x*4,*d=packed+(size_t)y*copy_pitch+x*4;
+                    if(d[0]!=s[2] || d[1]!=s[1] || d[2]!=s[0] || d[3])mismatch=1;}
+                for(unsigned x=frame.width*4;x<copy_pitch;x++)if(packed[(size_t)y*copy_pitch+x]!=0xa5)mismatch=1;
+            }
+            if(mismatch){result=FNV_BINK_DECODE_ERROR;break;}
             last_video=frame.pts_us;vhash=hash(vhash,frame.rgba,(size_t)frame.pitch*frame.height);videos++;
         }else if(result==FNV_BINK_AUDIO){
             if(frame.pts_us<last_audio || !frame.pcm || !frame.audio_frames){result=FNV_BINK_DECODE_ERROR;break;}
@@ -44,7 +56,7 @@ int main(int argc,char **argv){
     }
     if(!fnv_host_now_ns(&finish))result=FNV_BINK_DECODE_ERROR;
     if(result==FNV_BINK_END){struct fnv_bink_frame frame;if(fnv_bink_decoder_next(decoder,&frame)!=FNV_BINK_END)result=FNV_BINK_DECODE_ERROR;}
-    fnv_bink_decoder_close(decoder);int closed=fclose(input.file)==0;
+    free(packed);fnv_bink_decoder_close(decoder);int closed=fclose(input.file)==0;
     printf("{\"status\":\"%s\",\"width\":%u,\"height\":%u,\"total_frames\":%u,\"rate_num\":%u,\"rate_den\":%u,\"audio_tracks\":%u,\"source_audio_rate\":%u,\"source_audio_channels\":%u,\"video_frames\":%u,\"audio_events\":%u,\"pcm_stereo_48000_frames\":%" PRIu64 ",\"rgba_hash\":\"%016" PRIx64 "\",\"pcm_hash\":\"%016" PRIx64 "\",\"elapsed_ns\":%" PRIu64 ",\"io_reads\":%" PRIu64 ",\"io_bytes\":%" PRIu64 ",\"played\":false,\"game_started\":false,\"switch_hardware_tested\":false}\n",
         result==FNV_BINK_DECODE_ERROR || !closed?"FAILED":"PASS",info.width,info.height,info.frames,info.rate_num,info.rate_den,info.audio_tracks,info.audio_rate,info.audio_channels,videos,audios,samples,vhash,ahash,finish-start,input.reads,input.bytes);
     return result==FNV_BINK_DECODE_ERROR || !closed?6:0;

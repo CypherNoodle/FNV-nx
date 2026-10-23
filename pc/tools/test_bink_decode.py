@@ -26,8 +26,9 @@ def run(a):
         if sha(p)!=proof['library_sha256'][n]:raise ValueError('Library changed')
         libs.append(p)
     cc=a.cc.resolve();native=pc/'native/bink_decoder.c';probe=pc/'tools/bink_decode_probe.c'
-    frozen={str(p):sha(p) for p in (native,probe,pc/'native/bink_decoder.h',pc/'native/host_file.h',pc/'native/host_clock.h',Path(__file__),cc,a.video.resolve(),build/'validation.json',*libs)}
-    command=[str(cc),'-std=gnu11','-O2','-Wall','-Wextra','-Werror','-I'+str(pc/'native'),'-I'+str(build),'-I'+str(source),str(native),str(probe),'-Wl,--start-group',*map(str,libs),'-Wl,--end-group','-lm','-lole32','-luser32','-lbcrypt','-o',str(out/'decode-test.exe')]
+    copy=pc/'native/bink_copy.c'
+    frozen={str(p):sha(p) for p in (native,copy,probe,pc/'native/bink_copy.h',pc/'native/bink_decoder.h',pc/'native/host_file.h',pc/'native/host_clock.h',Path(__file__),cc,a.video.resolve(),build/'validation.json',*libs)}
+    command=[str(cc),'-std=gnu11','-O2','-Wall','-Wextra','-Werror','-I'+str(pc/'native'),'-I'+str(build),'-I'+str(source),str(native),str(copy),str(probe),'-Wl,--start-group',*map(str,libs),'-Wl,--end-group','-lm','-lole32','-luser32','-lbcrypt','-o',str(out/'decode-test.exe')]
     env=os.environ.copy();env['PATH']=str(cc.parent)+os.pathsep+env['PATH']
     r=subprocess.run(command,capture_output=True,text=True,env=env,timeout=90);(out/'build.log').write_text(r.stdout+r.stderr)
     if r.returncode:raise RuntimeError(r.stderr)
@@ -62,7 +63,7 @@ def run(a):
     eof_result=json.loads(eof.stdout.strip().splitlines()[-1]);assert eof_result['video_frames']==2
     if h[10]==1 and result['source_audio_rate']==48000:assert eof_result['pcm_stereo_48000_frames']==declared
     if any(sha(Path(p))!=h for p,h in frozen.items()):raise RuntimeError('Input changed')
-    result.update(source_sha256=frozen,negative_cases=4,eof_video_frames=2,eof_pcm_frames=eof_result['pcm_stereo_48000_frames'],external_commit=proof['commit'])
+    result.update(source_sha256=frozen,packed_frames_checked=result['video_frames'],negative_cases=4,eof_video_frames=2,eof_pcm_frames=eof_result['pcm_stereo_48000_frames'],external_commit=proof['commit'])
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k!='source_sha256'}))
 
 

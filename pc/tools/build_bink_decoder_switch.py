@@ -24,8 +24,8 @@ def build(a):
     for p in libs:
         if sha(p)!=proof['library_sha256'][p.parent.name[3:]]:raise ValueError('External library changed')
     cc=root/'devkitA64/bin/aarch64-none-elf-gcc.exe';nm=root/'devkitA64/bin/aarch64-none-elf-nm.exe';readelf=root/'devkitA64/bin/aarch64-none-elf-readelf.exe'
-    sources=[pc/'native/bink_decoder.c',pc/'tools/bink_decode_probe.c']
-    frozen={str(p):sha(p) for p in (Path(__file__),*sources,pc/'native/bink_decoder.h',pc/'native/host_file.h',pc/'native/host_clock.h',ff/'validation.json',ff/'config.h',cc,nm,readelf,root/'libnx/switch.specs',root/'libnx/switch.ld',root/'libnx/lib/libnx.a',*libs)}
+    sources=[pc/'native/bink_decoder.c',pc/'native/bink_copy.c',pc/'tools/bink_decode_probe.c']
+    frozen={str(p):sha(p) for p in (Path(__file__),*sources,pc/'native/bink_copy.h',pc/'native/bink_decoder.h',pc/'native/host_file.h',pc/'native/host_clock.h',ff/'validation.json',ff/'config.h',cc,nm,readelf,root/'libnx/switch.specs',root/'libnx/switch.ld',root/'libnx/lib/libnx.a',*libs)}
     flags=['-std=gnu11','-O2','-Wall','-Wextra','-Werror','-fPIE','-mtp=soft','-march=armv8-a+crc+crypto','-mtune=cortex-a57','-D__SWITCH__','-I'+str(pc/'native'),'-I'+str(ff),'-I'+str(external),'-I'+str(root/'libnx/include')]
     env=os.environ.copy();env['DEVKITPRO']=root.as_posix();objects=[];commands=[]
     def run(cmd,name):
