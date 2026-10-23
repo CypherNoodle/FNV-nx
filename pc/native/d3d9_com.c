@@ -758,6 +758,10 @@ static void draw(int indexed) {
             if(c->shaders[0]<0 && c->declaration>=0 && c->resources[c->declaration].fvf==0x112 && c->config.backend.draw_fixed_directional){
                 result=0x8876086au;int supported=c->config.backend.state!=NULL;
                 for(unsigned r=0;r<4;r++)for(unsigned col=0;col<4;col++)if(c->transforms.matrices[2][r*4+col]!=(r==col?1.0f:0.0f))supported=0;
+                if(supported){uint32_t second[6]={0};result=c->config.backend.state(c->config.backend.context,FNV_D3D9_TEXTURE_STAGE_STATE,1,1,second,1);
+                    if(result)supported=0;
+                    else if(second[0]!=1)for(unsigned r=0;r<4;r++)for(unsigned col=0;col<4;col++)if(c->transforms.matrices[3][r*4+col]!=(r==col?1.0f:0.0f))supported=0;}
+                if(!supported && !result)result=0x8876086au;
                 if(supported){uint32_t ambient[6]={0},normal[6]={0};
                     result=c->config.backend.state(c->config.backend.context,FNV_D3D9_RENDER_STATE,0,139,ambient,1);
                     if(!result)result=c->config.backend.state(c->config.backend.context,FNV_D3D9_RENDER_STATE,0,143,normal,1);

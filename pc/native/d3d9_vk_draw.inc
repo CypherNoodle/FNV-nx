@@ -69,7 +69,9 @@ static uint32_t draw_state(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kin
     *handled=0;
     if(kind==FNV_D3D9_TEXTURE_STAGE_STATE){
         *handled=1;if(d->lost || !d->device_refs)return FNV_VK_LOST;
-        if(sampler>=2 || name<1 || name>6)return FNV_VK_INVALID;
+        if(sampler>=2)return FNV_VK_INVALID;
+        if(name==11){if(get)values[0]=d->texture_coord_index[sampler];else d->texture_coord_index[sampler]=values[0];return 0;}
+        if(name<1 || name>6)return FNV_VK_INVALID;
         if(get)values[0]=d->texture_stage[sampler][name-1];else d->texture_stage[sampler][name-1]=values[0];return 0;
     }
     if(kind==FNV_D3D9_RENDER_STATE && (name==137 || name==143 || name==141 || name==29 || name==139)){
@@ -138,12 +140,18 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     if(up_vertex){memset(streams,0,sizeof(streams));streams[0].stride=up_stride;}
     struct shader_resource *vs=find_shader(d,fixed?(fixed_bytes==160?d->fixed_directional:d->fixed_vertex):d->bound_shaders[0]),*ps=find_shader(d,d->bound_shaders[1]);
     int automatic=fixed && fixed_bytes==160 && !d->bound_shaders[1];
+    if(fixed && !automatic && (d->texture_coord_index[0]!=0 || d->texture_coord_index[1]!=1))return 0x8876086au;
     if(automatic){
         const uint32_t *t=d->texture_stage[0];int mode=-1;
-        if(d->texture_stage[1][0]!=1)return 0x8876086au;
         if(t[0]==2 && t[1]==0 && t[3]==2 && t[4]==0)mode=0;
         if(t[0]==4 && t[1]==2 && t[2]==1 && t[4]==2){
             if(t[3]==4 && t[5]==1)mode=1;else if(t[3]==2)mode=2;
+        }
+        if(mode>0 && d->texture_coord_index[0]!=0)return 0x8876086au;
+        if(d->texture_stage[1][0]!=1){
+            const uint32_t *next=d->texture_stage[1];
+            if(mode!=1 || next[0]!=4 || next[1]!=2 || next[2]!=1 || next[3]!=4 || next[4]!=2 || next[5]!=1 || d->texture_coord_index[1]!=0)return 0x8876086au;
+            mode=3;
         }
         if(mode<0 || !(ps=find_shader(d,d->fixed_pixel[mode])))return 0x8876086au;
     }
@@ -295,7 +303,7 @@ static uint32_t draw_fixed_directional(void *ctx,int indexed,uint32_t primitive,
 }
 
 uint32_t fnv_vk_backend_fixed_pixel(struct fnv_vk_backend *d,uint32_t mode,uintptr_t id){
-    if(!d || mode>=3)return FNV_VK_INVALID;
+    if(!d || mode>=4)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
     struct shader_resource *s=find_shader(d,id);
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}

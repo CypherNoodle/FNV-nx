@@ -6,6 +6,9 @@ static unsigned oracle_mode;
 #ifdef FNV_DIRECTIONAL_TEXTURED
 /* BGRA A8R8G8B8 input with distinct channels and alpha for all four texels. */
 static const unsigned char directional_texels[16]={31,83,211,193, 173,47,109,127, 71,229,53,89, 251,139,17,241};
+#ifdef FNV_FIXED_TWO_STAGE
+static const unsigned char directional_second_texels[16]={211,29,97,151, 43,193,241,83, 157,67,109,227, 89,179,53,113};
+#endif
 static void directional_uv(unsigned frame,float *vertices){
     for(unsigned i=0;i<6;i++){
         vertices[i*8+6]=frame==4?(vertices[i*8]+1)*.5f:((frame&1)?.75f:.25f);
@@ -55,6 +58,20 @@ static void oracle(unsigned frame,const float *vertices,const struct fnv_transfo
         assert(!d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1) && !d->lpVtbl->SetTextureStageState(d,0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE));
     }
 #endif
+#ifdef FNV_FIXED_TWO_STAGE
+    IDirect3DTexture9 *second_texture=NULL;
+    if(oracle_mode==3){
+        assert(!d->lpVtbl->CreateTexture(d,2,2,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&second_texture,NULL));
+        D3DLOCKED_RECT second_lock;assert(!second_texture->lpVtbl->LockRect(second_texture,0,&second_lock,NULL,0));
+        for(unsigned y=0;y<2;y++)memcpy((unsigned char*)second_lock.pBits+y*second_lock.Pitch,directional_second_texels+y*8,8);
+        assert(!second_texture->lpVtbl->UnlockRect(second_texture,0) && !d->lpVtbl->SetTexture(d,1,(IDirect3DBaseTexture9*)second_texture));
+        assert(!d->lpVtbl->SetSamplerState(d,1,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,1,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
+        assert(!d->lpVtbl->SetTextureStageState(d,1,D3DTSS_TEXCOORDINDEX,0));
+        assert(!d->lpVtbl->SetTextureStageState(d,1,D3DTSS_COLOROP,D3DTOP_MODULATE) && !d->lpVtbl->SetTextureStageState(d,1,D3DTSS_ALPHAOP,D3DTOP_MODULATE));
+        assert(!d->lpVtbl->SetTextureStageState(d,1,D3DTSS_COLORARG1,D3DTA_TEXTURE) && !d->lpVtbl->SetTextureStageState(d,1,D3DTSS_COLORARG2,D3DTA_CURRENT));
+        assert(!d->lpVtbl->SetTextureStageState(d,1,D3DTSS_ALPHAARG1,D3DTA_TEXTURE) && !d->lpVtbl->SetTextureStageState(d,1,D3DTSS_ALPHAARG2,D3DTA_CURRENT));
+    }
+#endif
     assert(!d->lpVtbl->SetFVF(d,0x112));assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
     assert(!d->lpVtbl->BeginScene(d) && !d->lpVtbl->DrawPrimitiveUP(d,D3DPT_TRIANGLELIST,2,vertices,32) && !d->lpVtbl->EndScene(d));
     assert(!d->lpVtbl->GetRenderTargetData(d,target,read));D3DLOCKED_RECT lock;assert(!read->lpVtbl->LockRect(read,&lock,NULL,D3DLOCK_READONLY));
@@ -62,6 +79,9 @@ static void oracle(unsigned frame,const float *vertices,const struct fnv_transfo
     assert(!read->lpVtbl->UnlockRect(read));read->lpVtbl->Release(read);target->lpVtbl->Release(target);
 #ifdef FNV_DIRECTIONAL_TEXTURED
     texture->lpVtbl->Release(texture);
+#endif
+#ifdef FNV_FIXED_TWO_STAGE
+    if(second_texture)second_texture->lpVtbl->Release(second_texture);
 #endif
     d->lpVtbl->Release(d);api->lpVtbl->Release(api);DestroyWindow(w);
 }

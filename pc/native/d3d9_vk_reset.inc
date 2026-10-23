@@ -26,7 +26,7 @@ uint32_t fnv_vk_backend_reset(struct fnv_vk_backend *d,uint64_t timeout){
     hr=wait_locked(d,timeout);if(hr){if(hr==FNV_VK_BUSY){d->lost=1;hr=FNV_VK_LOST;}goto done;}
     for(uint32_t i=0;i<d->count;++i){pin(d,d->commands[i].color,0);pin(d,d->commands[i].depth,0);}d->count=0;
     uintptr_t fixed_vertex=d->fixed_vertex,directional=d->fixed_directional;pin(d,fixed_vertex,1);pin(d,directional,1);
-    uintptr_t pixels[3];memcpy(pixels,d->fixed_pixel,sizeof(pixels));for(unsigned i=0;i<3;i++)pin(d,pixels[i],1);
+    uintptr_t pixels[4];memcpy(pixels,d->fixed_pixel,sizeof(pixels));for(unsigned i=0;i<4;i++)pin(d,pixels[i],1);
     close_device(d); /* Drop internal refs, retaining all public managed/shader refs. */
     d->fixed_vertex=fixed_vertex;d->fixed_directional=directional;memcpy(d->fixed_pixel,pixels,sizeof(pixels));
     struct fnv_uniform_state *previous=d->uniforms;d->uniforms=uniforms;uniforms=NULL;(void)fnv_uniform_state_destroy(previous);
@@ -34,6 +34,7 @@ uint32_t fnv_vk_backend_reset(struct fnv_vk_backend *d,uint64_t timeout){
     if(d->config.auto_depth){depth.id=++d->next_id;*old_depth=depth;memset(&depth,0,sizeof(depth));d->auto_depth=old_depth->id;pin(d,d->auto_depth,1);d->depth=d->auto_depth;pin(d,d->depth,1);}
     d->blend_state=(struct fnv_d3d9_blend){0,2,1,1,0,2,1,1,15,0xffffffff};d->depth_state=(struct fnv_d3d9_depth){1,1,4};d->cull_mode=3;d->lighting=1;d->normalize_normals=d->specular=d->ambient=0;d->color_vertex=1;
     const uint32_t initial_stage[2][6]={{4,2,1,2,2,1},{1,2,1,1,2,1}};memcpy(d->texture_stage,initial_stage,sizeof(initial_stage));
+    d->texture_coord_index[0]=0;d->texture_coord_index[1]=1;
     for(unsigned i=0;i<16;++i)d->sampler_state[i]=(struct fnv_d3d9_sampler){1,1,1,0,1,1,0,0,0,1};
     full_viewport(d,old_color);d->scissor_enabled=0;d->scissor[0]=d->scissor[1]=0;d->scissor[2]=d->config.width;d->scissor[3]=d->config.height;
     d->resets++;hr=0;

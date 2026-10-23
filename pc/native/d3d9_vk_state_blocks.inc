@@ -1,7 +1,7 @@
 /* Numeric and texture-binding transaction under the provider lock. */
 struct numeric_state {
     struct fnv_d3d9_blend blend;struct fnv_d3d9_depth depth;struct fnv_d3d9_sampler samplers[16];
-    uint32_t cull,lighting,normalize,color_vertex,specular,ambient,viewport[6],scissor[4],scissor_enabled,texture_stage[2][6];
+    uint32_t cull,lighting,normalize,color_vertex,specular,ambient,viewport[6],scissor[4],scissor_enabled,texture_stage[2][6],texture_coord_index[2];
 };
 static uint32_t state_batch(void *ctx,struct fnv_d3d9_state_value *entries,uint32_t count,uint32_t operation){
     struct fnv_vk_backend *d=ctx;if(count>274 || (count && !entries) || operation>2)return FNV_VK_INVALID;
@@ -9,6 +9,7 @@ static uint32_t state_batch(void *ctx,struct fnv_d3d9_state_value *entries,uint3
     if(d->lost || !d->device_refs){fnv_host_mutex_unlock(&d->guard);return FNV_VK_LOST;}
     struct numeric_state old={.blend=d->blend_state,.depth=d->depth_state,.cull=d->cull_mode,.lighting=d->lighting,.normalize=d->normalize_normals,.color_vertex=d->color_vertex,.specular=d->specular,.ambient=d->ambient,.scissor_enabled=d->scissor_enabled};
     memcpy(old.texture_stage,d->texture_stage,sizeof(old.texture_stage));
+    memcpy(old.texture_coord_index,d->texture_coord_index,sizeof(old.texture_coord_index));
     memcpy(old.samplers,d->sampler_state,sizeof(old.samplers));memcpy(old.viewport,d->viewport,sizeof(old.viewport));memcpy(old.scissor,d->scissor,sizeof(old.scissor));
     uintptr_t textures[16];memcpy(textures,d->texture_bindings,sizeof(textures));
     uintptr_t shaders[2];memcpy(shaders,d->bound_shaders,sizeof(shaders));uint32_t shader_mask=0;
@@ -35,6 +36,7 @@ static uint32_t state_batch(void *ctx,struct fnv_d3d9_state_value *entries,uint3
     }
     if(hr || operation!=0){d->blend_state=old.blend;d->depth_state=old.depth;d->cull_mode=old.cull;d->lighting=old.lighting;d->normalize_normals=old.normalize;d->color_vertex=old.color_vertex;d->specular=old.specular;d->ambient=old.ambient;d->scissor_enabled=old.scissor_enabled;
         memcpy(d->texture_stage,old.texture_stage,sizeof(old.texture_stage));
+        memcpy(d->texture_coord_index,old.texture_coord_index,sizeof(old.texture_coord_index));
         memcpy(d->sampler_state,old.samplers,sizeof(old.samplers));memcpy(d->viewport,old.viewport,sizeof(old.viewport));memcpy(d->scissor,old.scissor,sizeof(old.scissor));}
     if(!hr && operation==1 && count)memcpy(entries,candidate,count*sizeof(*entries));
     if(!hr && operation==0){

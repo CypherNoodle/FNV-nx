@@ -1,5 +1,8 @@
 # Bounded automatic fixed fragment selection
 
+A fourth mode now supports a [bounded two-stage texture path](fixed-two-stage-textures.md),
+including explicit coordinate-index validation and stateblock coverage.
+
 With no programmable VS or PS, the prepared directional path now chooses an
 internal pixel shader from texture-stage state. This is the first bounded
 SetPixelShader(NULL) path; the prior explicit shader path remains unchanged.

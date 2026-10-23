@@ -120,7 +120,8 @@ uint32_t fnv_vk_backend_ensure_shader(struct fnv_vk_backend *,enum fnv_d3d9_stag
 uint32_t fnv_vk_backend_fixed_vertex(struct fnv_vk_backend *,uintptr_t);
 /* Trusted directional XYZ/NORMAL shader with ten contiguous float registers. */
 /* Trusted zero-uniform PS: mode0 diffuse RGBA,1 texture*diffuse RGBA,
- * 2 texture*diffuse RGB with texture alpha. Keeps public binding unchanged. */
+ * 2 texture*diffuse RGB with texture alpha,3 two RGBA MODULATE stages sharing
+ * TEXCOORD0. Keeps public binding unchanged. */
 uint32_t fnv_vk_backend_fixed_pixel(struct fnv_vk_backend *,uint32_t mode,uintptr_t);
 uint32_t fnv_vk_backend_fixed_directional(struct fnv_vk_backend *,uintptr_t);
 /* Supported logical D3D9 resource/usage -> actual Vulkan format query.
