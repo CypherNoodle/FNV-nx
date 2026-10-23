@@ -84,7 +84,9 @@ The private startup now passes the timezone import, reaching further x87 math.
 Four added requests were evaluated with the exact compiled ARM64 model, with no
 host-libm substitution. The reduced asset fixture then failed while loading a
 menu model. A complete private asset fixture instead stops earlier on
-`D3DXGetImageInfoFromFileInMemory` for a DDS texture, after 20 reads totaling
-4,521,984 bytes. This does not yet prove the menu-model path is repaired. There are still
+a DDS metadata query for a texture, after 20 reads totaling
+4,521,984 bytes. The [metadata bridge](native-dds-image-info.md) now passes and
+the next unresolved call is `D3DXCreateTextureFromFileInMemory`. This does not
+yet prove the menu-model path is repaired. There are still
 zero engine draws/submissions in completed reports. No engine boot, cold EXE
 boot or game frame is claimed. Production graphics capabilities are unchanged.

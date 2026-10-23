@@ -1,4 +1,4 @@
-/* Own bounded D3DX math bridge; no implementation from a Windows DLL. */
+/* Own bounded D3DX bridge; no implementation from a Windows DLL. */
 #include "fnv_sdk_runtime.h"
 #include "windows_d3dx.h"
 #include "windows_thread.h"
@@ -14,6 +14,27 @@ static unsigned char *checked(uint32_t at,int write){
            ((uint64_t)at<(uint64_t)base+size && (uint64_t)at+64>base && !fnv_vm_access(vm,at,64,write)))p=NULL;}
     if(!p)recomp_unimpl("D3DX matrix memory unavailable",at);
     return p;
+}
+#include "dds_image_info.h"
+static unsigned char *image_pointer(uint32_t at,uint32_t bytes,int write){
+    unsigned char *data=at?fnv_cpu_try_memory(at,bytes):NULL;struct fnv_guest_memory *vm=fnv_windows_current_memory();
+    if(vm){unsigned char *backing;uint32_t base,size;
+        if(!fnv_vm_binding(vm,&backing,&base,&size) || ((uint64_t)at<(uint64_t)base+size && (uint64_t)at+bytes>base && !fnv_vm_access(vm,at,bytes,write)))data=NULL;}
+    if(!data)recomp_unimpl("D3DX image argument memory unavailable",at);
+    return data;
+}
+static void api_image_info_memory(void){
+    uint32_t src=fnv_cpu_argument_u32(0),bytes=fnv_cpu_argument_u32(1),out=fnv_cpu_argument_u32(2);
+    if(!src || !bytes){fnv_cpu_return_u32(0x8876086cu,12);return;}
+    /* Native D3DX accepts a NULL info output without inspecting source bytes. */
+    if(!out){fnv_cpu_return_u32(0,12);return;}
+    unsigned char *data=image_pointer(src,bytes,0),value[28];if(!data)return;
+    uint32_t result=fnv_dds_image_info(data,bytes,value);
+    if(result==FNV_DDS_UNSUPPORTED){recomp_unimpl("D3DX DDS image format or shape unsupported",src);return;}
+    /* Other image codecs have not been integrated with this metadata API. */
+    if(result && ((bytes>=8 && !memcmp(data,"\x89PNG\r\n\x1a\n",8)) || (bytes>=2 && ((data[0]=='B' && data[1]=='M') || (data[0]==0xff && data[1]==0xd8))))){recomp_unimpl("D3DX non-DDS image codec unsupported",src);return;}
+    if(!result){unsigned char *destination=image_pointer(out,28,1);if(!destination)return;memcpy(destination,value,sizeof(value));}
+    fnv_cpu_return_u32(result,12);
 }
 static int supported(float f){return isfinite(f) && (f==0 || fpclassify(f)!=FP_SUBNORMAL);}
 static void api_matrix_multiply(void){
@@ -52,5 +73,6 @@ static void api_perf_options(void){
 }
 static const struct fnv_cpu_export exports[]={
     {"d3dx9_38.dll","D3DXMatrixMultiply",0,0,api_matrix_multiply},
+    {"d3dx9_38.dll","D3DXGetImageInfoFromFileInMemory",0,0,api_image_info_memory},
     {"d3d9.dll","D3DPERF_SetOptions",0,0,api_perf_options}};
 const struct fnv_cpu_export *fnv_windows_d3dx_exports(size_t *count){if(count)*count=sizeof(exports)/sizeof(*exports);return exports;}

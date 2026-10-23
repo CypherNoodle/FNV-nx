@@ -1,5 +1,8 @@
 # Native D3DX matrix multiply and profiler options
 
+The same three-export provider also supplies [legacy DDS metadata](native-dds-image-info.md).
+Texture creation remains a separate COM integration task.
+
 `windows_d3dx.c` supplies an original x86 stdcall bridge for
 `d3dx9_38.dll!D3DXMatrixMultiply`. It computes row-major `left * right`, returns
 the guest output pointer and removes 12 argument bytes. All input matrices are
