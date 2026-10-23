@@ -82,7 +82,7 @@ int FNV_VK_HOST_MAIN(int argc,char **argv){
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_INVALID && !com);bad_profile=profile;bad_profile.depth_format=0;
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_INVALID && !com);cc.factory=&profile;
     assert(!fnv_d3d9_com_create(cpu,&cc,&com));memset(&profile,0,sizeof(profile));
-    size_t exports_count=0,bound_count=0;const struct fnv_cpu_export *exports=fnv_d3d9_com_exports(com,&exports_count);struct fnv_native_import imports[4];assert(exports_count==1);
+    size_t exports_count=0,bound_count=0;const struct fnv_cpu_export *exports=fnv_d3d9_com_exports(com,&exports_count);struct fnv_native_import imports[4];assert(exports_count==2);
     assert(!fnv_cpu_bind_imports(cpu,&image,imports,4,exports,exports_count,&bound_count) && bound_count==1);
     device_at=fnv_d3d9_com_device(com);
     struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(!fnv_cpu_attach(cpu,&initial));exercise_factory();exercise_transforms();exercise_material();exercise_lights();exercise_reset();exercise_com_present();

@@ -9,6 +9,7 @@ _Static_assert(offsetof(IDirect3DTexture9Vtbl,GetLevelDesc)==17*sizeof(void*),"L
 _Static_assert(offsetof(IDirect3DTexture9Vtbl,LockRect)==19*sizeof(void*) && sizeof(D3DSURFACE_DESC)==32,"texture ABI");
 static unsigned texture_creates,texture_updates,texture_roundtrips,mip_roundtrips,failed_texture,failed_upload,failed_binding;
 static uintptr_t last_texture;
+static uint32_t fail_texture_level=UINT32_MAX;
 static uint32_t create_texture(void *ctx,uint32_t w,uint32_t h,uint32_t levels,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out) {
     (void)ctx;if(failed_texture)return 0x80004005;IDirect3DTexture9 *t=NULL;
     HRESULT r=IDirect3DDevice9_CreateTexture(device,w,h,levels,usage,format,pool,&t,NULL);
@@ -19,7 +20,7 @@ static void format_shape(uint32_t format,unsigned *block,unsigned *unit) {
     if(format>=D3DFMT_DXT1 && format<=D3DFMT_DXT5){*block=4;*unit=format==D3DFMT_DXT1?8:16;}
 }
 static uint32_t upload_texture(void *ctx,uintptr_t handle,uint32_t level,uint32_t left,uint32_t top,uint32_t width,uint32_t height,uint32_t flags,uint32_t pitch,const void *data) {
-    (void)ctx;if(failed_upload)return 0x80004005;IDirect3DTexture9 *t=(IDirect3DTexture9*)handle;
+    (void)ctx;if(failed_upload || level==fail_texture_level)return 0x80004005;IDirect3DTexture9 *t=(IDirect3DTexture9*)handle;
     D3DSURFACE_DESC desc;assert(SUCCEEDED(IDirect3DTexture9_GetLevelDesc(t,level,&desc)));
     RECT rect={(LONG)left,(LONG)top,(LONG)(left+width),(LONG)(top+height)};D3DLOCKED_RECT mapped;
     HRESULT r=IDirect3DTexture9_LockRect(t,level,&mapped,!left && !top && width==desc.Width && height==desc.Height?NULL:&rect,flags);
@@ -49,7 +50,11 @@ static HWND setup(char **argv) {
     struct fnv_d3d9_com_config cc={.objects_address=objects,.objects_bytes=65536,.resource_capacity=4096,.vertex_floats=256,.pixel_floats=224,.catalog=catalog,.catalog_count=catalog_count,
         .backend={.create=backend_create,.addref=backend_addref,.release=backend_release,.device_addref=device_addref,.device_release=device_release,
             .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture},.memory=vm,.buffer_address=shadow,.buffer_bytes=4u<<20};
-    assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);struct fnv_cpu_state s;fnv_cpu_state_init(&s,BASE+ARENA-4096,0);assert(fnv_cpu_attach(cpu,&s)==FNV_CPU_OK);return window;
+    assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);
+#ifdef FNV_TEXTURE_IMPORT_SETUP
+    FNV_TEXTURE_IMPORT_SETUP(&image);
+#endif
+    struct fnv_cpu_state s;fnv_cpu_state_init(&s,BASE+ARENA-4096,0);assert(fnv_cpu_attach(cpu,&s)==FNV_CPU_OK);return window;
 }
 static uint32_t make_texture(uint32_t w,uint32_t h,uint32_t levels,uint32_t usage,uint32_t format,uint32_t pool) {
     uint32_t args[]={device_at,w,h,levels,usage,format,pool,GUEST_OUT,0};assert(!call(CREATE_TEXTURE,9,args));return get(GUEST_OUT);
@@ -99,7 +104,10 @@ static void bindings(uint32_t texture,uintptr_t native) {
     assert(!call(GET_TEXTURE,3,get_args) && get(GUEST_OUT)==texture);assert(!release(texture));
     assert(!call(SET_TEXTURE,3,set));assert(!call(GET_TEXTURE,3,get_args) && !get(GUEST_OUT));
 }
-int main(int argc,char **argv) {
+#ifndef FNV_TEXTURE_BASELINE_MAIN
+#define FNV_TEXTURE_BASELINE_MAIN main
+#endif
+int FNV_TEXTURE_BASELINE_MAIN(int argc,char **argv) {
     assert(argc==4);
     if(strcmp(argv[3],"normal") && strncmp(argv[3],"texture_",8))return baseline_main(argc,argv);
     HWND window=setup(argv);

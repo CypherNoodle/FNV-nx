@@ -471,18 +471,17 @@ static int texture_object(struct fnv_d3d9_com *c,uint32_t at) {
     if(index<0 || c->resources[index].kind!=FNV_D3D9_TEXTURE2D){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 texture method requires texture2D",at);}
     return index;
 }
-static void api_create_texture(void) {
-    uint32_t self=fnv_cpu_argument_u32(0),width=fnv_cpu_argument_u32(1),height=fnv_cpu_argument_u32(2),levels=fnv_cpu_argument_u32(3);
-    uint32_t usage=fnv_cpu_argument_u32(4),format=fnv_cpu_argument_u32(5),pool=fnv_cpu_argument_u32(6),out_at=fnv_cpu_argument_u32(7),shared=fnv_cpu_argument_u32(8);
-    struct fnv_d3d9_com *c=module();unsigned char *out=range(c,out_at,4,1);uint32_t block,unit;
-    if(!out || !width || !height || width>16384 || height>16384){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,36);return;}
+static uint32_t create_texture(struct fnv_d3d9_com *c,uint32_t self,uint32_t width,uint32_t height,uint32_t levels,
+    uint32_t usage,uint32_t format,uint32_t pool,uint32_t shared,uint32_t *out) {
+    uint32_t block,unit;
+    if(!out || !width || !height || width>16384 || height>16384){return FNV_D3D9_INVALIDCALL;}
     if(shared || (usage&0x402u))invalid("D3D9 shared/depth/autogen textures pending",self);
     if(!texture_format(format,&block,&unit))invalid("D3D9 texture format pending",format);
     if(!c->config.backend.create_texture || !c->config.backend.upload_texture || (!c->buffer_memory && usage!=1))invalid("D3D9 texture provider/arena pending",self);
     uint32_t maximum=1;for(uint32_t n=width>height?width:height;n>1;n>>=1)maximum++;
     if(!levels)levels=maximum;
-    if((usage&1) && (usage!=1 || format!=21 || pool || levels!=1)){write32(out,0);fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,36);return;}
-    if(levels>maximum){write32(out,0);fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,36);return;}
+    if((usage&1) && (usage!=1 || format!=21 || pool || levels!=1)){*out=0;return FNV_D3D9_INVALIDCALL;}
+    if(levels>maximum){*out=0;return FNV_D3D9_INVALIDCALL;}
     struct mip mips[15];uint64_t total=0;
     for(uint32_t i=0,w=width,h=height;i<levels;i++,w=w>1?w>>1:1,h=h>1?h>>1:1) {
         uint32_t pitch=(((w+block-1)/block)*unit+3)&~3u;
@@ -490,7 +489,7 @@ static void api_create_texture(void) {
         total+=(uint64_t)pitch*((h+block-1)/block);
     }
     if(usage==1)total=0; /* GPU-only render targets consume no guest shadow arena. */
-    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);write32(out,0);
+    fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);*out=0;
     uint32_t index;for(index=0;index<c->used;index++)if(!c->resources[index].handle)break;
     uint32_t result=FNV_D3D9_OUTOFMEMORY;
     if(index<c->config.resource_capacity && total<=c->config.buffer_bytes && c->device_references<UINT32_MAX) {
@@ -507,15 +506,23 @@ static void api_create_texture(void) {
                 if(!result) {
                     for(uint32_t i=0;i<c->used;i++)if(i!=index && c->resources[i].handle==handle){
                         c->config.backend.release(c->config.backend.context,handle);retire(c,(int)index);fnv_host_mutex_unlock(&c->guard);invalid("D3D9 backend reused live texture identity",self);}
-                    r->handle=handle;r->references=1;c->device_references++;write32(out,resource_address(c,index));
+                    r->handle=handle;r->references=1;c->device_references++;*out=resource_address(c,index);
                     write32(c->objects+OBJECT_OFFSET+index*4,c->config.objects_address+TEXTURE_VTABLE);
                 }
             }
             if(result)retire(c,(int)index);
         }
     }
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,36);
+    fnv_host_mutex_unlock(&c->guard);return result;
 }
+static void api_create_texture(void) {
+    struct fnv_d3d9_com *c=module();uint32_t out_at=fnv_cpu_argument_u32(7);unsigned char *out=range(c,out_at,4,1);
+    if(!out){fnv_cpu_return_u32(FNV_D3D9_INVALIDCALL,36);return;}
+    uint32_t value=read32(out);uint32_t result=create_texture(c,fnv_cpu_argument_u32(0),fnv_cpu_argument_u32(1),fnv_cpu_argument_u32(2),fnv_cpu_argument_u32(3),
+        fnv_cpu_argument_u32(4),fnv_cpu_argument_u32(5),fnv_cpu_argument_u32(6),fnv_cpu_argument_u32(8),&value);
+    write32(out,value);fnv_cpu_return_u32(result,36);
+}
+#include "d3d9_dds_texture.inc"
 static void api_texture_levels(void) {
     uint32_t self=fnv_cpu_argument_u32(0);struct fnv_d3d9_com *c=module();fnv_host_mutex_lock(&c->guard);
     uint32_t levels=c->resources[texture_object(c,self)].levels;fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(levels,4);
@@ -926,9 +933,10 @@ enum fnv_cpu_result fnv_d3d9_com_create(struct fnv_cpu_runtime *cpu,const struct
     write32(c->objects+OBJECT_OFFSET-4,cfg->objects_address);c->device_references=1;active_com=c;*out=c;return FNV_CPU_OK;
 }
 const struct fnv_cpu_export *fnv_d3d9_com_exports(const struct fnv_d3d9_com *c,size_t *count){
-    static const struct fnv_cpu_export exports[1]={{"d3d9.dll","Direct3DCreate9",0,0,api_direct3d9}};
-    if(count)*count=c && c==active_com && c->config.factory?1:0;
-    return c && c==active_com && c->config.factory?exports:NULL;
+    static const struct fnv_cpu_export exports[2]={{"d3d9.dll","Direct3DCreate9",0,0,api_direct3d9},
+        {"d3dx9_38.dll","D3DXCreateTextureFromFileInMemory",0,0,api_dds_texture}};
+    if(count)*count=c && c==active_com?(c->config.factory?2:1):0;
+    return c && c==active_com?exports+(c->config.factory?0:1):NULL;
 }
 uint32_t fnv_d3d9_com_device(const struct fnv_d3d9_com *c){return c?device_address(c):0;}
 uint32_t fnv_d3d9_com_flush(struct fnv_d3d9_com *c,fnv_d3d9_constants_upload upload,void *ctx){

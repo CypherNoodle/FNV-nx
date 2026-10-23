@@ -12,7 +12,7 @@ SLOTS=[(0,3),(1,1),(2,1),(3,2),(4,3),(91,3),(106,3),
     *[(n,4) for n in range(94,100)],*[(n,4) for n in range(109,115)],(92,2)]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_cases=4,extra_args=(),extra_inputs=(),extra_sources=(),extra_includes=(),extra_run_args=(),baseline_lifetime_checks=True,factory_import=False):
+def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_cases=4,extra_args=(),extra_inputs=(),extra_sources=(),extra_includes=(),extra_run_args=(),baseline_lifetime_checks=True,factory_import=False,image_import=False):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private output directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -24,7 +24,7 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     out.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
     native=['cpu_runtime.c','cpu_runtime.h','fnv_sdk_runtime.h','pe_image.c','pe_image.h',
         'guest_memory.c','guest_memory.h','memory_horizon.c','memory_horizon.h','host_mutex.h',
-        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h','d3d9_factory.inc','d3d9_directional_vertex.h','d3d9_normal_transform.h','d3d9_light_state.h','d3d9_light_methods.inc','d3d9_material_methods.inc','d3d9_state_blocks.inc','d3d9_fvf.h','d3d9_fvf.inc','d3d9_up.inc','d3d9_reset.inc']
+        'd3d9_constants.c','d3d9_constants.h','d3d9_com.c','d3d9_com.h','d3d9_dds_texture.inc','dds_image_info.h','d3d9_factory.inc','d3d9_directional_vertex.h','d3d9_normal_transform.h','d3d9_light_state.h','d3d9_light_methods.inc','d3d9_material_methods.inc','d3d9_state_blocks.inc','d3d9_fvf.h','d3d9_fvf.inc','d3d9_up.inc','d3d9_reset.inc']
     slots=SLOTS if slots is None else slots
     modes=('normal','unknown','unsupported','stale','unregistered','parent','capacity','alias') if modes is None else modes
     inputs=[Path(__file__).resolve(),pc/'tests/d3d9_com_host.c',pc/'tests'/host_source,pc/'tests/pe_fixture.py',pc/'tools/shader_packages.py',
@@ -41,13 +41,16 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
         for key in sorted(unique):
             r=unique[key];f.write(struct.pack('<2I',int(r['stage']=='pixel'),r['bytes'])+r['code'])
     fixture=out/'fixture.exe';write_pe(fixture);raw=bytearray(fixture.read_bytes())
-    if factory_import:
+    if factory_import or image_import:
         struct.pack_into('<II',raw,0x98+104,0x1100,40)
         struct.pack_into('<IIIII',raw,0x300,0x1140,0,0,0x1130,0x1180)
-        raw[0x330:0x33a]=b'd3d9.dll\0\0'
+        dll=b'd3dx9_38.dll\0' if image_import else b'd3d9.dll\0'
+        raw[0x330:0x330+len(dll)]=dll
         struct.pack_into('<II',raw,0x340,0x1160,0)
-        raw[0x360:0x372]=b'\0\0Direct3DCreate9\0'
-        struct.pack_into('<II',raw,0x380,0x1160,0)
+        name=b'\0\0D3DXCreateTextureFromFileInMemory\0' if image_import else b'\0\0Direct3DCreate9\0'
+        raw[0x3a0:0x3a0+len(name)]=name
+        struct.pack_into('<I',raw,0x340,0x11a0)
+        struct.pack_into('<II',raw,0x380,0x11a0,0)
     # Two complete text pages allow a full pipeline fixture without overlapping
     # data or depending on bytes beyond the declared PE section.
     if len(slots)>108:raise ValueError('Callers exceed the fixture text pages')
@@ -59,8 +62,8 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
     for index,(slot,argc) in enumerate(slots):
         # COM stdcall: explicit this on stack, not ECX. Re-push caller args.
         if slot is None:
-            assert factory_import and argc==1
-            code=bytes.fromhex('ff742404ff15')+struct.pack('<I',0x401180)+bytes.fromhex('c20400')
+            assert factory_import or image_import
+            code=bytes([0xFF,0x74,0x24,argc*4])*argc+b'\xff\x15'+struct.pack('<I',0x401180)+b'\xc2'+struct.pack('<H',argc*4)
         else:
             code=bytes.fromhex('8b4424048b10')+bytes([0xFF,0x74,0x24,argc*4])*argc
             code+=bytes.fromhex('ff92')+struct.pack('<I',slot*4)+b'\xC2'+struct.pack('<H',argc*4)

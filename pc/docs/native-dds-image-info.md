@@ -45,7 +45,8 @@ input records, generated code and test binaries are not part of the repository.
 
 The full private asset fixture reaches this API for
 `Data/Textures/Effects/WindowEnvironmentMap01.dds` and now passes its metadata
-query. The next unresolved call is `D3DXCreateTextureFromFileInMemory`.
+query. The [resource-producing bridge](native-dds-texture.md) now handles complete
+power-of-two 2D DDS chains. Its next stop is missing DXT5 mip generation.
 The run reports 20 reads totaling 4,521,984 bytes, zero math-cache misses and
 zero engine draws/submissions. The complete asset set changes the call order;
 these counts cannot be compared as a completion percentage with smaller fixtures.
@@ -53,13 +54,9 @@ No game frame or Switch hardware execution is claimed.
 
 ## Next integration
 
-The COM module already owns CreateTexture, mip shadow storage, lock/unlock,
-resource references and backend uploads. The Vulkan provider has BC1/BC2/BC3
-storage paths. D3DX creation should share that ownership and upload machinery,
-including rollback on failed mip uploads and HRESULT/COM reference behavior.
-It must not add a second untracked texture lifetime or publish a pointer until
-all required uploads succeed. Resource creation also needs its own Windows
-oracle and backend-failure tests; metadata acceptance alone is insufficient.
+The resource-producing bridge shares COM creation, references and uploads.
+It does not make missing mip generation, cubemap conversion or all DDS formats
+available automatically. Its tests and remaining limits are described separately.
 
 References:
 - [D3DXGetImageInfoFromFileInMemory](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dxgetimageinfofromfileinmemory).
