@@ -96,8 +96,13 @@ def run(a):
         deferred=subprocess.run([*args,'deferred-shaders'],capture_output=True,text=True,env=env,timeout=60)
         (out/'deferred-shaders.log').write_text(deferred.stdout+deferred.stderr)
         assert not deferred.returncode and 'PASS deferred shader identities' in deferred.stdout,deferred.stdout+deferred.stderr
+    null_checked=not (a.render_texture or a.two_textures or a.mip_clamp)
+    if null_checked:
+        trial=subprocess.run([*args,'null-texture'],capture_output=True,text=True,env=env,timeout=60)
+        (out/'null-texture.log').write_text(trial.stdout+trial.stderr)
+        assert not trial.returncode and 'PASS catalog pair 6144 pixels' in trial.stdout,trial.stdout+trial.stderr
     assert all(sha(Path(n))==h for n,h in frozen.items())
-    report=dict(status='PASS',pixel_checks=6144,negative_controls=len(controls),render_texture=a.render_texture,draw_pressure_waits=pressure_waits,draw_watchdog_checked=a.two_textures,nonblocking_retry_checked=a.two_textures,two_textures=a.two_textures,mip_clamp=a.mip_clamp,float_constants=a.constants,deferred_shader_pixels=6144 if not (a.render_texture or a.two_textures or a.mip_clamp) else 0,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
+    report=dict(status='PASS',null_texture_pixel_checks=6144 if null_checked else 0,pixel_checks=6144,negative_controls=len(controls),render_texture=a.render_texture,draw_pressure_waits=pressure_waits,draw_watchdog_checked=a.two_textures,nonblocking_retry_checked=a.two_textures,two_textures=a.two_textures,mip_clamp=a.mip_clamp,float_constants=a.constants,deferred_shader_pixels=6144 if not (a.render_texture or a.two_textures or a.mip_clamp) else 0,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
                 shader_sha256={s:sha(out/(s+'.bin')) for s in ('vs','ps')},spirv_sha256={s:sha(out/'pair'/(s+'.spv')) for s in ('vs','ps')},descriptors=descriptors)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ('status','pixel_checks','negative_controls','original_package_used','game_frame')}))
 

@@ -175,7 +175,8 @@ int main(int argc,char **argv){
         if(frame&1)reference_ps=(const unsigned char*)shared_ps;
         assert(!b.bind_shader(gpu,1,(frame&1) && !(argc==6 && !strcmp(argv[5],"wrong-shared-program"))?other_shader:shader[1]));
 #endif
-        unsigned char expected[4096];oracle(frame,code[0],reference_ps,vertices,texels,vc,pc,expected);
+        int null_texture=argc==6 && !strcmp(argv[5],"null-texture");
+        unsigned char expected[4096];oracle(frame|(null_texture?16u:0),code[0],reference_ps,vertices,texels,vc,pc,expected);
 #ifdef FNV_CATALOG_TWO_TEXTURES
         unsigned char second[16];secondary_texels(texels,second);assert(!b.upload_texture(gpu,secondary,0,0,0,2,2,0,8,second));
         int swapped=argc==6 && !strcmp(argv[5],"swapped-textures");assert(!b.bind_texture(gpu,0,swapped?secondary:texture) && !b.bind_texture(gpu,1,swapped?texture:secondary));
@@ -196,6 +197,7 @@ int main(int argc,char **argv){
 #else
         assert(!b.upload_texture(gpu,texture,0,0,0,2,2,0,8,texels));
 #endif
+        if(null_texture)assert(!b.bind_texture(gpu,0,0));
         assert(!b.update_buffer(gpu,vb,0,144,0,vertices));
 #ifdef FNV_CATALOG_RENDER_TEXTURE
         assert(!b.bind_texture(gpu,0,texture) && !b.set_target(gpu,0,0,render_surface) && !b.scene(gpu,1));

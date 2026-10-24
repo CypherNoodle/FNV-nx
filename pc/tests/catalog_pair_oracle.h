@@ -17,6 +17,7 @@ static unsigned char *load(const char *path,uint32_t *bytes){
 }
 static const D3DVERTEXELEMENT9 elements[]={{0,0,D3DDECLTYPE_FLOAT4,0,D3DDECLUSAGE_POSITION,0},{0,16,D3DDECLTYPE_FLOAT2,0,D3DDECLUSAGE_TEXCOORD,0},D3DDECL_END()};
 static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *ps,const float *vertices,const unsigned char *texels,const float *vc,const float *pc,unsigned char *pixels){
+    int null_texture=(frame&16u)!=0;frame&=15u;
     HWND w=CreateWindowExA(0,"STATIC","Catalog shader oracle",WS_POPUP,0,0,32,32,NULL,NULL,GetModuleHandleA(NULL),NULL);assert(w);
     IDirect3D9 *api=Direct3DCreate9(32);assert(api);D3DPRESENT_PARAMETERS pp={0};pp.Windowed=1;pp.SwapEffect=D3DSWAPEFFECT_DISCARD;pp.hDeviceWindow=w;
     IDirect3DDevice9 *d=NULL;assert(!api->lpVtbl->CreateDevice(api,0,D3DDEVTYPE_HAL,w,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&pp,&d));
@@ -65,6 +66,7 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     assert(!d->lpVtbl->SetSamplerState(d,1,D3DSAMP_MINFILTER,D3DTEXF_POINT) && !d->lpVtbl->SetSamplerState(d,1,D3DSAMP_MAGFILTER,D3DTEXF_POINT));
     assert(!d->lpVtbl->SetSamplerState(d,1,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP) && !d->lpVtbl->SetSamplerState(d,1,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP));
 #endif
+    if(null_texture)assert(!d->lpVtbl->SetTexture(d,0,NULL));
     assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
     if(frame==5){D3DVIEWPORT9 viewport={4,2,24,28,0,1};assert(!d->lpVtbl->SetViewport(d,&viewport));}
     assert(!d->lpVtbl->BeginScene(d) && !d->lpVtbl->DrawPrimitiveUP(d,D3DPT_TRIANGLELIST,2,vertices,24) && !d->lpVtbl->EndScene(d));

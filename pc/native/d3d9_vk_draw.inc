@@ -181,8 +181,13 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
         attributes[i]=(VkVertexInputAttributeDescription){program->inputs[i].location,stream,decl->formats[found],offset};stream_mask|=1u<<stream;
     }
     for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i))bindings[binding_count++]=(VkVertexInputBindingDescription){i,streams[i].stride,VK_VERTEX_INPUT_RATE_VERTEX};
-    VkSamplerCreateInfo sampler_info[16];
+    VkSamplerCreateInfo sampler_info[16];struct texture_resource *sampled[16]={0};
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
+        if(!d->texture_bindings[i]){
+            t=&d->null_texture;
+            if(!t->width){d->null_texel[3]=255;t->width=t->height=t->levels=1;t->format=21;t->bytes=4;t->shadow=d->null_texel;t->dirty=1;}
+        }
+        sampled[i]=t;
         if(t && t->usage==1){
             if(color->parent_texture==t->id){hr=FNV_VK_INVALID;goto done;}
             if(d->count){hr=draw_slot(d,&watch);if(hr)goto done;hr=flush_locked(d);if(hr)goto done;}
@@ -206,7 +211,7 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     draw_pin(d,r,color->id);if(depth)draw_pin(d,r,depth->id);draw_pin(d,r,vs->id);draw_pin(d,r,ps->id);draw_pin(d,r,decl->id);
     for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i)){struct buffer_resource *b=up_vertex?(i?NULL:up_vertex):find_buffer(d,streams[i].id);r->vertices[i]=b->version;r->vertices[i]->refs++;draw_pin(d,r,b->id);}
     if(indexed){r->indices=ib->version;r->indices->refs++;draw_pin(d,r,ib->id);}
-    for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
+    for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=sampled[i];
         r->textures[i]=t->version;r->textures[i]->refs++;draw_pin(d,r,t->id);}
     const struct fnv_uniform_plan *plans[2]={&program->stages[0]->plan,&program->stages[1]->plan};
     struct fnv_uniform_draw snapshot;hr=automatic?fnv_uniform_state_prepare_fixed(d->uniforms,fixed,fixed_bytes,&snapshot):fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,fixed_bytes,&snapshot):fnv_uniform_state_prepare_program(d->uniforms,plans,&snapshot);if(hr)goto rollback;
@@ -247,7 +252,7 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     barrier(d,f->cmd,color);if(depth)barrier(d,f->cmd,depth);
     VkMemoryBarrier host={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_HOST_WRITE_BIT,.dstAccessMask=VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT|VK_ACCESS_INDEX_READ_BIT|VK_ACCESS_UNIFORM_READ_BIT};
     d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_HOST_BIT,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT|VK_PIPELINE_STAGE_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,1,&host,0,NULL,0,NULL);
-    for(unsigned i=0;i<16;++i)if(r->textures[i])texture_barrier(d,f->cmd,r->textures[i],VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT,find_texture(d,d->texture_bindings[i])->levels);
+    for(unsigned i=0;i<16;++i)if(r->textures[i])texture_barrier(d,f->cmd,r->textures[i],VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT,sampled[i]->levels);
     VkRenderPassBeginInfo begin={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=f->passes[0],.framebuffer=f->buffers[0],.renderArea={{0,0},{color->width,color->height}}};
     d->v.CmdBeginRenderPass(f->cmd,&begin,VK_SUBPASS_CONTENTS_INLINE);d->v.CmdBindPipeline(f->cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,r->pipeline);
     d->v.CmdBindDescriptorSets(f->cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,r->layout,1,3,descriptors,0,NULL);
