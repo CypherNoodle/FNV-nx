@@ -4,7 +4,7 @@ Components now exist for an own FFmpeg adapter that returns RGBA frames and
 stereo 48 kHz signed-16 PCM, an own translated Bink sound-selection bridge,
 and a bounded movie PCM input on the existing DirectSound mixer.
 They are not yet a complete movie player in the game. The remaining work is the
-default audio transport, seven movie exports, the guest handle, pacing and frame
+guest sound-open transport factory, seven movie exports, the guest handle, pacing and frame
 copying into the renderer's locked texture. No new NRO is delivered by this work.
 
 ## External FFmpeg build
@@ -113,7 +113,8 @@ the device output queue. `played` measures committed frames, not audible device
 position; a future movie clock must account for output/device latency. Movie
 control is serialized by its host owner, and audio workers stop before provider
 destruction. One host movie stream is supported, independently of DirectSound
-buffer volume/pan. The Bink controller has not yet connected decoder events to it.
+buffer volume/pan. The host stream controller below now connects decoder events
+to it; the game's guest sound/movie wrappers do not yet use that controller.
 
 The combined DirectSound test compares 204,606 PCM samples, plus simultaneous
 movie/game saturation, a full output queue, atomic movie FULL, pause/focus,
@@ -121,6 +122,38 @@ two ring traversals including split writes, underrun and reset. Existing native
 Windows ABI/listener checks and six explicit invalid-operation stops still pass.
 The mixer compiles with the actual ARM64/libnx extended-x87 ABI. These are host
 tests and cross-compilation, not Switch playback or performance measurements.
+
+## Decoder-to-mixer stream
+
+`native/bink_stream.c` owns a decoder and borrows the live DirectSound provider.
+It delivers one decoder event or at most512 PCM frames per step. When the movie
+ring is full, it retains the frame and offset and returns WAIT; it never asks the
+decoder for the next event until that PCM block is fully submitted. This keeps
+the decoder-owned PCM pointer valid and bounds work per controller invocation.
+The audio worker only pumps the mixer; it never invokes the decoder or guest.
+
+There is one active stream, with all open/step/pause/close calls serialized on
+the decoder thread. Its owner must have exclusive use of the provider's movie
+input, and both provider and input I/O must outlive it. Duplicate open is rejected
+without touching the current stream. Open resets the movie input only after
+successful decoder initialization. Pause retains decoder progress and pauses
+the movie mixer input; errors poison the stream. Close frees the decoder and
+resets pending movie input. Already queued device/output audio cannot be retracted.
+EOF remains stable, but means decoding ended, not that all submitted sound has
+been heard. The stream does not implement a playback clock, guest BINK/BINKSND
+layout or texture upload.
+
+`tests/test_bink_mixer.py` runs the real FFmpeg decoder, stream, DirectSound mixer
+and output PCM queue together in the extended-x87 host runtime. For120 real intro
+frames, the mixer output contains226,560 stereo frames and matches both RGBA and
+PCM hashes from the independent decoder-only baseline. It forces349 full-ring
+waits, repeated retries without additional decoder reads, pause with queued audio,
+output-queue FULL with no cursor consumption, duplicate-open rejection and I/O
+failure. A private two-frame container reaches repeated EOF and delivers38,400
+PCM frames with the same independent hashes. The later-I/O fault case is skipped
+for that short fully buffered input, and is covered on the full intro instead.
+The stream also compiles for ARM64/libnx with the extended-x87 ABI. These tests
+do not play audio on a device, invoke game Bink exports or boot the game.
 
 ## Sound-selection bridge
 
@@ -145,9 +178,9 @@ actual extended-x87 ARM64/libnx ABI.
 
 In the private captured-code startup, both exports now bind and the actual
 game callback reaches the explicit `Bink DirectSound transport unavailable` stop.
-There are still zero game draws/submissions. The decoder has been validated
-separately; connecting its PCM events to the mixer input, timing movie playback
-and validating the seven movie calls is the next integration step. The main
+There are still zero game draws/submissions. Decoder-to-mixer delivery is now
+validated in the host stream; connecting the guest sound-open/movie wrappers,
+timing playback and validating the seven movie calls is the next integration step. The main
 startup still uses captured PC code; this is not a cold EXE or Switch boot.
 
 References: [FFmpeg Bink demuxer](https://github.com/FFmpeg/FFmpeg/blob/master/libavformat/bink.c),
