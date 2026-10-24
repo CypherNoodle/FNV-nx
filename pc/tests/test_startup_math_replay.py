@@ -13,11 +13,12 @@ from x87_target_evaluator import Evaluator,sha,unchanged
 def test(a):
     if a.output.exists():raise ValueError('Fresh output required')
     a.output.mkdir(parents=True);out=a.output.resolve();pc=Path(__file__).resolve().parents[1]
-    core=json.loads(a.core.read_text());unchanged(core['source_sha256']);cc=core['compiler']
+    core=json.loads(a.core.read_text());unchanged(core['source_sha256']);cc=a.cc or core['compiler']
     if core['switch_abi'] or core['transcendental_model'] is not None or len(core['objects'])!=99:raise ValueError('Strict host arithmetic core required')
     native=pc/'tests/startup_math_replay_host.c';bridge=pc/'tests/startup_math_stop_host.c'
     sources=[native,bridge];rsp=out/'link.rsp';program=out/'test.exe'
     objects=[Path(i['object']) for i in core['objects']]
+    frozen={str(p.resolve()):sha(p) for p in [Path(__file__),native,bridge,pc/'tests/startup_math_state.h',a.core,a.evaluator,Path(cc[0]),*objects]}
     for item in core['objects']:
         if sha(Path(item['object']))!=item['sha256']:raise ValueError('Stale native arithmetic object')
     includes=['-I'+str(p) for p in (pc/'native',pc/'tests',a.sdk/'templates/runtime',a.sdk/'src/kernel')]
@@ -40,18 +41,38 @@ def test(a):
            'error-mutation':(header+record[:88]+struct.pack('<I',4)+bytes((record[92]^1,))+record[93:],'reject')}
     trig_request=bytes((1,0))+state;trig_result,trig_after=target.evaluate(trig_request);assert trig_result==0
     cases['threaded']=(encode([(request,result,after),(trig_request,trig_result,trig_after)]),'threads')
+    quarter=struct.pack('<QH',1<<63,0x3ffd);seed_state=bytearray(state);seed_state[:10]=quarter
+    delta_rows=[];variants=[]
+    for op in (0,1,3):
+        q=bytes((1,op))+seed_state;r,output=target.evaluate(q);assert r==0;delta_rows.append((q,r,output))
+        if op==3:continue
+        for k in range(8):
+            changed=bytearray(seed_state)
+            for j in range(2,8):changed[j*10:j*10+10]=bytes((k*37+j*19+n*53)&255 for n in range(10))
+            wire=bytes((1,op))+changed;r,answer=target.evaluate(wire);assert r==0;variants.append((wire,r,answer))
+    variants_file=out/'empty-variants.bin';variants_file.write_bytes(encode(variants))
+    delta_cache=encode([(request,result,after),*delta_rows])
+    cases['empty-delta']=(delta_cache,'delta');cases['empty-delta-disabled']=(delta_cache,'delta-disabled')
+    q,r,answer=delta_rows[0];modified=bytearray(q);modified[22]^=1;bad_answer=bytearray(answer);bad_answer[20]^=1
+    cases['unsafe-delta']=(encode([(request,result,after),(q,r,bytes(bad_answer))]),'delta-unsafe')
+    conflicting=bytearray(bad_answer);conflicting[:20]=answer[:20];conflicting[0]^=1
+    cases['conflicting-delta']=(encode([(q,r,answer),(bytes(modified),r,bytes(conflicting))]),'delta-reject')
     for name,(data,mode) in cases.items():
-        p=out/(name+'.bin');p.write_bytes(data);r=subprocess.run([program,p,mode],capture_output=True,text=True,timeout=15)
+        p=out/(name+'.bin');p.write_bytes(data);command=[program,p,mode]
+        if mode in ('delta','delta-disabled','delta-unsafe'):command.append(variants_file)
+        r=subprocess.run(command,capture_output=True,text=True,timeout=15)
         (out/(name+'.log')).write_text(r.stdout+r.stderr)
         if r.returncode:raise AssertionError(name+' failed: '+r.stdout+r.stderr)
         checks+=1
-    report=dict(status='PASS',native_cases=checks,exact_target_answer=True,cache_miss_stops=True,
+    unchanged(frozen)
+    report=dict(status='PASS',native_cases=checks,empty_register_target_comparisons=len(variants),exact_target_answer=True,cache_miss_stops=True,
                 game_inputs=False,hardware_tested=False,
-                source_sha256={str(p.resolve()):sha(p) for p in [Path(__file__),native,bridge,pc/'tests/startup_math_state.h',a.core,a.evaluator]})
+                source_sha256=frozen)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print('PASS',checks,'native replay cache/hit/miss cases')
 
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('core','sdk','evaluator','python-deps','output'):p.add_argument('--'+n,type=Path,required=True)
+    p.add_argument('--cc',nargs='+',help='Optional compatible host compiler; core objects remain hash-checked')
     test(p.parse_args())

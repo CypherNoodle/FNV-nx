@@ -22,6 +22,29 @@ original source/object, target core/image, cache and observation is checked.
 This slow offline repetition establishes limited control-flow evidence only.
 It is not the CPU translation strategy or a performance estimate for Switch.
 
+An optional diagnostic-only empty-register delta mode is configured before
+opening a cache with `fnv_startup_math_replay_enable_empty_delta`. The default
+still requires a complete88-byte exact key. The opt-in fallback is restricted to
+successful FSIN/FCOS records: kind/operation, control/status, TOP, occupied mask
+and every occupied register must match. The record must leave control, TOP,
+mask and every physical register except ST0 unchanged. The replay then copies
+only the verified ST0/status result into the actual caller state, preserving
+all other register bytes, including empty-register contents. No host libm or
+new numerical approximation is involved. Pushing operations never use this path.
+Conflicting eligible answers for the same live key reject the cache.
+
+The target-core test compares16 complete86-byte outcomes with randomized empty
+register payloads against actual execution of the frozen ARM64 evaluator. It
+also checks changed occupied registers, control/status/TOP/mask, pushing trig,
+unsafe output changes, conflicting answers and the default-disabled path.
+The original parser, explicit-miss and two-native-thread tests remain enabled;
+there are17 native test cases. `--cc` selects a compatible host linker/compiler
+without replacing any hash-checked arithmetic objects. Inputs are frozen before
+compilation and rechecked after execution. This mode only reduces unnecessary
+diagnostic cache variants; previously unseen live operands still stop and need
+an exact target answer. It does not change the production CPU runtime or justify
+a claim about game/Switch performance.
+
 `audit_crt_math_table.py` checks original descriptor setup, an indexed route to
 the selector dispatcher, its exact addressing sequence and selector domain.
 This catches descriptor tables whose pointer slots are not four-byte aligned.
