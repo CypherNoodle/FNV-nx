@@ -28,7 +28,7 @@ int main(int argc,char **argv){
     struct fnv_windows_user32 *desktop,*second=(void *)1;
     assert(fnv_windows_user32_create(process,&desktop)==FNV_CPU_OK);
     assert(fnv_windows_user32_create(process,&second)==FNV_CPU_BUSY && !second);
-    size_t n,bound;const struct fnv_cpu_export *exports=fnv_windows_user32_exports(&n);assert(n==3 && exports==fnv_windows_user32_exports(NULL));
+    size_t n,bound;const struct fnv_cpu_export *exports=fnv_windows_user32_exports(&n);assert(n==4 && exports==fnv_windows_user32_exports(NULL));
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];
     assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==5);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;

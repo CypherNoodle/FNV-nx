@@ -6,7 +6,7 @@ import test_windows_heap as shared
 
 def callers(raw):
     result={}
-    for i,argc in enumerate((2,1,0)):
+    for i,argc in enumerate((2,1,0,0,0)):
         iat=struct.unpack_from('<I',raw,0x300+i*20+16)[0]
         # Forward parameters, then perform cdecl cleanup before wrapper return.
         code=bytes((0xff,0x74,0x24,argc*4))*argc
@@ -19,8 +19,8 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('sdk','python-deps','output'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True)
-    shared.NAMES=['SteamAPI_RegisterCallback','SteamAPI_UnregisterCallback','SteamAPI_Init']
-    shared.ARGS=[2,1,0];shared.DLLS=['steam_api.dll']*3
+    shared.NAMES=['SteamAPI_RegisterCallback','SteamAPI_UnregisterCallback','SteamAPI_Init','SteamAPI_IsSteamRunning','SteamAPI_RunCallbacks']
+    shared.ARGS=[2,1,0,0,0];shared.DLLS=['steam_api.dll']*5
     shared.test(p.parse_args(),host_source='steam_callbacks_host.c',guest_programs=callers,
         native_sources=('steam_callbacks.c',),
         linker_options=('-Wl,--stack,8388608',),

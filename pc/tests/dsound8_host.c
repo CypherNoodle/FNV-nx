@@ -141,7 +141,7 @@ int main(int argc,char **argv){
     put(DATA,96);uint32_t caps[]={root,DATA};DSCAPS nc={0};nc.dwSize=sizeof(nc);assert(call(CAPS,caps,2,0)==(uint32_t)IDirectSound8_GetCaps(native,&nc));assert(get(DATA)==96&&!(get(DATA+4)&DSCAPS_CERTIFIED));native_checks++;
     listener_test(root,native);
     uint32_t primary=make(root,DSBCAPS_PRIMARYBUFFER,0);uint32_t fmtset[]={primary,FORMAT};assert(!call(FORMAT_SET,fmtset,2,0));release(primary);
-    const uint32_t flags=DSBCAPS_CTRLFREQUENCY|DSBCAPS_CTRLPAN|DSBCAPS_CTRLVOLUME|DSBCAPS_LOCSOFTWARE;
+    const uint32_t flags=DSBCAPS_CTRLFREQUENCY|DSBCAPS_CTRLPAN|DSBCAPS_CTRLVOLUME|DSBCAPS_LOCSOFTWARE|DSBCAPS_GETCURRENTPOSITION2;
     uint32_t b=make(root,flags,1024);WAVEFORMATEX nf;memcpy(&nf,arena+FORMAT-BASE,18);DSBUFFERDESC bd={0};bd.dwSize=sizeof(bd);bd.dwFlags=flags;bd.dwBufferBytes=1024;bd.lpwfxFormat=&nf;IDirectSoundBuffer *nb;assert(IDirectSound8_CreateSoundBuffer(native,&bd,&nb,NULL)==S_OK);
     uint32_t fmtget[]={b,DATA,18,DATA+32};WAVEFORMATEX got;DWORD written=0;assert(call(FORMAT_GET,fmtget,4,0)==(uint32_t)IDirectSoundBuffer_GetFormat(nb,&got,18,&written));assert(get(DATA+32)==written&&!memcmp(arena+DATA-BASE,&got,18));native_checks++;
     for(unsigned k=0;k<3;k++){

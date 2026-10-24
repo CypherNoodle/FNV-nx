@@ -46,9 +46,9 @@ int main(int argc,char **argv){
     struct fnv_windows_display *display;assert(fnv_windows_display_create(process,&backend,&display)==FNV_CPU_OK);
     struct fnv_user32_metrics metrics={NULL,fnv_display_metrics_win32};struct fnv_windows_user32 *user32;
     assert(fnv_windows_user32_create_with_metrics(process,&metrics,&user32)==FNV_CPU_OK);
-    size_t n,bound;const struct fnv_cpu_export *e=fnv_windows_display_exports(&n);assert(n==1);struct fnv_cpu_export catalog[4];catalog[0]=e[0];
-    e=fnv_windows_user32_exports(&n);assert(n==3);memcpy(catalog+1,e,n*sizeof(*e));
-    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,catalog,4,&bound)==FNV_NATIVE_OK&&bound==4);
+    size_t n,bound;const struct fnv_cpu_export *e=fnv_windows_display_exports(&n);assert(n==1);struct fnv_cpu_export catalog[5];catalog[0]=e[0];
+    e=fnv_windows_user32_exports(&n);assert(n==4);memcpy(catalog+1,e,n*sizeof(*e));
+    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,catalog,5,&bound)==FNV_NATIVE_OK&&bound==4);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1c000;
     fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK && fnv_windows_display_destroy(display)==FNV_CPU_BUSY);
     if(argc==3){

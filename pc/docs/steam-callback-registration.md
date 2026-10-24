@@ -6,10 +6,10 @@ The original `FalloutNV.exe` import table contains 11 `steam_api.dll` names:
 `SteamFriends`, `SteamAPI_Init`, `SteamAPI_UnregisterCallback`,
 `SteamAPI_Shutdown`, `SteamUser`, `SteamAPI_RunCallbacks`,
 `SteamAPI_RegisterCallback`, `SteamUserStats`, `SteamApps`,
-`SteamAPI_IsSteamRunning` and `SteamUtils`. This provider exports only
-`SteamAPI_RegisterCallback`, `SteamAPI_UnregisterCallback` and `SteamAPI_Init`.
-The other eight names are not implemented, including the five interface
-accessors and `SteamAPI_Shutdown`/`SteamAPI_RunCallbacks`/`SteamAPI_IsSteamRunning`.
+`SteamAPI_IsSteamRunning` and `SteamUtils`. This provider exports
+`SteamAPI_RegisterCallback`, `SteamAPI_UnregisterCallback`, `SteamAPI_Init` and
+`SteamAPI_IsSteamRunning` and `SteamAPI_RunCallbacks`. The other six names
+are not implemented: the five interface accessors and `SteamAPI_Shutdown`.
 An import-table entry alone does not show that the guest calls it on startup;
 runtime reachability still needs to be observed. Do not fill these gaps with
 fake success or pretend to provide Steam interfaces. The supported `Init`
@@ -98,3 +98,28 @@ observed guest path does not immediately terminate on Init(false). It does not
 prove that later Steam-dependent functionality works or that cold startup can
 run without Steam. The executable, guest branches and ownership checks were
 not patched.
+
+
+## Guest client-state query
+
+SteamAPI_IsSteamRunning returns false, consistent with the guest environment
+having no Steam client. It does not inspect, start or modify Steam on the PC
+host. It uses its own registered native token and preserves the zero-argument
+cdecl ABI. Missing provider is still an explicit fault. No ownership,
+authentication, interface, callback event or successful initialization is added.
+
+The synthetic translated test adds 1000 IsSteamRunning calls alongside 2000
+Init calls and callback registry checks; it verifies the returned false value,
+caller-owned stack and unchanged guest LastError. This is a no-client contract
+test, not a differential test against a running Steam client.
+
+https://partner.steamgames.com/doc/api/steam_api#SteamAPI_IsSteamRunning
+
+
+RunCallbacks is also exported for the same no-client environment. Init cannot
+succeed and there is no event source, so the pump delivers no events and leaves
+all registered callback objects and host registrations unchanged. It preserves
+void cdecl behavior and does not invoke guest code. A future real event source
+must replace this path with a tested dispatcher rather than silently dropping
+events. 1000 translated calls are checked while128 registrations remain live,
+with complete object-byte and registration-count checks before unregistering.

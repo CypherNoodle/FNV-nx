@@ -113,7 +113,9 @@ static void create_buffer(void){
     if(size!=36 || reserved){fnv_cpu_return_u32(INVALID,16);return;}
     /* Only primary/listener3D; spatial secondary voices remain explicit. */
     if((flags&0x10) && !(flags&1)){recomp_unimpl("DirectSound spatial secondary buffer pending",flags);return;}
-    if(flags&~0x180fbu){recomp_unimpl("DirectSound buffer capabilities pending",flags);return;}
+    /* GETCURRENTPOSITION2 requests the accurate play cursor already derived
+     * from consumed mixer frames; no legacy emulated cursor lag is applied. */
+    if(flags&~0x182fbu){recomp_unimpl("DirectSound buffer capabilities pending",flags);return;}
     if(flags&1){if(bytes||fmt){fnv_cpu_return_u32(INVALID,16);return;}}
     else {unsigned char *f=range(fmt,18,0);if(!f)return;
         if(!format(f,&rate,&channels,&bits)){recomp_unimpl("DirectSound PCM format pending",fmt);return;}

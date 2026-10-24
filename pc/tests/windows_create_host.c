@@ -79,10 +79,10 @@ int main(int argc,char **argv){
     assert(fnv_windows_boot_ui_create(process,&image,&ui)==FNV_CPU_OK);
     struct fnv_boot_window_backend backend={NULL,native_create,native_destroy,native_active,native_focus};
     if(argc==2 || strcmp(argv[2],"--strict-no-backend"))assert(fnv_windows_boot_ui_set_backend(ui,desktop,&backend)==FNV_CPU_OK);
-    size_t n,bound;struct fnv_cpu_export exports[16];const struct fnv_cpu_export *e=fnv_windows_boot_ui_exports(&n);memcpy(exports,e,n*sizeof(*e));
+    size_t n,bound;struct fnv_cpu_export exports[64];const struct fnv_cpu_export *e=fnv_windows_boot_ui_exports(&n);assert(n<64);memcpy(exports,e,n*sizeof(*e));
     for(size_t i=0;i<n;i++)if(!strcmp(e[i].name,"DefWindowProcA"))default_proc=e[i].function;assert(default_proc);
     exports[n++]=(struct fnv_cpu_export){"test-ui.dll","Observe",0,0,observe};
-    size_t count; e=fnv_windows_user32_exports(&count);memcpy(exports+n,e,count*sizeof(*e));n+=count;
+    size_t count; e=fnv_windows_user32_exports(&count);assert(n+count<=64);memcpy(exports+n,e,count*sizeof(*e));n+=count;
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==14);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;
     t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1c000;fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);

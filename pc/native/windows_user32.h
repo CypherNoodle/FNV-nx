@@ -23,4 +23,8 @@ enum fnv_cpu_result fnv_windows_user32_remove_window(struct fnv_windows_user32 *
  * Window-targeted, sent, paint and timer messages are not implemented here. */
 struct fnv_user32_thread_message {uint32_t message,wparam,lparam,time;int32_t x,y;};
 enum fnv_cpu_result fnv_windows_user32_post_thread(struct fnv_windows_user32 *,uint32_t thread_id,const struct fnv_user32_thread_message *);
+/* Explicit native input sample, indexed by Windows VK, each byte 0 or 128.
+ * Side-specific shift/control/alt supply the aggregate VK entries. Inactive
+ * input clears held and recent-press bits; no OS keyboard is queried here. */
+enum fnv_cpu_result fnv_windows_user32_update_keys(struct fnv_windows_user32 *,const unsigned char keys[256],int focused);
 #endif
