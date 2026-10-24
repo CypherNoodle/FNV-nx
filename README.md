@@ -100,10 +100,6 @@ Contrato y validacion de CPU/TLS/imports: [runtime nativo](pc/docs/native-cpu-ru
 El primer [modulo Windows por hilo](pc/docs/native-windows-thread.md) agrega
 ocho imports de TLS, LastError e identificadores guest; el resto de los
 servicios y el arranque del motor siguen en desarrollo.
-Los builds PC01–PC03 con Wine se conservan como
-[experimento anterior](pc/docs/wine-experiment.md), fuera de la ruta activa.
-No deben confundirse con el futuro port nativo.
-
 No se incluyen ejecutables, assets, codigo generado del juego ni capturas.
 
 Los [servicios del CRT](pc/docs/native-windows-time.md) incluyen GetTickCount,
