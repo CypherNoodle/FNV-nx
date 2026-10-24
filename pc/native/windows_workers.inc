@@ -50,7 +50,7 @@ enum fnv_cpu_result fnv_windows_worker_stats(struct fnv_windows_process *p,struc
     struct fnv_windows_worker_stats s={0};s.capacity=p->config.worker_capacity;
     if(p->workers){fnv_host_mutex_lock(&p->worker_guard);
         for(uint32_t i=0;i<s.capacity;++i){uint32_t phase=p->workers[i].phase;s.active+=phase==1 || phase==2;s.finished+=phase==3;}
-        s.created=p->worker_created;s.reaped=p->worker_reaped;s.failures=p->worker_failures;s.peer_stops=p->worker_peer_stops;fnv_host_mutex_unlock(&p->worker_guard);
+        s.created=p->worker_created;s.reaped=p->worker_reaped;s.failures=p->worker_failures;s.peer_stops=p->worker_peer_stops;s.capacity_denials=p->worker_capacity_denials;fnv_host_mutex_unlock(&p->worker_guard);
     }
     *out=s;return FNV_CPU_OK;
 }
@@ -106,10 +106,11 @@ static void api_thread_create(void){
     if(!workers_reap(p)){fnv_host_mutex_unlock(&p->worker_guard);sync_invalid("Windows worker join failed",entry);}
     struct managed_worker *w=NULL;
     for(uint32_t i=0;i<p->config.worker_capacity;++i)if(!p->workers[i].phase){w=p->workers+i;break;}
+    if(!w)p->worker_capacity_denials++;
     if(w && p->worker_next_id!=UINT32_MAX){
         handle=kernel_create(p,KERNEL_THREAD,1,0,259);
         if(handle){uint32_t i=(uint32_t)(w-p->workers),base=p->config.worker_address+i*(p->config.worker_stack_bytes+8192+p->config.worker_tls_bytes);
-            memset(&w->config,0,sizeof(w->config));w->config.thread_id=++p->worker_next_id;w->config.teb_address=base;w->config.tls_expansion_address=base+4096;
+            memset(&w->config,0,sizeof(w->config));w->debug_name[0]=0;w->config.thread_id=++p->worker_next_id;w->config.teb_address=base;w->config.tls_expansion_address=base+4096;
             if(p->tls){w->config.static_tls_vector=base+8192;w->config.static_tls_vector_bytes=4;
                 w->config.static_tls_data=(w->config.static_tls_vector+4+tls.alignment-1)&~(tls.alignment-1);
                 w->config.static_tls_data_bytes=p->config.worker_tls_bytes-(w->config.static_tls_data-w->config.static_tls_vector);}

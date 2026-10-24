@@ -59,6 +59,7 @@ struct managed_worker {
     fnv_host_thread host;
     fnv_host_condition condition;
     uint32_t phase,suspended,entry,parameter;
+    char debug_name[128]; /* worker_guard, including before guest attach */
 };
 struct fnv_windows_process {
     struct fnv_windows_config config;
@@ -92,6 +93,7 @@ struct fnv_windows_process {
     uint32_t file_free,file_tail,file_bits,file_mask,file_generation_max;
     struct fnv_windows_file_stats file_stats;
     uint64_t worker_created,worker_reaped,worker_failures,worker_peer_stops;
+    uint64_t worker_capacity_denials;
     uint32_t command_a,command_w;
     char image_path[1024];
     char *environment;
@@ -100,6 +102,7 @@ struct fnv_windows_process {
 };
 static RECOMP_TLS struct windows_thread current;
 static RECOMP_TLS struct managed_worker *managed_current;
+static RECOMP_TLS char debug_name_snapshot[128];
 static void lock(struct fnv_windows_process *p) {
     while(atomic_flag_test_and_set_explicit(&p->guard,memory_order_acquire)) {}
 }
@@ -165,13 +168,30 @@ uint32_t fnv_windows_mouse_buttons(int setting){
     if(setting>=0)p->mouse_swapped=!!setting;
     unlock(p);return old;
 }
-int fnv_windows_set_debug_name(const char *name){
+int fnv_windows_set_thread_debug_name(uint32_t id,const char *name){
     if(!name)return 0;
     size_t n=0;while(n<128 && name[n]){if((unsigned char)name[n]>127)return 0;n++;}
     if(n>=128)return 0;
-    memcpy(thread()->debug_name,name,n+1);return 1;
+    struct fnv_windows_process *p=thread()->process;
+    if(id==UINT32_MAX)id=current.config.thread_id;
+    int found=0;
+    if(id>=0x80000000u && p->workers){
+        fnv_host_mutex_lock(&p->worker_guard);
+        for(uint32_t i=0;i<p->config.worker_capacity;i++){
+            struct managed_worker *w=p->workers+i;
+            if((w->phase==1 || w->phase==2) && w->config.thread_id==id){memcpy(w->debug_name,name,n+1);found=1;break;}
+        }fnv_host_mutex_unlock(&p->worker_guard);
+    }else {
+        lock(p);for(struct windows_thread *t=p->threads;t;t=t->next)if(t->config.thread_id==id){memcpy(t->debug_name,name,n+1);found=1;break;}unlock(p);
+    }return found;
 }
-const char *fnv_windows_current_debug_name(void){return thread()->debug_name;}
+int fnv_windows_set_debug_name(const char *name){return fnv_windows_set_thread_debug_name(UINT32_MAX,name);}
+const char *fnv_windows_current_debug_name(void){
+    struct fnv_windows_process *p=thread()->process;
+    if(managed_current){fnv_host_mutex_lock(&p->worker_guard);memcpy(debug_name_snapshot,managed_current->debug_name,128);fnv_host_mutex_unlock(&p->worker_guard);}
+    else {lock(p);memcpy(debug_name_snapshot,current.debug_name,128);unlock(p);}
+    return debug_name_snapshot;
+}
 struct fnv_guest_memory *fnv_windows_current_memory(void) { return thread()->process->config.memory; }
 void fnv_windows_current_stack_bounds(uint32_t *low,uint32_t *high,uint32_t *id){
     struct windows_thread *t=thread();*low=t->config.stack_low;*high=t->config.stack_high;*id=t->config.thread_id;

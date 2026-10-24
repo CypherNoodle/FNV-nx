@@ -1,5 +1,15 @@
 # Bounded DirectInput8A keyboard and mouse bridge
 
+`IDirectInputDevice8A::Poll` is implemented for the existing virtual keyboard and
+mouse. Acquired snapshot devices return DI_NOEFFECT; unacquired devices return
+DIERR_NOTACQUIRED, and foreground focus loss returns DIERR_INPUTLOST while
+clearing acquisition/queued input consistently with GetDeviceState/GetDeviceData.
+Poll never consumes relative axes or buffered events and never queries HID per
+guest call. Windows device oracles check new/acquired/unacquired states for both
+devices; the synthetic1000-snapshot test checks Poll preserves movement, queued
+events and controlled focus loss. Other polled-device types remain unsupported.
+See [Microsoft's Poll contract](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee417913(v=vs.85)).
+
 The PC executable requests DirectInput8Create version 0x0800 and
 IID_IDirectInput8A without aggregation. The original bridge implements that
 factory and a guest-layout COM vtable, with host-owned reference metadata.

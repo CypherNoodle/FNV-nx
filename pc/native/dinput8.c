@@ -219,6 +219,20 @@ static void api_state(void){
                 memcpy(data+12,active->snapshot.buttons,bytes-12);memcpy(o->last,active->totals,sizeof(o->last));}}}
     fnv_host_mutex_unlock(&active->guard);if(!hr)memcpy(p,data,bytes);fnv_cpu_return_u32(hr,12);
 }
+static void api_poll(void){
+    uint32_t self=fnv_cpu_argument_u32(0);if(!current())return;
+    struct di_object before={0};fnv_host_mutex_lock(&active->guard);int i=index_of(self);if(i>=0)before=active->objects[i];fnv_host_mutex_unlock(&active->guard);
+    int focus=before.acquired && (before.cooperative&4)?focused(before.window):1;
+    uint32_t hr;fnv_host_mutex_lock(&active->guard);i=index_of(self);
+    if(i<0 || !active->objects[i].kind)hr=DI_INVALID;
+    else {struct di_object *o=active->objects+i;
+        if(o->cooperative!=before.cooperative || o->window!=before.window || o->format!=before.format)hr=DI_INVALID;
+        else {if(o->acquired && !focus){o->acquired=0;o->lost=1;o->head=o->queued=o->overflow=0;}
+            /* These interrupt/snapshot devices advertise no polled objects.
+             * Poll does not consume relative axes or buffered events. */
+            hr=o->acquired?1:o->lost?0x8007001eu:DI_NOTACQUIRED;}}
+    fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32(hr,4);
+}
 static void api_caps(void){
     uint32_t self=fnv_cpu_argument_u32(0),out=fnv_cpu_argument_u32(1);if(!current())return;
     unsigned char *p=range(out,4,0);if(!p)return;uint32_t bytes=rd(p);
@@ -281,11 +295,11 @@ static void event(struct fnv_dinput8 *d,struct di_object *o,uint32_t offset,uint
 PENDING(6) PENDING(7) PENDING(8) PENDING(9) PENDING(10)
 PENDING(15) PENDING(23)
 PENDING(25) PENDING(26) PENDING(27) PENDING(28) PENDING(29) PENDING(30) PENDING(31)
-PENDING(32) PENDING(33) PENDING(34) PENDING(35) PENDING(36) PENDING(37) PENDING(38)
+PENDING(32) PENDING(33) PENDING(34) PENDING(35) PENDING(37) PENDING(38)
 PENDING(39) PENDING(40) PENDING(41) PENDING(42)
 static fnv_cpu_function methods[DI_METHODS]={api_query,api_addref,api_release,api_create_device,api_enum,api_status,pending_6,pending_7,pending_8,pending_9,pending_10,
     api_query,api_addref,api_release,api_caps,pending_15,api_get_property,api_set_property,api_acquire,api_unacquire,api_state,api_data,api_format,pending_23,api_cooperative,
-    pending_25,pending_26,pending_27,pending_28,pending_29,pending_30,pending_31,pending_32,pending_33,pending_34,pending_35,pending_36,pending_37,pending_38,pending_39,pending_40,pending_41,pending_42};
+    pending_25,pending_26,pending_27,pending_28,pending_29,pending_30,pending_31,pending_32,pending_33,pending_34,pending_35,api_poll,pending_37,pending_38,pending_39,pending_40,pending_41,pending_42};
 static const struct fnv_cpu_export exports[]={{"dinput8.dll","DirectInput8Create",0,0,api_factory}};
 const struct fnv_cpu_export *fnv_dinput8_exports(size_t *n){if(n)*n=1;return exports;}
 enum fnv_cpu_result fnv_dinput8_create(struct fnv_windows_process *process,const struct fnv_dinput8_config *cfg,struct fnv_dinput8 **out){

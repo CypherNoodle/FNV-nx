@@ -108,6 +108,7 @@ struct fnv_windows_worker_stats {
     uint32_t active,finished,capacity;
     uint64_t created,reaped,failures;
     uint64_t peer_stops; /* Stopped because another guest thread faulted. */
+    uint64_t capacity_denials; /* CreateThread: no reusable worker slot. */
 };
 enum fnv_cpu_result fnv_windows_worker_stats(struct fnv_windows_process *,struct fnv_windows_worker_stats *);
 enum fnv_native_result fnv_windows_bind_imports(struct fnv_windows_process *,
@@ -137,5 +138,9 @@ uint32_t fnv_windows_mouse_buttons(int setting);
 /* Virtual setting: default500ms, -1 reads; Windows setters clamp at5000ms. */
 uint32_t fnv_windows_double_click_time(int64_t setting);
 int fnv_windows_set_debug_name(const char *);
+/* Copies to a live attached thread or pending/suspended managed worker. -1 is
+ * current; unknown/finished targets fail without renaming the caller. */
+int fnv_windows_set_thread_debug_name(uint32_t,const char *);
+/* Thread-local snapshot, refreshed on the next query; avoids racing a rename. */
 const char *fnv_windows_current_debug_name(void);
 #endif

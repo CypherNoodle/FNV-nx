@@ -90,7 +90,7 @@ int main(int argc,char **argv){
     for(unsigned n=0;n<25;++n){uint32_t h=spawn(0x401d80,CTX,0);assert(h && call(WAIT,h,5000,0,0)==0 && call(CLOSE,h,0,0,0));settle();assert(read32(CTX+64+32)==0x12345678);}
     /* Capacity cannot reclaim a live/suspended slot. Close does not terminate. */
     uint32_t h[2];for(unsigned n=0;n<2;++n){context(CTX+n*64,tls,n+1,30);h[n]=spawn(0x401c00,CTX+n*64,4);assert(h[n]);}
-    assert(!spawn(0x401c00,CTX,0) && call(GET_ERROR,0,0,0,0)==8);
+    write32(OUTPUT,0x99887766);assert(!spawn(0x401c00,CTX,0) && call(GET_ERROR,0,0,0,0)==8 && read32(OUTPUT)==0x99887766);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_BUSY && fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
     for(unsigned n=0;n<2;++n)assert(call(RESUME,h[n],0,0,0)==1 && call(CLOSE,h[n],0,0,0));settle();
     for(unsigned n=0;n<32;++n){context(CTX,tls,n+1,1);uint32_t handle=spawn(0x401c00,CTX,0);assert(handle && call(CLOSE,handle,0,0,0));settle();}
@@ -100,7 +100,7 @@ int main(int argc,char **argv){
     ULONGLONG before=GetTickCount64();call(SLEEP,25,0,0,0);assert(GetTickCount64()-before>=24);call(SLEEP,0,0,0,0);
     write32(OUTPUT,0x99887766);assert(!call(CODE,handle,OUTPUT,0,0) && call(GET_ERROR,0,0,0,0)==6 && read32(OUTPUT)==0x99887766);
     struct fnv_windows_handle_stats hs;assert(fnv_windows_handle_stats(process,&hs)==FNV_CPU_OK && !hs.live_handles && !hs.waiting_threads);
-    struct fnv_windows_worker_stats ws=stats();assert(!ws.active && !ws.failures && !ws.peer_stops && ws.created==285 && ws.reaped+ws.finished==ws.created);
+    struct fnv_windows_worker_stats ws=stats();assert(!ws.active && !ws.failures && !ws.peer_stops && ws.created==285 && ws.reaped+ws.finished==ws.created && ws.capacity_denials==1);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
     printf("{\"status\":\"PASS\",\"managed_threads\":%llu,\"windows_oracle_comparisons\":%u,\"explicit_exit_threads\":100,\"nested_thread_rounds\":25,\"close_while_running\":34,\"suspend_resume\":true,\"tls_isolated\":true,\"abandoned_mutex\":true,\"native_engine_started\":false}\n",(unsigned long long)ws.created,oracle);return 0;
 }

@@ -93,6 +93,7 @@ int main(int argc,char **argv){
         uint32_t status[]={root,GUID_AT};assert(call(5,status,2,0)==(uint32_t)IDirectInput8_GetDeviceStatus(native,guid));
         uint32_t make[]={root,GUID_AT,OUTPUT_AT,0};assert(!call(4,make,4,0));devices[kind]=get(OUTPUT_AT);
         IDirectInputDevice8A *device;assert(IDirectInput8_CreateDevice(native,guid,&device,NULL)==DI_OK);
+        uint32_t poll[]={devices[kind]};assert(call(15,poll,1,0)==(uint32_t)IDirectInputDevice8_Poll(device));
         for(unsigned csz=24;csz<=44;csz+=20){DIDEVCAPS caps={0};caps.dwSize=csz;put(PROP,csz);uint32_t cap_args[]={devices[kind],PROP};
             assert(call(14,cap_args,2,0)==(uint32_t)IDirectInputDevice8_GetCapabilities(device,&caps));
             assert(get(PROP)==csz && get(PROP+4)==(DIDC_ATTACHED|DIDC_EMULATED) && get(PROP+12)==(kind?3:0) && get(PROP+16)==(kind?8:256));}
@@ -122,12 +123,15 @@ int main(int argc,char **argv){
             IDirectInputDevice8_Release(device);IDirectInput8_Release(native);assert(DestroyWindow(native_window));goto finish;
         }
         assert(!call(6,one,1,0));assert(call(6,one,1,0)==S_FALSE);assert(call(9,set,2,0)==(uint32_t)DIERR_ACQUIRED);
+        assert(IDirectInputDevice8_Acquire(device)==DI_OK);assert(call(15,poll,1,0)==(uint32_t)IDirectInputDevice8_Poll(device));
+        assert(!call(7,one,1,0));assert(IDirectInputDevice8_Unacquire(device)==DI_OK);assert(call(15,poll,1,0)==(uint32_t)IDirectInputDevice8_Poll(device));assert(!call(6,one,1,0));
         IDirectInputDevice8_Release(device);
     }
     unsigned seed=0x52a9;
     for(unsigned i=0;i<1000;i++){
         struct fnv_di_snapshot s={0};seed=seed*1664525u+1013904223u;s.keys[seed%256]=128;s.buttons[seed%8]=128;s.dx=(int32_t)(seed%101)-50;s.dy=(int32_t)(seed%53)-26;s.wheel=i&1?120:-120;
         assert(fnv_dinput8_update(di,&s)==FNV_CPU_OK);
+        uint32_t poll[]={devices[1]};assert(call(15,poll,1,0)==DI_NOEFFECT);
         uint32_t keys[]={devices[0],256,STATE};assert(!call(8,keys,3,0) && !memcmp(arena+STATE-BASE,s.keys,256));
         uint32_t mouse[]={devices[1],20,STATE};assert(!call(8,mouse,3,0));DIMOUSESTATE2 expected={s.dx,s.dy,s.wheel,{0}};memcpy(expected.rgbButtons,s.buttons,8);assert(!memcmp(arena+STATE-BASE,&expected,20));
         assert(!call(8,mouse,3,0));expected.lX=expected.lY=expected.lZ=0;assert(!memcmp(arena+STATE-BASE,&expected,20));
@@ -139,6 +143,7 @@ int main(int argc,char **argv){
     assert(!call(6,unacquire,1,0));
     unsigned char marker[256];memset(marker,0x5a,sizeof(marker));memcpy(arena+STATE-BASE,marker,sizeof(marker));
     uint32_t keyboard_state[]={devices[0],256,STATE};focus_value=0;
+    assert(call(15,unacquire,1,0)==(uint32_t)DIERR_INPUTLOST);
     assert(call(8,keyboard_state,3,0)==(uint32_t)DIERR_INPUTLOST && !memcmp(arena+STATE-BASE,marker,sizeof(marker)));
     assert(call(6,unacquire,1,0)==(uint32_t)DIERR_OTHERAPPHASPRIO);
     focus_value=1;assert(call(8,keyboard_state,3,0)==(uint32_t)DIERR_INPUTLOST);
@@ -152,6 +157,7 @@ int main(int argc,char **argv){
     for(unsigned k=0;k<2;k++){put(COUNT_AT,UINT32_MAX);uint32_t flush[]={devices[k],20,0,COUNT_AT,0};assert(call(13,flush,5,0)<=1);}
     struct fnv_di_snapshot buffered={0};buffered.keys[30]=128;buffered.dx=7;buffered.buttons[0]=128;
     assert(fnv_dinput8_update(di,&buffered)==FNV_CPU_OK);
+    uint32_t poll_buffered[]={devices[0]};assert(call(15,poll_buffered,1,0)==DI_NOEFFECT);
     put(COUNT_AT,8);uint32_t read_events[]={devices[0],20,EVENTS,COUNT_AT,1};assert(!call(13,read_events,5,0) && get(COUNT_AT)==1 && get(EVENTS)==30 && get(EVENTS+4)==128);
     uint32_t sequence=get(EVENTS+12);
     read_events[2]=BASE+BYTES-20;put(COUNT_AT,UINT32_MAX);assert(!call(13,read_events,5,0) && get(COUNT_AT)==1 && get(BASE+BYTES-20)==30);

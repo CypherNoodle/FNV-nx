@@ -1,5 +1,31 @@
 # Hilos guest32 sobre hilos nativos
 
+La capacidad configurada es un limite de hilos vivos, no de nucleos. El runtime
+no fija un limite de ocho: el diagnostico privado lo habia configurado asi.
+Al agotarlo, CreateThread devuelve0/error8 y conserva intacto el destino del ID;
+no se debe usar ese ID si fallo la creacion. `capacity_denials` cuenta esos
+rechazos por falta de slot, separados de fallos del trabajador y paradas de peer.
+La prueba de capacidad verifica el contador y un ID de salida centinela intacto.
+
+Una ejecucion del arranque necesitaba12 trabajadores: con ocho, MoviePlayer
+recibia un ID de pila sin inicializar despues de una creacion fallida. El
+diagnostico ahora reserva32 slots, con pilas/TEB/TLS en un arena dedicada fuera
+del pool VM. Ampliar el numero de hilos no aumenta los nucleos anunciados ni
+constituye una optimizacion de rendimiento. Tampoco modifica automaticamente
+el layout del NRO: ese layout aun debe validarse por separado.
+
+Los nombres de depuracion pueden dirigirse a otro hilo adjunto o a un trabajador
+suspendido antes de empezar a ejecutar. Se copian bajo el guard correspondiente;
+los slots reutilizados pierden el nombre anterior. El lector recibe un snapshot
+TLS, para evitar carreras con renombrados externos. IDs desconocidos/finalizados
+siguen fallando; una notificacion para otro hilo nunca renombra al principal.
+Solo se modela la notificacion MSVC406D1388 validada, no excepciones generales.
+La prueba traduce200 notificaciones cotejadas con un observador VEH de Windows y
+16 trabajadores suspendidos alternando nombre/slot limpio. Conserva nueve
+controles negativos y las285 ejecuciones de ThreadProc del test de trabajadores.
+
+Contrato de la notificacion: [documentacion de Microsoft](https://learn.microsoft.com/en-us/visualstudio/debugger/tips-for-debugging-threads?tabs=csharp&view=vs-2022).
+
 WindowsThread incorpora CreateThread, ExitThread, GetExitCodeThread,
 GetCurrentThread, GetThreadId y ResumeThread, ademas de Sleep y los contadores
 de rendimiento. La tabla contiene ahora 73 exports; esto no completa Windows.

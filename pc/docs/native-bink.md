@@ -226,9 +226,12 @@ DLL oracle checks 2,004 native selections. The bridge also compiles against the
 actual extended-x87 ARM64/libnx ABI.
 
 In the private captured-code startup, all nine exports bind and the actual game
-sound-selection callback now succeeds. The next explicit stop is a thread-name
-notification for MoviePlayer whose target is not the currently attached guest
-thread. There are still zero game draws/submissions, and no game movie Open has
+sound-selection callback now succeeds. MoviePlayer creation initially failed
+because the diagnostic allowed only eight live workers; its naming request then
+used an uninitialized ID. With a separately backed32-slot diagnostic arena and
+targeted suspended-worker naming, it creates twelve workers including MoviePlayer
+and advances to target-math/input diagnostics. DirectInput Poll is now covered.
+There are still zero game draws/submissions, and no game movie Open has
 been observed in that run. The diagnostic's audio sink pumps/discards PCM; it is
 not real device playback. The main startup still uses captured PC code; this is
 not a cold EXE or Switch boot. General SEH remains unimplemented.

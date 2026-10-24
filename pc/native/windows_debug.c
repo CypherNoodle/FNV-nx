@@ -17,16 +17,15 @@ static void api_raise(void){
     uint32_t code=fnv_cpu_argument_u32(0),flags=fnv_cpu_argument_u32(1),count=fnv_cpu_argument_u32(2),at=fnv_cpu_argument_u32(3);
     if(code!=0x406d1388 || flags || count!=4){recomp_unimpl("Windows guest exception dispatch pending",code);return;}
     unsigned char *p=readable(at,16);if(!p)return;
-    uint32_t low,high,id;fnv_windows_current_stack_bounds(&low,&high,&id);(void)low;(void)high;
-    if(word(p)!=0x1000 || word(p+12) || (word(p+8)!=id && word(p+8)!=UINT32_MAX)){
+    if(word(p)!=0x1000 || word(p+12)){
         recomp_unimpl("Windows thread-name record variant pending",at);return;}
-    uint32_t text=word(p+4);char name[128];
+    uint32_t target=word(p+8),text=word(p+4);char name[128];
     for(unsigned i=0;i<sizeof(name);i++){
         if((uint64_t)text+i>UINT32_MAX){recomp_unimpl("Windows thread-name address wraps",text);return;}
         unsigned char *c=readable(text+i,1);if(!c)return;
         if(*c>127){recomp_unimpl("Windows thread-name encoding pending",text);return;}
         name[i]=(char)*c;if(!*c){
-            if(!fnv_windows_set_debug_name(name)){recomp_unimpl("Windows thread-name unavailable",text);return;}
+            if(!fnv_windows_set_thread_debug_name(target,name)){recomp_unimpl("Windows thread-name target unavailable",target);return;}
             fnv_cpu_return_u32(0,16);return;
         }
     }
