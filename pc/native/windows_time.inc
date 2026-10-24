@@ -45,7 +45,7 @@ static void api_sleep(void){
     while(ms==UINT32_MAX || now<deadline){
         uint64_t remaining=ms==UINT32_MAX?250000000:deadline-now;uint32_t slice=remaining>=250000000?250:(uint32_t)((remaining+999999)/1000000);
         fnv_host_thread_sleep(slice);
-        if(fnv_cpu_is_faulted(p->cpu))sync_invalid("Windows Sleep peer CPU fault",0);
+        if(fnv_cpu_is_faulted(p->cpu))fnv_cpu_stop_for_peer();
         if(!fnv_host_now_ns(&now) || now<last)sync_invalid("Windows Sleep clock failed",0);
         last=now;
     }

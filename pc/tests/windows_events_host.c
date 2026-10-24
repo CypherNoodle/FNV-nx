@@ -48,7 +48,7 @@ static DWORD WINAPI waiter(void *context){
     struct work *w=context;struct group *g=w->group;struct fnv_windows_thread_config t=thread_config(w->index+1);
     assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);call(SET_ERROR,0x9832+w->index,0,0,0);
     for(unsigned i=0;i<g->rounds;++i){assert(WaitForSingleObject(g->gates[w->index],5000)==WAIT_OBJECT_0);
-        if(g->peer){struct fnv_cpu_fault fault;assert(execute(WAIT_ONE,g->event,UINT32_MAX,0,0,&fault)==FNV_CPU_GUEST_FAULT && strstr(fault.text,"peer CPU fault"));}
+        if(g->peer){struct fnv_cpu_fault fault;assert(execute(WAIT_ONE,g->event,UINT32_MAX,0,0,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_PEER_FAULT);}
         else {uint32_t r=call(WAIT_ONE,g->event,UINT32_MAX,0,0);
             assert(r==(g->closed?WAIT_FAILED:WAIT_OBJECT_0));assert(call(GET_ERROR,0,0,0,0)==(g->closed?ERROR_INVALID_HANDLE:0x9832+w->index));}
         assert(ReleaseSemaphore(g->done,1,NULL));

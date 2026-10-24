@@ -18,6 +18,7 @@
 #define fnv_cpu_current fnv_cpu_current_x87e1
 #define fnv_cpu_import_token fnv_cpu_import_token_x87e1
 #define fnv_cpu_is_faulted fnv_cpu_is_faulted_x87e1
+#define fnv_cpu_stop_for_peer fnv_cpu_stop_for_peer_x87e1
 #define fnv_cpu_invalidate fnv_cpu_invalidate_x87e1
 #define fnv_cpu_bind_imports fnv_cpu_bind_imports_x87e1
 #define fnv_cpu_state_init fnv_cpu_state_init_x87e1
@@ -108,6 +109,9 @@ struct fnv_cpu_runtime *fnv_cpu_current(void);
 uint32_t fnv_cpu_import_token(fnv_cpu_function);
 /* Nonblocking health probe for native waits; caller retains the runtime. */
 int fnv_cpu_is_faulted(const struct fnv_cpu_runtime *);
+/* Unwind a native wait after observing a faulted session. Requires an active
+ * execute boundary; does not emit another diagnostic over the original fault. */
+_Noreturn void fnv_cpu_stop_for_peer(void);
 /* Host lifecycle failures outside execute can poison the session and report
  * their diagnostic. Caller retains runtime; does not unwind/preempt peers. */
 void fnv_cpu_invalidate(struct fnv_cpu_runtime *,const struct fnv_cpu_fault *);

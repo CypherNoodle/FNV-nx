@@ -139,3 +139,31 @@ La repeticion privada de arranque54 observa cuatro paradas por el rechazo
 HWTL del principal y cero fallos propios. No demuestra que los trabajadores
 completaran su trabajo ni que el motor arrancara. Su proceso aun conserva un
 heap privado al detenerse y la limpieza devuelve BUSY; no se fuerza su borrado.
+
+
+## Paradas durante Sleep, eventos y secciones criticas
+
+Las esperas nativas que observan una sesion invalidada usan
+`fnv_cpu_stop_for_peer`: el resultado local es `FNV_CPU_PEER_FAULT`, no una
+instruccion sin implementar. Antes de desenrollar se liberan los locks y se
+retiran las referencias de los waiters. Una seccion critica no se adquiere al
+abandonar la espera por un fallo ajeno. Los errores propios del reloj o del
+backend de espera conservan su clasificacion de fallo propio.
+
+El runtime no emite otro callback diagnostico para una parada de peer; el
+fallo que causo la invalidacion conserva su diagnostico. La nueva API exige
+una sesion ya invalidada y una frontera de ejecucion activa. No permite
+reanudar un proceso invalidado ni representa recuperacion de errores guest.
+
+La prueba `--strict-peer-waits` bloquea dos trabajadores (Sleep infinito y
+mutex poseido por el principal), invalida la sesion con un fallo sintetico y
+exige dos peer_stops, cero failures, ningun waiter pendiente y exactamente un
+diagnostico con la direccion original. Las pruebas de eventos y secciones
+criticas verifican el enum del fallo, sin depender de su mensaje textual.
+Los ejecutables de estas pruebas reservan 16 MiB de stack principal host;
+no cambia la reserva de los hilos del juego ni la de Switch.
+
+Verificacion local: 285 trabajadores, 1000 comparaciones de hilos con Windows,
+12000 comparaciones de eventos, 10000 comparaciones atomicas y 1000 llamadas
+concurrentes del runtime. Son pruebas sinteticas de escritorio; no demuestran
+arranque completo del motor ni ejecucion en Nintendo Switch.

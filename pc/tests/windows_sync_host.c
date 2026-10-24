@@ -47,7 +47,7 @@ static DWORD WINAPI fault_waiter(void *unused){
     (void)unused;struct fnv_windows_thread_config t=thread_config(1);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
     struct fnv_cpu_state s;assert(fnv_cpu_get_state(&s)==FNV_CPU_OK);s.gpr[4]=t.stack_high-256;
     write32(s.gpr[4],0x401500);write32(s.gpr[4]+4,SECTION);assert(fnv_cpu_set_state(&s)==FNV_CPU_OK);assert(SetEvent(attempted));
-    struct fnv_cpu_fault fault;assert(fnv_cpu_execute(0x401540,&fault)==FNV_CPU_GUEST_FAULT && strstr(fault.text,"peer CPU fault"));
+    struct fnv_cpu_fault fault;assert(fnv_cpu_execute(0x401540,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_PEER_FAULT);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK);return 0;
 }
 static void strict_case(const char *mode){

@@ -236,7 +236,7 @@ static void api_close_handle(void){
 }
 static uint32_t kernel_wait(struct fnv_windows_process *p,const uint32_t *handles,uint32_t count,uint32_t all,uint32_t ms){
     struct kernel_wait waiter={0};waiter.count=count;waiter.all=all;waiter.owner=current.config.thread_id;
-    uint32_t value=UINT32_MAX;const char *failure=NULL;
+    uint32_t value=UINT32_MAX;const char *failure=NULL;int peer_stop=0;
     fnv_host_mutex_lock(&p->kernel_guard);
     for(uint32_t i=0;i<count;++i){waiter.objects[i]=event_lookup(p,handles[i]);if(!waiter.objects[i])goto done;}
     if(all)for(uint32_t i=0;i<count;++i)for(uint32_t j=0;j<i;++j)
@@ -254,13 +254,13 @@ static uint32_t kernel_wait(struct fnv_windows_process *p,const uint32_t *handle
     p->kernel_pending_tail=&waiter;
     p->kernel_waiting++;
     for(uint32_t i=0;i<count;++i)waiter.objects[i]->waiters++;
-    while(!failure && !waiter.released){
+    while(!failure && !peer_stop && !waiter.released){
         if(!fnv_host_now_ns(&now) || now<last){failure="Windows event monotonic clock failed";break;}last=now;
         if(ms!=UINT32_MAX && now>=deadline){value=0x102;p->kernel_timeouts++;break;}
         uint64_t remaining=ms==UINT32_MAX?250000000:deadline-now;uint32_t slice=remaining>=250000000?250:(uint32_t)((remaining+999999)/1000000);
         p->kernel_waits++;int status=fnv_host_condition_wait_ms(&waiter.objects[0]->condition,&p->kernel_guard,slice);
         if(status<0)failure="Windows event host wait failed";
-        else if(fnv_cpu_is_faulted(p->cpu))failure="Windows event peer CPU fault";
+        else if(fnv_cpu_is_faulted(p->cpu))peer_stop=1;
     }
     if(waiter.released)value=waiter.result;
     else kernel_remove_wait(p,&waiter);
@@ -271,6 +271,7 @@ static uint32_t kernel_wait(struct fnv_windows_process *p,const uint32_t *handle
 done:
     fnv_host_mutex_unlock(&p->kernel_guard);
     if(failure)sync_invalid(failure,handles[0]);
+    if(peer_stop)fnv_cpu_stop_for_peer();
     if(value==UINT32_MAX)fnv_windows_set_last_error(6);
     return value;
 }

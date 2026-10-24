@@ -13,6 +13,11 @@ enum {CREATE,EXIT,CODE,WAIT,CLOSE,TID,HID,SELF,RESUME,SLEEP,SET_ERROR,GET_ERROR,
 static const unsigned counts[]={6,1,2,2,1,0,1,0,1,1,1,0,2,1,3,4,0};
 static unsigned char *arena;
 static struct fnv_windows_process *process;
+static unsigned diagnostic_count;
+static struct fnv_cpu_fault original_fault;
+static void diagnostic(void *context,const struct fnv_cpu_fault *fault){
+    (void)context;diagnostic_count++;original_fault=*fault;
+}
 static uint32_t read32(uint32_t at){unsigned char *p=arena+at-BASE;return p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
 static void write32(uint32_t at,uint32_t n){for(unsigned i=0;i<4;++i)arena[at-BASE+i]=(unsigned char)(n>>(i*8));}
 static enum fnv_cpu_result execute(unsigned api,const uint32_t args[6],struct fnv_cpu_fault *fault){
@@ -36,7 +41,21 @@ static DWORD WINAPI native_proc(void *parameter){return (DWORD)(uintptr_t)parame
 static DWORD WINAPI native_exit(void *parameter){ExitThread((DWORD)(uintptr_t)parameter);return 0;}
 static void strict_case(const char *mode,uint32_t tls){
     struct fnv_cpu_fault fault;uint32_t args[6]={0};
-    if(!strcmp(mode,"--strict-flags")){args[2]=0x401c00;args[4]=0x10000;assert(execute(CREATE,args,&fault)==FNV_CPU_GUEST_FAULT && strstr(fault.text,"flags pending"));}
+    if(!strcmp(mode,"--strict-peer-waits")){
+        uint32_t mutex=call(MUTEX,0,1,0,0);assert(mutex);
+        context(CTX,tls,1,UINT32_MAX);context(CTX+64,tls,2,0);write32(CTX+64+28,mutex);
+        assert(spawn(0x401c00,CTX,0) && spawn(0x401d40,CTX+64,0));
+        ULONGLONG deadline=GetTickCount64()+5000;struct fnv_windows_handle_stats hs;
+        do {assert(fnv_windows_handle_stats(process,&hs)==FNV_CPU_OK);if(hs.waiting_threads==1 && read32(CTX))break;Sleep(1);}while(GetTickCount64()<deadline);
+        assert(hs.waiting_threads==1 && read32(CTX));Sleep(25);
+        memset(&fault,0,sizeof(fault));fault.kind=FNV_CPU_UNKNOWN_TARGET;fault.address=0x12345678;
+        strcpy(fault.text,"synthetic original failure");fnv_cpu_invalidate(fnv_cpu_current(),&fault);
+        assert(fnv_windows_thread_detach()==FNV_CPU_OK);settle();
+        assert(fnv_windows_handle_stats(process,&hs)==FNV_CPU_OK && !hs.waiting_threads);
+        assert(diagnostic_count==1 && original_fault.kind==FNV_CPU_UNKNOWN_TARGET && original_fault.address==0x12345678);
+        goto cleanup;
+    }
+    else if(!strcmp(mode,"--strict-flags")){args[2]=0x401c00;args[4]=0x10000;assert(execute(CREATE,args,&fault)==FNV_CPU_GUEST_FAULT && strstr(fault.text,"flags pending"));}
     else if(!strcmp(mode,"--strict-disabled")){args[2]=0x401c00;assert(execute(CREATE,args,&fault)==FNV_CPU_GUEST_FAULT && strstr(fault.text,"provider unavailable"));}
     else if(!strcmp(mode,"--strict-static-tls")){args[2]=0x401c00;assert(execute(CREATE,args,&fault)==FNV_CPU_GUEST_FAULT && strstr(fault.text,"static TLS initialization pending"));}
     else if(!strcmp(mode,"--strict-exit")){args[0]=123;assert(execute(EXIT,args,&fault)==FNV_CPU_GUEST_FAULT && strstr(fault.text,"requires managed worker"));}
@@ -50,7 +69,8 @@ static void strict_case(const char *mode,uint32_t tls){
     assert(fnv_windows_thread_detach()==FNV_CPU_OK);settle();
 cleanup:
     {struct fnv_windows_worker_stats ws=stats();
-        if(!strcmp(mode,"--strict-peer") || !strcmp(mode,"--strict-peer-suspended"))assert(!ws.failures && ws.peer_stops==1);
+        if(!strcmp(mode,"--strict-peer-waits"))assert(!ws.failures && ws.peer_stops==2);
+        else if(!strcmp(mode,"--strict-peer") || !strcmp(mode,"--strict-peer-suspended"))assert(!ws.failures && ws.peer_stops==1);
         else if(!strcmp(mode,"--strict-bad-stack") || !strcmp(mode,"--strict-start"))assert(ws.failures==1 && !ws.peer_stops);
         else assert(!ws.failures && !ws.peer_stops);
     }
@@ -61,7 +81,7 @@ int main(int argc,char **argv){
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,ARENA,&image)==FNV_NATIVE_OK);
     if(argc==3 && !strcmp(argv[2],"--strict-static-tls"))image.tls_rva=0x1000; /* metadata refusal, not a valid TLS directory */
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
-    c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;c.kernel_handle_capacity=16;
+    c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;c.kernel_handle_capacity=16;c.cpu.diagnostic=diagnostic;
     if(argc==2 || strcmp(argv[2],"--strict-disabled")){c.worker_address=BASE+0x40000;c.worker_bytes=0x30000;c.worker_stack_bytes=65536;c.worker_capacity=2;c.worker_host_stack_bytes=1024*1024;}
     struct fnv_windows_config bad=c;if(c.worker_capacity){bad.worker_host_stack_bytes=1;assert(fnv_windows_create(&bad,&process)==FNV_CPU_INVALID && !process);}
     assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t imported;

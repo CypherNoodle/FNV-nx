@@ -23,7 +23,8 @@ def programs(raw):
             +call('CreateThread')+b'\x89\x43\x24\x6a\xff\x50'+call('WaitForSingleObject')
             +b'\xff\x73\x24'+call('CloseHandle')+ret)
     result={0x401c00:prefix+body+ret,0x401c80:explicit,0x401d00:mutex,0x401d80:nested,
-            0x401df0:b'\xb8\x01\x00\x00\x00\xc3'} # deliberately wrong ThreadProc cleanup
+            0x401df0:b'\xb8\x01\x00\x00\x00\xc3', # deliberately wrong ThreadProc cleanup
+            0x401d40:prefix+b'\xc7\x03\x01\x00\x00\x00\x6a\xff\xff\x73\x1c'+call('WaitForSingleObject')+ret}
     assert all(len(code)<128 for code in result.values())
     return result
 
@@ -37,7 +38,8 @@ def test_workers(a,extra_inputs=()):
                 linker_options=('-Wl,--stack,16777216',),
                 wrapper_stride=64,guest_programs=programs,
                 strict_modes=('--strict-flags','--strict-disabled','--strict-peer','--strict-start',
-                              '--strict-bad-stack','--strict-peer-suspended','--strict-exit','--strict-static-tls'))
+                              '--strict-bad-stack','--strict-peer-suspended','--strict-exit','--strict-static-tls',
+                              '--strict-peer-waits'))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)

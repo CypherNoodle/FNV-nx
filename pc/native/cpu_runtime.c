@@ -107,11 +107,17 @@ static _Noreturn void fail(enum fnv_cpu_fault_kind kind,uint32_t address_value,u
         for(unsigned i=0;i<16;i++)thread_fault.trace[i]=fnv_cpu_icall_trace[i];
         save_state(&thread_fault.state);snprintf(thread_fault.text,sizeof(thread_fault.text),"%s",text);
         atomic_store_explicit(&thread_runtime->faulted,1,memory_order_release);
-        if(thread_runtime->config.diagnostic)thread_runtime->config.diagnostic(thread_runtime->config.context,&thread_fault);
+        if(kind!=FNV_CPU_PEER_FAULT && thread_runtime->config.diagnostic)thread_runtime->config.diagnostic(thread_runtime->config.context,&thread_fault);
         longjmp(*fault_boundary,1);
     }
     fprintf(stderr,"FNV CPU fault outside execution boundary: %s (%08x)\n",text,(unsigned)address_value);
     abort();
+}
+
+_Noreturn void fnv_cpu_stop_for_peer(void) {
+    if(!thread_runtime || !fnv_cpu_is_faulted(thread_runtime))
+        fail(FNV_CPU_UNIMPLEMENTED,0,0,"peer stop without a faulted session");
+    fail(FNV_CPU_PEER_FAULT,0,0,"guest native wait stopped after peer fault");
 }
 
 enum fnv_cpu_result fnv_cpu_create(const struct fnv_cpu_config *c,struct fnv_cpu_runtime **out) {

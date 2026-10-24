@@ -74,7 +74,7 @@ static void api_cs_initialize_spin(void){cs_initialize(1);}
 enum cs_operation {CS_ENTER,CS_TRY,CS_LEAVE,CS_DELETE,CS_SPIN};
 static void cs_access(enum cs_operation op){
     uint32_t address=fnv_cpu_argument_u32(0),spin=op==CS_SPIN?fnv_cpu_argument_u32(1):0;unsigned char *m;
-    struct fnv_windows_process *p=cs_process(address,&m);uint32_t id=current.config.thread_id,value=0;const char *failure=NULL;
+    struct fnv_windows_process *p=cs_process(address,&m);uint32_t id=current.config.thread_id,value=0;const char *failure=NULL;int peer_stop=0;
     fnv_host_mutex_lock(&p->sync_guard);struct critical_section *c=cs_find(p,address);
     if(!c)failure="Windows critical section not initialized";
     else if(!cs_mirror(c,m,0))failure="Windows critical section copied or modified";
@@ -90,21 +90,22 @@ static void cs_access(enum cs_operation op){
         if(c->owner && c->owner!=id){
             if((uint64_t)c->waiters+c->recursion>=INT32_MAX)failure="Windows critical-section waiters overflow";
             else {c->waiters++;(void)cs_mirror(c,m,1);
-                while(c->owner && !failure){p->sync_waits++;
+                while(c->owner && !failure && !peer_stop){p->sync_waits++;
                     int signaled=fnv_host_condition_wait(&c->condition,&p->sync_guard);
                     if(signaled<0)failure="Windows critical-section host wait failed";
-                    else if(fnv_cpu_is_faulted(p->cpu))failure="Windows critical-section peer CPU fault";
+                    else if(fnv_cpu_is_faulted(p->cpu))peer_stop=1;
                     else if(!cs_mirror(c,m,0))failure="Windows critical section modified during wait";
                 }
                 c->waiters--;
             }
         }
-        if(!failure){if((uint64_t)c->recursion+c->waiters>=INT32_MAX)failure="Windows critical-section recursion overflow";
+        if(!failure && !peer_stop){if((uint64_t)c->recursion+c->waiters>=INT32_MAX)failure="Windows critical-section recursion overflow";
             else {c->owner=id;c->recursion++;value=1;}}
     }
     if(c && op!=CS_DELETE && (!failure || fnv_cpu_is_faulted(p->cpu)))(void)cs_mirror(c,m,1);
     fnv_host_mutex_unlock(&p->sync_guard);
     if(failure)sync_invalid(failure,address);
+    if(peer_stop)fnv_cpu_stop_for_peer();
     fnv_cpu_return_u32(value,op==CS_SPIN?8:4);
 }
 static void api_cs_enter(void){cs_access(CS_ENTER);}

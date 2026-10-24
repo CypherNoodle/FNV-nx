@@ -13,4 +13,5 @@ if __name__ == '__main__':
     shared.ARGS = [4, 1, 1, 2, 1, 4, 0, 1]
     shared.test(p.parse_args(), host_source='windows_events_host.c',
                 extra_inputs=(Path(__file__).resolve(),),
+                linker_options=('-Wl,--stack,16777216',),
                 strict_modes=('--strict-name', '--strict-security', '--strict-disabled', '--strict-peer'))
