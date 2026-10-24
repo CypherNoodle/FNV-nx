@@ -18,4 +18,9 @@ enum fnv_cpu_result fnv_windows_user32_create(struct fnv_windows_process *,struc
 enum fnv_cpu_result fnv_windows_user32_destroy(struct fnv_windows_user32 *);
 enum fnv_cpu_result fnv_windows_user32_add_window(struct fnv_windows_user32 *,const char *class_name,const char *title,uint32_t *handle);
 enum fnv_cpu_result fnv_windows_user32_remove_window(struct fnv_windows_user32 *,uint32_t handle);
+/* Bounded posted thread-message queue, independent of host USER32. No pointer
+ * payload lifetime is inferred. Producer retains desktop through this call.
+ * Window-targeted, sent, paint and timer messages are not implemented here. */
+struct fnv_user32_thread_message {uint32_t message,wparam,lparam,time;int32_t x,y;};
+enum fnv_cpu_result fnv_windows_user32_post_thread(struct fnv_windows_user32 *,uint32_t thread_id,const struct fnv_user32_thread_message *);
 #endif

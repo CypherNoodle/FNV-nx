@@ -7,13 +7,16 @@
 #include <stdlib.h>
 #include <string.h>
 struct guest_window {uint32_t handle;char class_name[256],title[512];};
+struct posted_thread_message {uint32_t owner;struct fnv_user32_thread_message value;};
 struct fnv_windows_user32 {
-    struct fnv_cpu_runtime *cpu;fnv_host_mutex guard;uint32_t token,next;
+    struct fnv_cpu_runtime *cpu;fnv_host_mutex guard;uint32_t tokens[2],next;
     struct guest_window windows[16];struct fnv_user32_metrics metrics;
+    struct posted_thread_message posted[256];uint32_t posted_count;
 };
 /* One virtual desktop, isolated from the PC host. Lifecycle matches the native
  * module catalog: create before attach, destroy after every thread detaches. */
 static struct fnv_windows_user32 *active;
+static void api_peek_message_a(void);
 static int ascii_copy(char *out,size_t capacity,const char *in){
     if(!in)return 0;
     for(size_t i=0;i<capacity;i++){unsigned c=(unsigned char)in[i];if(c>127)return 0;
@@ -63,8 +66,8 @@ enum fnv_cpu_result fnv_windows_user32_create_with_metrics(struct fnv_windows_pr
     struct fnv_windows_user32 *u=calloc(1,sizeof(*u));if(!u)return FNV_CPU_NO_MEMORY;
     if(!fnv_host_mutex_init(&u->guard)){free(u);return FNV_CPU_NO_MEMORY;}
     u->cpu=fnv_windows_runtime(process);u->next=1;if(metrics)u->metrics=*metrics;
-    fnv_cpu_function function=api_find_window_a;
-    enum fnv_cpu_result r=fnv_cpu_register_native(u->cpu,&function,1,&u->token);
+    fnv_cpu_function functions[]={api_find_window_a,api_peek_message_a};
+    enum fnv_cpu_result r=fnv_cpu_register_native(u->cpu,functions,2,u->tokens);
     if(r!=FNV_CPU_OK){fnv_host_mutex_destroy(&u->guard);free(u);return r;}
     active=u;*out=u;return FNV_CPU_OK;
 }
@@ -73,7 +76,7 @@ enum fnv_cpu_result fnv_windows_user32_create(struct fnv_windows_process *proces
 }
 enum fnv_cpu_result fnv_windows_user32_destroy(struct fnv_windows_user32 *u){
     if(!u || active!=u)return FNV_CPU_INVALID;
-    enum fnv_cpu_result r=fnv_cpu_unregister_native(u->cpu,u->token,1);if(r!=FNV_CPU_OK)return r;
+    enum fnv_cpu_result r=fnv_cpu_unregister_native(u->cpu,u->tokens[0],2);if(r!=FNV_CPU_OK)return r;
     active=NULL;fnv_host_mutex_destroy(&u->guard);free(u);return FNV_CPU_OK;
 }
 enum fnv_cpu_result fnv_windows_user32_add_window(struct fnv_windows_user32 *u,const char *class_name,const char *title,uint32_t *handle){
@@ -93,6 +96,39 @@ enum fnv_cpu_result fnv_windows_user32_remove_window(struct fnv_windows_user32 *
     for(unsigned i=0;i<16;i++)if(u->windows[i].handle==handle){memset(u->windows+i,0,sizeof(u->windows[i]));r=FNV_CPU_OK;break;}
     fnv_host_mutex_unlock(&u->guard);return r;
 }
+enum fnv_cpu_result fnv_windows_user32_post_thread(struct fnv_windows_user32 *u,uint32_t id,const struct fnv_user32_thread_message *m){
+    if(!u || u!=active || !id || !m)return FNV_CPU_INVALID;
+    fnv_host_mutex_lock(&u->guard);enum fnv_cpu_result result=FNV_CPU_NO_MEMORY;
+    if(u->posted_count<256){u->posted[u->posted_count++]=(struct posted_thread_message){id,*m};result=FNV_CPU_OK;}
+    fnv_host_mutex_unlock(&u->guard);return result;
+}
+static void message_write32(unsigned char *p,uint32_t value){for(unsigned j=0;j<4;j++)p[j]=(unsigned char)(value>>(j*8));}
+static void api_peek_message_a(void){
+    uint32_t at=fnv_cpu_argument_u32(0),hwnd=fnv_cpu_argument_u32(1),low=fnv_cpu_argument_u32(2),high=fnv_cpu_argument_u32(3),flags=fnv_cpu_argument_u32(4);
+    if(!active || active->cpu!=fnv_cpu_current()){recomp_unimpl("Windows message queue unavailable",at);return;}
+    if((hwnd && hwnd!=UINT32_MAX) || (flags&~3u) || ((low|high)&0xffff0000u)){
+        recomp_unimpl("Windows PeekMessage window/queue-status filter pending",hwnd);return;}
+    unsigned char *output=at?fnv_cpu_try_memory(at,28):NULL;
+    struct fnv_guest_memory *vm=fnv_windows_current_memory();
+    if(vm){unsigned char *backing;uint32_t base,bytes;
+        if(!fnv_vm_binding(vm,&backing,&base,&bytes) ||
+           ((uint64_t)at<(uint64_t)base+bytes && (uint64_t)at+28>base && !fnv_vm_access(vm,at,28,1)))output=NULL;}
+    if(!output){recomp_unimpl("Windows PeekMessage output unavailable",at);return;}
+    uint32_t stack_low,stack_high,id,value=0;fnv_windows_current_stack_bounds(&stack_low,&stack_high,&id);
+    struct fnv_user32_thread_message found={0};
+    fnv_host_mutex_lock(&active->guard);
+    for(uint32_t i=0;i<active->posted_count;i++){
+        struct posted_thread_message *p=active->posted+i;
+        if(p->owner!=id || (p->value.message!=0x12 && (low || high) && (p->value.message<low || p->value.message>high)))continue;
+        found=p->value;value=1;
+        if(flags&1){memmove(p,p+1,(active->posted_count-i-1)*sizeof(*p));active->posted_count--;}
+        break;
+    }
+    fnv_host_mutex_unlock(&active->guard);
+    if(value){uint32_t words[]={0,found.message,found.wparam,found.lparam,found.time,(uint32_t)found.x,(uint32_t)found.y};
+        for(unsigned i=0;i<7;i++)message_write32(output+i*4,words[i]);}
+    fnv_cpu_return_u32(value,20);
+}
 static void api_system_metrics(void){
     uint32_t index=fnv_cpu_argument_u32(0);
     (void)fnv_windows_current_address_space_bytes(); /* Require attached guest thread. */
@@ -111,7 +147,8 @@ static void api_system_metrics(void){
 }
 static const struct fnv_cpu_export exports[]={
     {"user32.dll","GetSystemMetrics",0,0,api_system_metrics},
-    {"user32.dll","FindWindowA",0,0,api_find_window_a}
+    {"user32.dll","FindWindowA",0,0,api_find_window_a},
+    {"user32.dll","PeekMessageA",0,0,api_peek_message_a}
 };
 const struct fnv_cpu_export *fnv_windows_user32_exports(size_t *count){
     if(count)*count=sizeof(exports)/sizeof(*exports);
