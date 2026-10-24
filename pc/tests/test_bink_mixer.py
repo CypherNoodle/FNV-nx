@@ -16,7 +16,7 @@ import test_windows_heap as shared
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def run(a):
+def run(a,movie=False):
     pc=Path(__file__).resolve().parents[1];ff=a.ffmpeg_build.resolve();source=a.ffmpeg_source.resolve()
     proof=json.loads((ff/'validation.json').read_text());assert proof['status']=='PASS' and proof['target']=='windows'
     for n,h in proof['source_sha256'].items():assert sha(source/n)==h,n
@@ -24,6 +24,7 @@ def run(a):
     for p in libs:assert sha(p)==proof['library_sha256'][p.parent.name[3:]]
     reference=None
     extra=[Path(__file__),pc/'native/bink_stream.h',pc/'native/bink_copy.h',pc/'native/bink_decoder.h',pc/'native/dsound8.h',pc/'native/pcm_queue.h',pc/'native/dsound_listener.inc',pc/'tools/bink_decode_probe.c',a.video.resolve(),ff/'validation.json',*libs]
+    if movie:extra.extend([pc/'native/bink_movie.h',pc/'native/bink_sound.h',pc/'tests/test_bink_movie.py'])
     if a.reference:
         reference=json.loads(a.reference.read_text());assert reference['status']=='PASS'
         for n,h in reference['source_sha256'].items():assert sha(Path(n))==h,n
@@ -38,10 +39,14 @@ def run(a):
         objects=[Path(o['object']) for o in core['objects']]
         extra.extend([a.x87_build.resolve(),*objects,*map(Path,core['source_sha256'])]);links.extend(map(str,objects));a.cc.append('-DFNV_CPU_EXTENDED_X87=1')
     shared.NAMES=['GetLastError'];shared.ARGS=[0];shared.DLLS=['kernel32.dll']
+    if movie:
+        shared.NAMES=['_BinkSetSoundSystem@8','_BinkOpenDirectSound@4','_BinkOpen@8','_BinkClose@4','_BinkWait@4','_BinkPause@8','_BinkDoFrame@4','_BinkNextFrame@4','_BinkCopyToBufferRect@44'];shared.ARGS=[2,1,2,1,1,2,1,1,11];shared.DLLS=['binkw32.dll']*9
     previous={n:os.environ.get(n) for n in ('FNV_TEST_BINK_VIDEO','FNV_TEST_BINK_FRAMES')}
     try:
         os.environ['FNV_TEST_BINK_VIDEO']=str(a.video.resolve());os.environ['FNV_TEST_BINK_FRAMES']=str(a.frames)
-        shared.test(a,host_source='bink_mixer_host.c',native_sources=('dsound8.c','pcm_queue.c','bink_decoder.c','bink_copy.c','bink_stream.c'),extra_inputs=extra,linker_options=links,strict_modes=())
+        sources=('dsound8.c','pcm_queue.c','bink_decoder.c','bink_copy.c','bink_stream.c')
+        if movie:sources+=('bink_sound.c','bink_movie.c')
+        shared.test(a,host_source='bink_movie_host.c' if movie else 'bink_mixer_host.c',native_sources=sources,extra_inputs=extra,linker_options=links,wrapper_stride=64 if movie else 32,strict_modes=('--strict-flags','--strict-handle','--strict-header','--strict-next','--strict-time','--strict-copy','--strict-owner') if movie else ())
     finally:
         for n,v in previous.items():
             if v is None:os.environ.pop(n,None)
@@ -56,8 +61,9 @@ def run(a):
         result['reference_exe_sha256']=sha(executable)
     assert all(sha(Path(n))==h for n,h in result['source_sha256'].items()),'Inputs changed'
     for field,target in [('video_frames','video_frames'),('pcm_frames','pcm_stereo_48000_frames'),('rgba_hash','rgba_hash'),('pcm_hash','pcm_hash')]:assert result[field]==reference[target],(field,result[field],reference[target])
-    if reference['pcm_stereo_48000_frames']>48000:assert result['backpressure_waits']>0 and result['output_full_rollback']
-    if a.frames>reference['total_frames']:assert result['decoded_eof']
+    if not movie:
+        if reference['pcm_stereo_48000_frames']>48000:assert result['backpressure_waits']>0 and result['output_full_rollback']
+        if a.frames>reference['total_frames']:assert result['decoded_eof']
     result['matches_decoder_reference']=True;p.write_text(json.dumps(result,indent=2)+'\n')
 
 

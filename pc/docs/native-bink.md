@@ -1,11 +1,12 @@
-# Bink decoder and initial sound-selection ABI
+# Bink decoder, frame copy and guest movie bridge
 
 Components now exist for an own FFmpeg adapter that returns RGBA frames and
 stereo 48 kHz signed-16 PCM, an own translated Bink sound-selection bridge,
-and a bounded movie PCM input on the existing DirectSound mixer.
-They are not yet a complete movie player in the game. The remaining work is the
-guest sound-open transport factory, seven movie exports, the guest handle, pacing and frame
-copying into the renderer's locked texture. No new NRO is delivered by this work.
+and a bounded movie PCM input on the existing DirectSound mixer. The initial
+guest movie provider now implements the seven movie exports, private sound-open
+transport, a header prefix and basic pacing. They are not yet a complete movie
+player in the game: actual engine callers, threading and locked-texture lifetime
+still need verification. No new NRO is delivered by this work.
 
 ## External FFmpeg build
 
@@ -155,6 +156,54 @@ for that short fully buffered input, and is covered on the full intro instead.
 The stream also compiles for ARM64/libnx with the extended-x87 ABI. These tests
 do not play audio on a device, invoke game Bink exports or boot the game.
 
+## Guest movie provider
+
+`native/bink_movie.c` supplies Open, Close, Wait, Pause, DoFrame, NextFrame and
+CopyToBufferRect with their x86 stdcall argument sizes. A dedicated guest arena
+contains retired, non-reused64-byte handle slots. The verified public prefix is
+seven uint32 fields: dimensions, frame count/current/last and rate numerator/
+denominator. Guest changes to these fields are rejected. No completeness of the
+remaining native BINK structure is claimed.
+
+The provider's OpenDirectSound factory returns a registered guest-callable
+private opener. Open invokes that opener through a six-argument stdcall callback;
+it actually initializes the decoder-to-mixer stream. Both sides belong to this
+provider: this is not an implementation of an external DLL's BINKSND callbacks
+or layout. Custom sound systems and nonzero DirectSound device arguments remain
+outside this profile. Configure the sound-selection provider with the movie
+factory/context, then bind selection before attaching guest threads. Destroy
+selection before movie provider, then mixer; all guest threads detach first.
+
+All guest movie calls must stay on the first controller thread, enforced by an
+atomic owner check. The audio worker may pump the mixer separately. I/O callbacks
+must resolve paths inside the game sandbox and open read-only; the provider never
+converts guest pointers into host FILE pointers. Only observed open flags0,
+PRELOADALL and NOTHREADEDIO combinations are admitted. PRELOADALL is currently
+treated as a performance hint and the adapter continues bounded streaming; it
+does not promise native preloading/memory behavior. Concurrent movies, skipping
+undecoded frames, advancing/decoding while paused, alpha/scaled/negative-pitch
+copies and foreign sound callbacks stop explicitly.
+
+Wait uses the rational frame rate and a monotonic host clock. Pause shifts the
+epoch on resume. Repeated DoFrame is idempotent; NextFrame advances the public
+header, and after the final frame rewinds/reopens the same read-only I/O and
+starts at frame1, retaining the previous last-frame field until decode. DoFrame
+delivers pending audio until a video frame is available. On backpressure the
+host callback must return promptly and yield/progress audio without guest calls;
+the bridge bounds retries and time, and stops if the device cannot progress.
+This pacing is not yet synchronized to measured device latency.
+
+The guest test drives all nine Bink imports through translated x86 CALL[IAT]
+wrappers. It performs724 calls over120 real intro frames, compares recovered RGBA
+and mixed PCM hashes with the decoder-only baseline, checks stack cleanup,
+header updates, duplicate decode, Wait boundaries, a two-second pause and padded
+frame copies. A two-frame fixture verifies last-frame looping against behavior
+observed with the original DLL. Seven strict stops cover flags, stale/wrong
+handle, header corruption, skipping decode, reversed clock, invalid copy memory
+and a different controller thread. Both tests use the extended-x87 ABI; the
+provider also compiles for ARM64/libnx. They do not establish Switch playback or
+execution of the game's own movie caller.
+
 ## Sound-selection bridge
 
 `native/bink_sound.c` supplies `_BinkSetSoundSystem@8` and
@@ -176,12 +225,13 @@ short stack, recursion and incorrect stdcall cleanup. An optional read-only x86
 DLL oracle checks 2,004 native selections. The bridge also compiles against the
 actual extended-x87 ARM64/libnx ABI.
 
-In the private captured-code startup, both exports now bind and the actual
-game callback reaches the explicit `Bink DirectSound transport unavailable` stop.
-There are still zero game draws/submissions. Decoder-to-mixer delivery is now
-validated in the host stream; connecting the guest sound-open/movie wrappers,
-timing playback and validating the seven movie calls is the next integration step. The main
-startup still uses captured PC code; this is not a cold EXE or Switch boot.
+In the private captured-code startup, all nine exports bind and the actual game
+sound-selection callback now succeeds. The next explicit stop is a thread-name
+notification for MoviePlayer whose target is not the currently attached guest
+thread. There are still zero game draws/submissions, and no game movie Open has
+been observed in that run. The diagnostic's audio sink pumps/discards PCM; it is
+not real device playback. The main startup still uses captured PC code; this is
+not a cold EXE or Switch boot. General SEH remains unimplemented.
 
 References: [FFmpeg Bink demuxer](https://github.com/FFmpeg/FFmpeg/blob/master/libavformat/bink.c),
 [video decoder](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/bink.c),
