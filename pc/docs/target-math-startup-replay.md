@@ -87,3 +87,40 @@ exits; they are not freed while a worker could still use them.
 The concurrent cache test exercises two actual native threads performing 2,000
 exact target-answer lookups, distinct TLS records and atomic counts. This checks
 the diagnostic observer, not scheduling efficiency or Switch CPU performance.
+
+## One-process target math sessions
+
+Repeatedly restarting the entire diagnostic after one new math state is slow
+and loses useful concurrent progress. An explicitly configured desktop build
+can instead define `FNV_STARTUP_TARGET_PIPE`, link `startup_math_pipe.c`, and
+call `fnv_startup_math_pipe_open()` before starting guest workers. It must own
+stdin/stdout for the protocol. Existing exact cache lookups run first; misses
+are sent to `run_target_math_session.py`, which executes the frozen production
+ARM64 evaluator. Default builds still stop on unknown math states and have no
+pipe dependency. This changes no production CPU arithmetic or Switch build.
+
+Each request contains the operation and complete 86-byte x87 state. Replies
+echo the entire request and carry a result code and complete state. A blocking
+host mutex serializes simultaneous workers; none spins while Python evaluates.
+Missing, malformed, mismatched, invalid-result or state-mutating failure replies
+disable the channel and leave the caller state untouched. Fault handling occurs
+after releasing the mutex. Close only after all guest workers have exited.
+
+The Python driver bounds request count, line size and total session duration,
+checks executable/evaluator hashes before and after execution, and writes a
+private answer cache and observation. Exhausting a budget closes input or kills
+the diagnostic; it never fabricates a numerical answer. Cache-miss counts include
+successfully answered pipe requests, so they no longer mean unresolved math.
+The answer cache contains only requests handled by that session, not the seed
+cache supplied to its child. States, logs and generated executables stay private.
+
+`test_startup_math_pipe.py` checks fourteen concurrent requests across all seven
+supported operation selectors, compares every returned complete state with the
+ARM64 evaluator, and checks seven missing/malformed response cases. It accepts
+`--cc`, `--core` (strict host arithmetic objects), `--evaluator`, `--python-deps`
+and a fresh `--output`. The existing replay tests also run without the opt-in
+define, checking that their previous hit/miss behavior is preserved.
+
+An advancing one-process session is control-flow evidence only. It may reveal
+new API gaps, incomplete switch tables or background worker failures; it does
+not establish engine frames, native playback, cold EXE boot or console speed.

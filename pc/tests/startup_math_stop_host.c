@@ -8,6 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
+#ifdef FNV_STARTUP_TARGET_PIPE
+#include "startup_math_pipe.h"
+#endif
 RECOMP_TLS unsigned fnv_probe_math_kind=UINT32_MAX,fnv_probe_math_operation=UINT32_MAX;
 _Atomic unsigned fnv_probe_math_hits,fnv_probe_math_misses;
 _Atomic unsigned fnv_probe_math_empty_delta_hits;
@@ -68,7 +71,11 @@ static int replay(struct fnv_x87_stack *s,unsigned kind,unsigned op,enum fnv_x87
             startup_math_unpack(s,after);*result=FNV_X87_STACK_OK;fnv_probe_math_hits++;fnv_probe_math_empty_delta_hits++;return 1;
         }
     }
-    fnv_probe_math_misses++;return 0;
+    fnv_probe_math_misses++;
+#ifdef FNV_STARTUP_TARGET_PIPE
+    if(fnv_startup_math_pipe_resolve(s,kind,op,result))return 1;
+#endif
+    return 0;
 }
 enum fnv_x87_stack_result fnv_x87_transcendental_candidate(struct fnv_x87_stack *s,unsigned op){
     fnv_probe_math_kind=0;fnv_probe_math_operation=op;enum fnv_x87_stack_result result;
