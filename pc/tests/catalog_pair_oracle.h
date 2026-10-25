@@ -3,6 +3,11 @@
 #ifndef FNV_CATALOG_SAMPLER_MASK
 #define FNV_CATALOG_SAMPLER_MASK 1
 #endif
+#ifdef FNV_CATALOG_ALPHA_SWEEP
+#define FNV_CATALOG_CLEAR_COLOR 0xff223344u
+#else
+#define FNV_CATALOG_CLEAR_COLOR 0xff000000u
+#endif
 #ifdef FNV_CATALOG_TWO_TEXTURES
 static void secondary_texels(const unsigned char *source,unsigned char *out){
     for(unsigned i=0;i<4;i++){out[i*4]=(unsigned char)(255-source[i*4+2]);out[i*4+1]=source[((i+1)%4)*4];out[i*4+2]=source[i*4+1];out[i*4+3]=(unsigned char)(source[i*4+3]^127);}
@@ -30,6 +35,11 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     assert(!d->lpVtbl->SetVertexShader(d,v) && !d->lpVtbl->SetPixelShader(d,p) && !d->lpVtbl->SetVertexDeclaration(d,decl));
     assert(!d->lpVtbl->SetVertexShaderConstantF(d,0,vc,256) && !d->lpVtbl->SetPixelShaderConstantF(d,0,pc,224));
     assert(!d->lpVtbl->SetRenderState(d,D3DRS_CULLMODE,D3DCULL_NONE) && !d->lpVtbl->SetRenderState(d,D3DRS_ZENABLE,FALSE));
+#ifdef FNV_CATALOG_ALPHA_SWEEP
+    assert(!d->lpVtbl->SetRenderState(d,D3DRS_ALPHABLENDENABLE,TRUE));
+    assert(!d->lpVtbl->SetRenderState(d,D3DRS_SRCBLEND,D3DBLEND_SRCALPHA));
+    assert(!d->lpVtbl->SetRenderState(d,D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA));
+#endif
     D3DLOCKED_RECT lock;
 #ifdef FNV_CATALOG_MIPS
     (void)texels;
@@ -67,7 +77,7 @@ static void oracle(unsigned frame,const unsigned char *vs,const unsigned char *p
     assert(!d->lpVtbl->SetSamplerState(d,1,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP) && !d->lpVtbl->SetSamplerState(d,1,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP));
 #endif
     if(null_texture)assert(!d->lpVtbl->SetTexture(d,0,NULL));
-    assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,0xff000000,0,0));
+    assert(!d->lpVtbl->Clear(d,0,NULL,D3DCLEAR_TARGET,FNV_CATALOG_CLEAR_COLOR,0,0));
     if(frame==5){D3DVIEWPORT9 viewport={4,2,24,28,0,1};assert(!d->lpVtbl->SetViewport(d,&viewport));}
     assert(!d->lpVtbl->BeginScene(d) && !d->lpVtbl->DrawPrimitiveUP(d,D3DPT_TRIANGLELIST,2,vertices,24) && !d->lpVtbl->EndScene(d));
     assert(!d->lpVtbl->GetRenderTargetData(d,target,read) && !read->lpVtbl->LockRect(read,&lock,NULL,D3DLOCK_READONLY));

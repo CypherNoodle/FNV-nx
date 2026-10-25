@@ -152,11 +152,21 @@ int main(int argc,char **argv){
 #endif
     assert(!b.create_buffer(gpu,FNV_D3D9_VB,144,0,0,1,&vb) && !b.bind_stream(gpu,0,vb,0,24));
     uint32_t state[6]={1};assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,22,state,0));state[0]=0;assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,7,state,0));
+#ifdef FNV_CATALOG_ALPHA_SWEEP
+    state[0]=1;assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,27,state,0));
+    state[0]=argc==6 && !strcmp(argv[5],"wrong-alpha-blend")?2:5;
+    assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,19,state,0));
+    state[0]=6;assert(!b.state(gpu,FNV_D3D9_RENDER_STATE,0,20,state,0));
+#endif
     const float xy[12]={-1,1,1,1,1,-1,-1,1,1,-1,-1,-1};unsigned checks=0;
     for(unsigned frame=0;frame<6;frame++){
         float vc[1024]={0},pc[896]={0};
         vc[0]=vc[5]=(frame&1)?.75f:1;vc[10]=vc[15]=1;vc[12]=(frame&2)?.125f:0;
         for(unsigned i=0;i<224;i++){pc[i*4]=.5f;pc[i*4+1]=.75f;pc[i*4+2]=(frame&1)?.25f:1;pc[i*4+3]=.625f;}
+#ifdef FNV_CATALOG_ALPHA_SWEEP
+        const float alpha[6]={0,.25f,.5f,0,1,.75f};
+        for(unsigned i=0;i<224;i++)pc[i*4+3]=alpha[frame];
+#endif
         float vertices[36];unsigned char texels[16]={31,83,211,193,173,47,109,127,71,229,53,89,251,139,17,241};
         for(unsigned i=0;i<16;i++)texels[i]^=(unsigned char)(frame*7);
         for(unsigned i=0;i<6;i++){
@@ -205,7 +215,7 @@ int main(int argc,char **argv){
         assert(!b.clear(gpu,0,NULL,1,0xff000000,0,0) && !b.draw(gpu,0,4,0,0,0,0,2) && !b.scene(gpu,0));
         assert(!b.set_target(gpu,0,0,back) && !b.bind_texture(gpu,0,argc==6 && !strcmp(argv[5],"wrong-render-source")?texture:render_texture));
 #endif
-        assert(!b.clear(gpu,0,NULL,1,0xff000000,0,0));
+        assert(!b.clear(gpu,0,NULL,1,FNV_CATALOG_CLEAR_COLOR,0,0));
         if(frame==5){uint32_t viewport[6]={4,2,24,28,0,0x3f800000};assert(!b.state(gpu,FNV_D3D9_VIEWPORT,0,0,viewport,0));}
         /* This pixel oracle drains transfers deliberately; not engine pacing. */
 #ifndef FNV_CATALOG_RENDER_TEXTURE
@@ -249,6 +259,13 @@ int main(int argc,char **argv){
         uintptr_t color;assert(!b.get_target(gpu,0,0,&color));
         unsigned char actual[4096];assert(!fnv_vk_backend_read_color(gpu,color,actual,sizeof(actual),10000000000ull));b.release(gpu,color);
         for(unsigned i=0;i<4096;i++)if(abs((int)actual[i]-(int)expected[i])>1){fprintf(stderr,"catalog pixel mismatch frame=%u byte=%u actual=%u expected=%u\n",frame,i,actual[i],expected[i]);return 2;}
+#ifdef FNV_CATALOG_ALPHA_SWEEP
+        if(frame==0 || frame==3){
+            /* Independent invariant: zero alpha preserves all background channels. */
+            const unsigned char background[4]={0x44,0x33,0x22,0xff};
+            for(unsigned i=0;i<4096;i++)assert(expected[i]==background[i%4]);
+        }
+#endif
         checks+=1024;
     }
 #ifdef FNV_CATALOG_TWO_TEXTURES

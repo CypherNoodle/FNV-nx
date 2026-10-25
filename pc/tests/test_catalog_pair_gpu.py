@@ -20,6 +20,7 @@ from translate_d3d9_pair import translate,normalize
 
 def run(a):
     if sum((a.two_textures,a.mip_clamp,a.render_texture))>1:raise ValueError('choose one fixture mode')
+    if a.alpha_sweep and (not a.constants or a.two_textures or a.mip_clamp or a.render_texture):raise ValueError('--alpha-sweep requires --constants and the single-texture fixture')
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     cc=Path(a.cc).resolve();linker=a.linker.resolve();env=os.environ.copy();env['PATH']=str(cc.parent)+os.pathsep+str(linker.parent)+os.pathsep+env['PATH']
@@ -66,6 +67,7 @@ def run(a):
     locations={i['name']:i['location'] for i in pair['stages']['vs']['spirv']['interfaces'] if i['storage']==1 and 'location' in i}
     assert set(locations)=={'vs_v0','vs_v1'}
     header=['#define FNV_CATALOG_CONSTANTS 1'] if a.constants else []
+    if a.alpha_sweep:header.append('#define FNV_CATALOG_ALPHA_SWEEP 1')
     if a.mip_clamp:header.append('#define FNV_CATALOG_MIPS 1')
     if a.two_textures:header.append('#define FNV_CATALOG_TWO_TEXTURES 1')
     if a.render_texture:header.append('#define FNV_CATALOG_RENDER_TEXTURE 1')
@@ -85,6 +87,7 @@ def run(a):
     assert 'PASS catalog pair 6144 pixels' in p.stdout
     pressure_waits=next((int(line.split('=')[1]) for line in p.stdout.splitlines() if line.startswith('draw_waits=')),0)
     controls=('wrong-render-source',) if a.render_texture else ('swapped-textures','wrong-second-address') if a.two_textures else ('wrong-mip-clamp','wrong-mip-filter') if a.mip_clamp else ('wrong-uv','wrong-texture','wrong-vs-constants','wrong-ps-constants','missing-pixel-center') if a.constants else ('wrong-uv','wrong-texture')
+    if a.alpha_sweep:controls=(*controls,'wrong-alpha-blend')
     for mode in controls:
         bad=subprocess.run([*args,mode],capture_output=True,text=True,env=env,timeout=60);(out/(mode+'.log')).write_text(bad.stdout+bad.stderr)
         assert bad.returncode and 'catalog pixel mismatch' in bad.stderr
@@ -102,7 +105,7 @@ def run(a):
         (out/'null-texture.log').write_text(trial.stdout+trial.stderr)
         assert not trial.returncode and 'PASS catalog pair 6144 pixels' in trial.stdout,trial.stdout+trial.stderr
     assert all(sha(Path(n))==h for n,h in frozen.items())
-    report=dict(status='PASS',null_texture_pixel_checks=6144 if null_checked else 0,pixel_checks=6144,negative_controls=len(controls),render_texture=a.render_texture,draw_pressure_waits=pressure_waits,draw_watchdog_checked=a.two_textures,nonblocking_retry_checked=a.two_textures,two_textures=a.two_textures,mip_clamp=a.mip_clamp,float_constants=a.constants,deferred_shader_pixels=6144 if not (a.render_texture or a.two_textures or a.mip_clamp) else 0,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
+    report=dict(status='PASS',alpha_sweep=a.alpha_sweep,null_texture_pixel_checks=6144 if null_checked else 0,pixel_checks=6144,negative_controls=len(controls),render_texture=a.render_texture,draw_pressure_waits=pressure_waits,draw_watchdog_checked=a.two_textures,nonblocking_retry_checked=a.two_textures,two_textures=a.two_textures,mip_clamp=a.mip_clamp,float_constants=a.constants,deferred_shader_pixels=6144 if not (a.render_texture or a.two_textures or a.mip_clamp) else 0,original_package_used=bool(a.package),runtime_pair_observed=False,game_frame=False,switch_hardware_tested=False,source_sha256=frozen,
                 shader_sha256={s:sha(out/(s+'.bin')) for s in ('vs','ps')},spirv_sha256={s:sha(out/'pair'/(s+'.spv')) for s in ('vs','ps')},descriptors=descriptors)
     (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ('status','pixel_checks','negative_controls','original_package_used','game_frame')}))
 
@@ -110,6 +113,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('output','linker','headers'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',required=True);p.add_argument('--package',type=Path);p.add_argument('--constants',action='store_true')
+    p.add_argument('--alpha-sweep',action='store_true',help='compare six tint alpha values with source-alpha blending over a colored target')
     p.add_argument('--mip-clamp',action='store_true')
     p.add_argument('--two-textures',action='store_true')
     p.add_argument('--render-texture',action='store_true')
