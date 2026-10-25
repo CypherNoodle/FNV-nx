@@ -54,14 +54,17 @@ conecta una cola headless y no reproduce audio real ni simula audout.
 
 256 identidades de vida completa y arena elegida8192..64MiB. El descriptor
 consume36 bytes x86. Los primeros4096 bytes son tablas/objetos y el resto staging.
-Release libera el shadow nativo pero no recicla identidad/staging: el agotamiento
-devuelve E_OUTOFMEMORY. No es aun un allocador para una sesion larga del juego.
+Release libera el shadow nativo y permite reutilizar su rango de staging. Las
+identidades COM siguen retiradas: un handle antiguo no vuelve a ser valido. Un
+first-fit acotado a256 objetos evita solapar rangos vivos; cada rango reutilizado
+se inicializa con silencio segun8/16 bits. Agotar identidades o memoria devuelve
+E_OUTOFMEMORY. El limite de256 identidades aun limita sesiones largas.
 
 Primary permite formato, controles y un listener3D si lleva CTRL3D; no admite
 escritura/cursor primario. El volumen del primario se aplica a la mezcla de su
 dispositivo; no cambia volumen global del host. Las capacidades
 publican mezcla software, PCM y formatos implementados, sin voces hardware ni
-certificacion. Otros formatos, dispositivos por GUID, voces secundarias CTRL3D, notificaciones,
+certificacion. Otros formatos, dispositivos por GUID, notificaciones,
 efectos, sticky-focus, write-primary, DuplicateSoundBuffer y metodos pendientes
 no se convierten en exito ficticio. QueryInterface solo publica IUnknown,
 DirectSound/8 y Buffer/8 realmente modelados; el primario no ofrece Buffer8.
@@ -105,3 +108,40 @@ Referencias primarias:
 [DirectSoundCreate8](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee416762(v=vs.85)),
 [Lock](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee418073(v=vs.85)),
 [Play](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee418074(v=vs.85)).
+
+
+## Voces secundarias 3D
+
+CTRL3D admite PCM mono y una identidad IDirectSound3DBuffer separada que
+comparte referencias con el buffer. Sus getters/setters modelan posicion,
+velocidad, orientacion normalizada, angulos de cono, volumen exterior,
+distancias minima/maxima y modo normal/head-relative/desactivado. El layout
+DS3DBUFFER conserva64 bytes x86. Los cambios diferidos conservan su mascara por
+campo; CommitDeferredSettings del listener aplica listener y voces del mismo
+dispositivo bajo un unico mutex. Un cambio inmediato no borra otro diferido.
+
+El mezclador calcula una vez por bloque atenuacion por distancia, direccion
+estereo, cono y Doppler. Usa orientacion/posicion/velocidad y factores del
+listener, o sus valores predeterminados si no existe. MUTE3DATMAXDISTANCE
+silencia mas alla del maximo. El modo desactivado conserva la mezcla2D.
+La frecuencia final queda limitada a100..200000Hz y los cursores tambien se
+revierten cuando la cola esta llena. No se agrega un hilo ni se accede al guest
+desde el worker PCM.
+
+Es una aproximacion software para dos canales: no implementa HRTF, reflexiones,
+reverberacion ni identidad acustica con el driver de Windows. CTRLFX no aporta
+por si solo una cadena de efectos; sus metodos de efectos siguen pendientes.
+El coste de las funciones espaciales no se ha medido en la consola.
+
+Verificacion: el ABI se compara con DirectSound nativo sin iniciar playback
+nativo. La suite comprueba91 consultas/operaciones Windows,3538 comprobaciones
+del listener y204926 muestras PCM contra sus modelos. Incluye getters3D,
+SetAllParameters, rangos invalidos, normalizacion del cono, cambios diferidos,
+atenuacion, pan, cono, head-relative, Doppler, cola llena y cuarenta ciclos de
+staging de256KiB con otra voz viva. El rango nuevo debe contener silencio y la
+voz retenida debe conservar sus muestras. Hay seis controles de fallo explicito.
+Legacy y x87 extendido pasan; compilacion estricta devkitA64 en ambas ABI.
+Todos los PCM se consumen en memoria: estas pruebas no reproducen sonido.
+
+Referencias: [parametros3D de Microsoft](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee417982(v=vs.85)),
+[distancias minima y maxima](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee418662(v=vs.85)).

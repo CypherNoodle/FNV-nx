@@ -5,7 +5,8 @@
 struct fnv_dsound8;
 /* Owns a dedicated guest arena (>=8192 RW bytes), disjoint from all guest
  * arenas, until destroy. First4096 bytes contain COM tables/identities; the
- * remainder stages Lock writes. Retired identities/storage are not recycled.
+ * remainder stages Lock writes. Retired identities are not recycled; final
+ * Release makes their staging ranges reusable and reinitialized to silence.
  * Dedicated output queue must outlive provider and audout, capacity>=512.
  * Lifecycle serialized before attach/after detach; stop audout before destroy. */
 struct fnv_dsound8_config {

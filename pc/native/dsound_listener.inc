@@ -1,6 +1,5 @@
 /* IDirectSound3DListener: shares primary identity/refcount, separate vtable.
  * A deferred field survives an immediate update until Commit, like Windows.
- * Only listener state is provided; secondary3D creation still fails explicitly.
  * Ordinary PCM voices do not spatialize and correctly ignore listener state. */
 static struct sound_object *listener_acquire(uint32_t self){
     struct sound_object *o=acquire(self,1);if(!o)return NULL;
@@ -84,5 +83,12 @@ static void listener_velocity_set(void){listener_set(3,3,0);}
 static void listener_commit(void){
     struct sound_object *o=listener_acquire(fnv_cpu_argument_u32(0));if(!o)return;
     for(unsigned i=0;i<15;i++)if(o->listener_dirty&(1u<<i))o->listener[i]=o->listener_pending[i];
-    o->listener_dirty=0;finish(0,4);
+    o->listener_dirty=0;
+    for(unsigned j=0;j<active->count;j++){struct sound_object *voice=active->objects+j;
+        if(voice->refs && voice->parent==o->parent && (voice->flags&0x11)==0x10){
+            for(unsigned i=0;i<15;i++)if(voice->spatial_dirty&(1u<<i))voice->spatial[i]=voice->spatial_pending[i];
+            voice->spatial_dirty=0;
+        }
+    }
+    finish(0,4);
 }

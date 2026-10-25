@@ -17,7 +17,7 @@
 #define DATA (BASE+0x81000)
 static unsigned char *arena;static struct fnv_dsound8 *sound;static struct fnv_pcm_queue *queue;
 static HWND window;static unsigned sample_checks,native_checks,listener_checks;
-enum {QUERY,ADDREF,RELEASE,CREATE,CAPS,COOP,CERT,BCAPS,POSITION,FORMAT_GET,STATUS,LOCK,PLAY,SEEK,FORMAT_SET,VOLUME,PAN,FREQUENCY,STOP,UNLOCK,RESTORE,VOLUME_GET,PAN_GET,FREQUENCY_GET,L_ALL_GET,L_DISTANCE_GET,L_DOPPLER_GET,L_ORIENTATION_GET,L_POSITION_GET,L_ROLLOFF_GET,L_VELOCITY_GET,L_ALL_SET,L_DISTANCE_SET,L_DOPPLER_SET,L_ORIENTATION_SET,L_POSITION_SET,L_ROLLOFF_SET,L_VELOCITY_SET,L_COMMIT};
+enum {QUERY,ADDREF,RELEASE,CREATE,CAPS,COOP,CERT,BCAPS,POSITION,FORMAT_GET,STATUS,LOCK,PLAY,SEEK,FORMAT_SET,VOLUME,PAN,FREQUENCY,STOP,UNLOCK,RESTORE,VOLUME_GET,PAN_GET,FREQUENCY_GET,L_ALL_GET,L_DISTANCE_GET,L_DOPPLER_GET,L_ORIENTATION_GET,L_POSITION_GET,L_ROLLOFF_GET,L_VELOCITY_GET,L_ALL_SET,L_DISTANCE_SET,L_DOPPLER_SET,L_ORIENTATION_SET,L_POSITION_SET,L_ROLLOFF_SET,L_VELOCITY_SET,L_COMMIT,S_ALL_GET,S_ANGLES_GET,S_ORIENTATION_GET,S_OUTSIDE_GET,S_MAX_GET,S_MIN_GET,S_MODE_GET,S_POSITION_GET,S_VELOCITY_GET,S_ALL_SET,S_ANGLES_SET,S_ORIENTATION_SET,S_OUTSIDE_SET,S_MAX_SET,S_MIN_SET,S_MODE_SET,S_POSITION_SET,S_VELOCITY_SET};
 static void put(uint32_t at,uint32_t v){memcpy(arena+at-BASE,&v,4);}
 static uint32_t get(uint32_t at){uint32_t v;memcpy(&v,arena+at-BASE,4);return v;}
 static int valid_window(void *p,uint32_t hwnd){(void)p;return hwnd==0xb0000001 && IsWindow(window);}
@@ -106,6 +106,7 @@ static void listener_test(uint32_t root,IDirectSound8 *native){
     uint32_t drop[]={primary};assert(call(RELEASE,drop,1,0)>0);IDirectSoundBuffer_Release(np);listener_compare(listener,nl);
     release(listener);IDirectSound3DListener_Release(nl);
 }
+#include "dsound_spatial_fixture.h"
 int main(int argc,char **argv){
     assert(argc==2||argc==3);arena=VirtualAlloc(NULL,BYTES,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,BYTES,&image)==FNV_NATIVE_OK);
@@ -129,9 +130,12 @@ int main(int argc,char **argv){
         if(!strcmp(argv[2],"--strict-listener"))release(l);else args[1]=0;
         put(DATA,64);call(L_ALL_GET,args,2,1);goto finish;
     }
+    if(argc==3 && !strcmp(argv[2],"--strict-spatial-output")){
+        wave(48000,1,16);uint32_t b=make(root,0xb0,512);memcpy(arena+GUID_AT-BASE,&IID_IDirectSound3DBuffer,16);uint32_t qi[]={b,GUID_AT,OUTPUT_AT};assert(!call(QUERY,qi,3,0));uint32_t args[]={get(OUTPUT_AT),0};call(S_ALL_GET,args,2,1);goto finish;
+    }
     wave(48000,2,16);
     if(argc==3){if(!strcmp(argv[2],"--strict-format"))arena[FORMAT-BASE]=3;
-        memset(arena+DESC-BASE,0,36);put(DESC,36);put(DESC+4,!strcmp(argv[2],"--strict-3d")?0x10:0);put(DESC+8,512);put(DESC+16,FORMAT);
+        memset(arena+DESC-BASE,0,36);put(DESC,36);put(DESC+4,0);put(DESC+8,512);put(DESC+16,FORMAT);
         uint32_t a[]={root,DESC,OUTPUT_AT,0};call(CREATE,a,4,1);goto finish;}
     /* ABI comparisons use a real Windows device, never play native buffers. */
     IDirectSound8 *native=NULL;HRESULT native_result=DirectSoundCreate8(NULL,&native,NULL);
@@ -139,7 +143,7 @@ int main(int argc,char **argv){
     uint32_t self[]={root};assert(call(ADDREF,self,1,0)==IDirectSound8_AddRef(native));assert(call(RELEASE,self,1,0)==IDirectSound8_Release(native));
     memcpy(arena+GUID_AT-BASE,&IID_IDirectSound8,16);uint32_t qi[]={root,GUID_AT,OUTPUT_AT};assert(!call(QUERY,qi,3,0)&&get(OUTPUT_AT)==root);IUnknown *unk;assert(IDirectSound8_QueryInterface(native,&IID_IDirectSound8,(void **)&unk)==S_OK);IUnknown_Release(unk);call(RELEASE,self,1,0);native_checks++;
     put(DATA,96);uint32_t caps[]={root,DATA};DSCAPS nc={0};nc.dwSize=sizeof(nc);assert(call(CAPS,caps,2,0)==(uint32_t)IDirectSound8_GetCaps(native,&nc));assert(get(DATA)==96&&!(get(DATA+4)&DSCAPS_CERTIFIED));native_checks++;
-    listener_test(root,native);
+    listener_test(root,native);spatial_test(root,native);
     uint32_t primary=make(root,DSBCAPS_PRIMARYBUFFER,0);uint32_t fmtset[]={primary,FORMAT};assert(!call(FORMAT_SET,fmtset,2,0));release(primary);
     const uint32_t flags=DSBCAPS_CTRLFREQUENCY|DSBCAPS_CTRLPAN|DSBCAPS_CTRLVOLUME|DSBCAPS_LOCSOFTWARE|DSBCAPS_GETCURRENTPOSITION2;
     uint32_t b=make(root,flags,1024);WAVEFORMATEX nf;memcpy(&nf,arena+FORMAT-BASE,18);DSBUFFERDESC bd={0};bd.dwSize=sizeof(bd);bd.dwFlags=flags;bd.dwBufferBytes=1024;bd.lpwfxFormat=&nf;IDirectSoundBuffer *nb;assert(IDirectSound8_CreateSoundBuffer(native,&bd,&nb,NULL)==S_OK);
