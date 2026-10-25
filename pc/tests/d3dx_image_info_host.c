@@ -23,8 +23,8 @@ static void header(unsigned width,unsigned height,unsigned levels,unsigned forma
         {0x40,16,0xf800,0x7e0,0x1f,0},{2,8,0,0,0,0xff},{0x20000,8,0xff,0,0,0},
         {0x41,32,0xff,0xff00,0xff0000,0xff000000},{0x40,32,0xff,0xff00,0xff0000,0},
         {0x40,16,0x7c00,0x3e0,0x1f,0},{0x41,16,0x7c00,0x3e0,0x1f,0x8000},
-        {0x41,16,0xf00,0xf0,0xf,0xf000},{0x20001,16,0xff,0,0,0xff00}};
-        assert(format<16);const uint32_t *v=pixel[format-5];fnv_dds_put32(dds+80,v[0]);
+        {0x41,16,0xf00,0xf0,0xf,0xf000},{0x20001,16,0xff,0,0,0xff00},{0x40,24,0xff0000,0xff00,0xff,0}};
+        assert(format<17);const uint32_t *v=pixel[format-5];fnv_dds_put32(dds+80,v[0]);
         for(unsigned i=1;i<6;++i)fnv_dds_put32(dds+84+4*i,v[i]);}
     if(shape==1)fnv_dds_put32(dds+112,0xfe00);
     if(shape==2){fnv_dds_put32(dds+8,0x821007);fnv_dds_put32(dds+24,4);fnv_dds_put32(dds+112,0x200000);}
@@ -45,7 +45,7 @@ int main(int argc,char **argv){
     HMODULE dll=LoadLibraryExA("d3dx9_38.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(dll);
     typedef HRESULT (WINAPI *info_fn)(const void *,UINT,void *);FARPROC proc=GetProcAddress(dll,"D3DXGetImageInfoFromFileInMemory");info_fn info;memcpy(&info,&proc,sizeof(info));assert(info);
     unsigned checks=0;
-    for(unsigned ncase=0;ncase<4800;++ncase){unsigned format=ncase%16,shape=ncase/16%3,width=1+(ncase*17)%64,height=shape==1?width:1+(ncase*23)%64;
+    for(unsigned ncase=0;ncase<4800;++ncase){unsigned format=ncase%17,shape=ncase/17%3,width=1+(ncase*17)%64,height=shape==1?width:1+(ncase*23)%64;
         header(width,height,ncase%9,format,shape);unsigned size=sizeof(dds);
         switch(ncase%13){case 0:size=0;break;case 1:size=1;break;case 2:size=127;break;case 3:size=128;break;
             case 4:fnv_dds_put32(dds+76,0);break;case 5:fnv_dds_put32(dds,0);break;case 6:fnv_dds_put32(dds+4,0);break;
@@ -61,6 +61,8 @@ int main(int argc,char **argv){
             assert(arena[dst-BASE-1]==before && arena[dst-BASE+28]==after);checks++;
         }
     }
+    /* Tight 1x1 BGR24 header: three payload bytes, no row-padding assumption. */
+    header(1,1,1,16,0);memcpy(arena+BUFFER-BASE,dds,131);unsigned char rgb_info[28];assert(!info(dds,131,rgb_info));assert(!I(0,BUFFER,131,OUTPUT,0) && !memcmp(arena+OUTPUT-BASE,rgb_info,28) && fnv_dds_u32(arena+OUTPUT+16-BASE)==20);checks++;
     assert(I(0,0,100,OUTPUT,0)==0x8876086c);
     FreeLibrary(dll);assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
     printf("{\"status\":\"PASS\",\"native_dds_metadata_checks\":%u,\"engine_started\":false}\n",checks);return 0;

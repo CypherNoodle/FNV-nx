@@ -4,7 +4,7 @@ uint32_t fnv_d3d9_texture_rgba8(const struct fnv_texture_patch *input,void *dest
     if(!input || !destination)return INVALID;
     struct fnv_texture_patch p=*input;
     unsigned unit;
-    switch(p.format){case 21:case 22:unit=4;break;case 23:unit=2;break;case 28:case 50:unit=1;break;default:return INVALID;}
+    switch(p.format){case 20:unit=3;break;case 21:case 22:unit=4;break;case 23:unit=2;break;case 28:case 50:unit=1;break;default:return INVALID;}
     if(!p.source || !p.width || !p.height || !p.copy_width || !p.copy_height ||
        p.left>=p.width || p.top>=p.height || p.copy_width>p.width-p.left || p.copy_height>p.height-p.top)return INVALID;
     uint64_t row=(uint64_t)p.copy_width*unit,dest_row=(uint64_t)p.width*4;
@@ -19,6 +19,7 @@ uint32_t fnv_d3d9_texture_rgba8(const struct fnv_texture_patch *input,void *dest
         unsigned char *d=(unsigned char *)destination+(size_t)(p.top+y)*destination_pitch+(size_t)p.left*4;
         for(uint32_t x=0;x<p.copy_width;++x,s+=unit,d+=4){
             switch(p.format){
+            case 20:d[0]=s[2];d[1]=s[1];d[2]=s[0];d[3]=255;break;
             case 21:case 22:d[0]=s[2];d[1]=s[1];d[2]=s[0];d[3]=p.format==21?s[3]:255;break;
             case 23:{unsigned v=s[0]|(unsigned)s[1]<<8;
                 d[0]=(unsigned char)(((v>>11)*255+15)/31);

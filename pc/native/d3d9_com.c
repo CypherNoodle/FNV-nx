@@ -460,7 +460,7 @@ static void api_declaration_elements(void) {
 }
 static int texture_format(uint32_t format,uint32_t *block,uint32_t *unit) {
     *block=1;
-    switch(format){case 21:case 22:*unit=4;return 1;case 23:*unit=2;return 1;
+    switch(format){case 20:*unit=3;return 1;case 21:case 22:*unit=4;return 1;case 23:*unit=2;return 1;
         case 28:case 50:*unit=1;return 1;
         case 0x31545844:*block=4;*unit=8;return 1;
         case 0x32545844:case 0x33545844:case 0x34545844:case 0x35545844:*block=4;*unit=16;return 1;

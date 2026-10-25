@@ -21,6 +21,7 @@ static void api_dds_texture(void){
     for(uint32_t n=width>height?width:height;n>1;n>>=1)maximum++;
     if(levels>maximum || (levels<maximum && format!=0x31545844 && format!=0x33545844 && format!=0x35545844))invalid("D3DX texture mip generation pending",src);
     if(format==0x32545844 || format==0x34545844)invalid("D3DX premultiplied DDS conversion pending",format);
+    int rgb24=format==20;if(rgb24)format=22; /* Native D3DX expands BGR24 to X8R8G8B8. */
     if(!texture_format(format,&block,&unit))invalid("D3DX texture format conversion pending",format);
     if(!c->config.backend.create_texture || !c->config.backend.upload_texture || !c->buffer_memory)
         invalid("D3DX texture backend or shadow arena pending",self);
@@ -39,7 +40,13 @@ static void api_dds_texture(void){
             uint32_t rows=(m->height+block-1)/block,row=(m->width+block-1)/block*unit;
             unsigned char *shadow=c->buffer_memory+(r->data-c->config.buffer_address)+m->offset;
             memset(shadow,0,(size_t)m->pitch*rows);
-            for(unsigned y=0;y<rows;++y)memcpy(shadow+y*m->pitch,snapshot+source+y*row,row);
+            if(rgb24){
+                row=m->width*3;
+                for(unsigned y=0;y<rows;y++)for(unsigned x=0;x<m->width;x++){
+                    const unsigned char *pixel=snapshot+source+y*row+x*3;unsigned char *target=shadow+y*m->pitch+x*4;
+                    target[0]=pixel[0];target[1]=pixel[1];target[2]=pixel[2];target[3]=255;
+                }
+            }else for(unsigned y=0;y<rows;++y)memcpy(shadow+y*m->pitch,snapshot+source+y*row,row);
             result=c->config.backend.upload_texture(c->config.backend.context,r->handle,level,0,0,m->width,m->height,0,m->pitch,shadow);
             if(result)break;
             r->version++;source+=row*rows;

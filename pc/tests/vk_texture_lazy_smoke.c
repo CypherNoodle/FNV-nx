@@ -76,6 +76,14 @@ int main(void){
     uintptr_t blank=0;CHECK(!p.create_texture(p.context,4,4,1,0,21,1,&blank));
     CHECK(fnv_vk_backend_read_texture(b,blank,0,out,sizeof(out),1000000000ull)==FNV_VK_INVALID);
     puts("uninitialized texture readback rejected OK");
+    /* Packed BGR24 with odd row pitch expands to RGBA8 without touching neighbors. */
+    uintptr_t rgb24=0;CHECK(!fnv_vk_backend_check_format(b,0,3,20));CHECK(!p.create_texture(p.context,3,2,1,0,20,1,&rgb24));
+    unsigned char packed[20]={1,2,3,4,5,6,7,8,9,0xcc,0xdd,10,11,12,13,14,15,16,17,18};
+    CHECK(!p.upload_texture(p.context,rgb24,0,0,0,3,2,0,11,packed));unsigned char expanded[24];CHECK(!fnv_vk_backend_read_texture(b,rgb24,0,expanded,sizeof(expanded),1000000000ull));
+    for(unsigned y=0;y<2;y++)for(unsigned x=0;x<3;x++){unsigned at=y*12+x*4,src=y*11+x*3;CHECK(expanded[at]==packed[src+2] && expanded[at+1]==packed[src+1] && expanded[at+2]==packed[src] && expanded[at+3]==255);}
+    unsigned char patch[3]={91,92,93};CHECK(!p.upload_texture(p.context,rgb24,0,1,1,1,1,0,3,patch));unsigned char partial[24];CHECK(!fnv_vk_backend_read_texture(b,rgb24,0,partial,sizeof(partial),1000000000ull));
+    CHECK(partial[16]==93 && partial[17]==92 && partial[18]==91 && partial[19]==255);CHECK(!memcmp(partial,expanded,16) && !memcmp(partial+20,expanded+20,4));p.release(p.context,rgb24);
+    puts("BGR24 odd pitch, opaque alpha and partial upload GPU readback OK");
     /* Managed mip surfaces are logical aliases; they must not allocate GPU images. */
     uintptr_t managed=0,aliases[4];CHECK(!p.create_texture(p.context,8,8,0,0,21,1,&managed));
     struct fnv_vk_stats prior;CHECK(!fnv_vk_backend_stats(b,&prior));

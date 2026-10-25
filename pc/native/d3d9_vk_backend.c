@@ -795,7 +795,7 @@ uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *d,uint32_t usage,uin
         vk_format=VK_FORMAT_B8G8R8A8_UNORM;flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if(usage&0x20000u){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,vk_format,&props);if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))goto done;}
     }
-    else if(type==3 && !(usage&~(512u|0x20000u)) && (format==21 || format==22 || format==23 || format==28 || format==50 || (d->bc && bc_format(format)))){
+    else if(type==3 && !(usage&~(512u|0x20000u)) && (format==20 || format==21 || format==22 || format==23 || format==28 || format==50 || (d->bc && bc_format(format)))){
         vk_format=bc_format(format)?bc_format(format):VK_FORMAT_R8G8B8A8_UNORM;flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if(usage&0x20000u){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,vk_format,&props);if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))goto done;}
     }

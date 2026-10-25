@@ -24,7 +24,7 @@ static uint32_t create_texture(void *ctx,uint32_t w,uint32_t h,uint32_t levels,u
     if(SUCCEEDED(r)){last_texture=*out=(uintptr_t)t;texture_creates++;}return (uint32_t)r;
 }
 static void format_shape(uint32_t format,unsigned *block,unsigned *unit) {
-    *block=1;*unit=format==21 || format==22?4:format==23?2:1;
+    *block=1;*unit=format==20?3:format==21 || format==22?4:format==23?2:1;
     if(format>=D3DFMT_DXT1 && format<=D3DFMT_DXT5){*block=4;*unit=format==D3DFMT_DXT1?8:16;}
 }
 static uint32_t upload_texture(void *ctx,uintptr_t handle,uint32_t level,uint32_t left,uint32_t top,uint32_t width,uint32_t height,uint32_t flags,uint32_t pitch,const void *data) {
@@ -152,7 +152,7 @@ int FNV_TEXTURE_BASELINE_MAIN(int argc,char **argv) {
         assert(invoke(LOCK_RECT,5,args,NULL,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED);
     } else {
         surface_mips();
-        const D3DFORMAT formats[]={D3DFMT_A8R8G8B8,D3DFMT_X8R8G8B8,D3DFMT_R5G6B5,D3DFMT_A8,D3DFMT_L8,D3DFMT_DXT1,D3DFMT_DXT2,D3DFMT_DXT3,D3DFMT_DXT4,D3DFMT_DXT5};
+        const D3DFORMAT formats[]={D3DFMT_R8G8B8,D3DFMT_A8R8G8B8,D3DFMT_X8R8G8B8,D3DFMT_R5G6B5,D3DFMT_A8,D3DFMT_L8,D3DFMT_DXT1,D3DFMT_DXT2,D3DFMT_DXT3,D3DFMT_DXT4,D3DFMT_DXT5};
         for(unsigned i=0;i<sizeof(formats)/sizeof(*formats);i++) {
             uint32_t t=make_texture(8,8,0,0,formats[i],D3DPOOL_MANAGED);IDirect3DTexture9 *native=(IDirect3DTexture9*)last_texture;
             unsigned levels=call(LEVELS,1,&t);assert(levels==IDirect3DTexture9_GetLevelCount(native) && levels==4 && call(RESOURCE_TYPE,1,&t)==D3DRTYPE_TEXTURE);

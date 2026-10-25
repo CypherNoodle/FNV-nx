@@ -40,7 +40,7 @@ static uint32_t make_texture_version(struct fnv_vk_backend *d,const struct textu
 static uint32_t create_texture(void *ctx,uint32_t w,uint32_t h,uint32_t levels,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out){
     struct fnv_vk_backend *d=ctx;
     if(!out || !w || !h || w>32768 || h>32768 || pool>1 || (usage && usage!=512 && usage!=1) || (usage && pool) ||
-       (format!=21 && format!=22 && format!=23 && format!=28 && format!=50 && !bc_format(format)))return FNV_VK_INVALID;
+       (format!=20 && format!=21 && format!=22 && format!=23 && format!=28 && format!=50 && !bc_format(format)))return FNV_VK_INVALID;
     uint32_t max=1;for(uint32_t n=w>h?w:h;n>1;n>>=1)max++;
     if(!levels)levels=max;
     if(usage==1 && (format!=21 || levels!=1 || pool))return FNV_VK_INVALID;

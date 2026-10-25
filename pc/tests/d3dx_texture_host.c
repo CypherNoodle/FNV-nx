@@ -16,6 +16,7 @@ static uint32_t make_dds(unsigned width,unsigned height,unsigned format,unsigned
     const uint32_t fields[][2]={{0,0x20534444},{4,124},{8,0x21007},{12,height},{16,width},{28,*levels},{76,32},{108,0x401008}};
     for(unsigned i=0;i<sizeof(fields)/sizeof(*fields);++i)fnv_dds_put32(image_data+fields[i][0],fields[i][1]);
     if(format>=D3DFMT_DXT1){fnv_dds_put32(image_data+80,4);fnv_dds_put32(image_data+84,format);}
+    else if(format==20){fnv_dds_put32(image_data+80,0x40);fnv_dds_put32(image_data+88,24);fnv_dds_put32(image_data+92,0xff0000);fnv_dds_put32(image_data+96,0xff00);fnv_dds_put32(image_data+100,0xff);}
     else if(format==21 || format==22){fnv_dds_put32(image_data+80,format==21?0x41:0x40);fnv_dds_put32(image_data+88,32);
         fnv_dds_put32(image_data+92,0xff0000);fnv_dds_put32(image_data+96,0xff00);fnv_dds_put32(image_data+100,0xff);fnv_dds_put32(image_data+104,format==21?0xff000000:0);}
     else if(format==23){fnv_dds_put32(image_data+80,0x40);fnv_dds_put32(image_data+88,16);fnv_dds_put32(image_data+92,0xf800);fnv_dds_put32(image_data+96,0x7e0);fnv_dds_put32(image_data+100,0x1f);}
@@ -50,8 +51,8 @@ int main(int argc,char **argv){
     }else {
         HMODULE lib=LoadLibraryExA("d3dx9_38.dll",NULL,LOAD_LIBRARY_SEARCH_SYSTEM32);assert(lib);
         typedef HRESULT(WINAPI *create_fn)(IDirect3DDevice9 *,const void *,UINT,IDirect3DTexture9 **);FARPROC proc=GetProcAddress(lib,"D3DXCreateTextureFromFileInMemory");create_fn create;memcpy(&create,&proc,sizeof(create));assert(create);proc=GetProcAddress(lib,"D3DXLoadSurfaceFromSurface");memcpy(&copy_surface,&proc,sizeof(copy_surface));assert(copy_surface);
-        const uint32_t formats[]={21,22,23,28,50,D3DFMT_DXT1,D3DFMT_DXT3,D3DFMT_DXT5};
-        for(unsigned n=0;n<160;++n){unsigned width=1u<<(2+n%5),height=1u<<(2+n/5%5),format=formats[n%8];bytes=make_dds(width,height,format,&levels);
+        const uint32_t formats[]={20,21,22,23,28,50,D3DFMT_DXT1,D3DFMT_DXT3,D3DFMT_DXT5};
+        for(unsigned n=0;n<160;++n){unsigned width=1u<<(2+n%5),height=1u<<(2+n/5%5),format=formats[n%9];if(!n)width=height=1;bytes=make_dds(width,height,format,&levels);
             memcpy(ptr(code_at),image_data,bytes);args[2]=bytes;args[3]=n%3==0?code_at+17:GUEST_OUT+1;
             IDirect3DTexture9 *oracle=NULL;HRESULT wanted=create(device,image_data,bytes,&oracle);assert(SUCCEEDED(wanted) && oracle);
             assert(call(28,4,args)==(uint32_t)wanted);uint32_t texture=get(args[3]);IDirect3DTexture9 *actual=(IDirect3DTexture9*)last_texture;
@@ -60,7 +61,10 @@ int main(int argc,char **argv){
             for(unsigned level=0;level<levels;++level){D3DSURFACE_DESC a,b;assert(SUCCEEDED(IDirect3DTexture9_GetLevelDesc(actual,level,&a)) && SUCCEEDED(IDirect3DTexture9_GetLevelDesc(oracle,level,&b)) && !memcmp(&a,&b,sizeof(a)));
                 unsigned block,unit;format_shape(format,&block,&unit);unsigned row=(a.Width+block-1)/block*unit,rows=(a.Height+block-1)/block;
                 D3DLOCKED_RECT raw;assert(SUCCEEDED(IDirect3DTexture9_LockRect(actual,level,&raw,NULL,D3DLOCK_READONLY)));
-                for(unsigned y=0;y<rows;++y)assert(!memcmp((char*)raw.pBits+y*raw.Pitch,image_data+offset+y*row,row));
+                if(format==20){
+                    assert(a.Format==D3DFMT_X8R8G8B8);
+                    for(unsigned y=0;y<rows;y++)for(unsigned x=0;x<a.Width;x++){const unsigned char *from=image_data+offset+y*row+x*3;unsigned char *to=(unsigned char*)raw.pBits+y*raw.Pitch+x*4;assert(!memcmp(from,to,3) && to[3]==255);}
+                }else for(unsigned y=0;y<rows;++y)assert(!memcmp((char*)raw.pBits+y*raw.Pitch,image_data+offset+y*row,row));
                 assert(SUCCEEDED(IDirect3DTexture9_UnlockRect(actual,level)));offset+=row*rows;source_checks++;
                 int equal=compare_pixels(actual,oracle,level,a.Width,a.Height);
                 if(!equal){assert(block==4 && (a.Width<4 || a.Height<4));tail_differences++;}else checks++;

@@ -19,9 +19,9 @@ def run(args):
     subprocess.run([*args.cc,'-shared','-O2','-std=c11','-Wall','-Wextra','-Werror','-Wl,--export-all-symbols',str(inputs[1]),'-o',str(dll)],check=True)
     lib=C.CDLL(str(dll));fn=lib.fnv_d3d9_texture_rgba8
     fn.argtypes=[C.POINTER(Patch),C.c_void_p,C.c_size_t,U32];fn.restype=U32
-    rng=random.Random(0x7E87);formats=(21,22,23,28,50)
+    rng=random.Random(0x7E87);formats=(20,21,22,23,28,50)
     for case in range(3000):
-        fmt=formats[case%5];unit={21:4,22:4,23:2,28:1,50:1}[fmt]
+        fmt=formats[case%len(formats)];unit={20:3,21:4,22:4,23:2,28:1,50:1}[fmt]
         w,h=rng.randint(1,20),rng.randint(1,17);left,top=rng.randrange(w),rng.randrange(h)
         cw,ch=rng.randint(1,w-left),rng.randint(1,h-top);sp=cw*unit+rng.randrange(13);dp=w*4+rng.randrange(13)
         source=rng.randbytes((ch-1)*sp+cw*unit);src=C.create_string_buffer(source)
@@ -30,7 +30,8 @@ def run(args):
         for y in range(ch):
             for x in range(cw):
                 v=source[y*sp+x*unit:y*sp+(x+1)*unit]
-                if fmt in (21,22):rgba=[v[2],v[1],v[0],v[3] if fmt==21 else 255]
+                if fmt==20:rgba=[v[2],v[1],v[0],255]
+                elif fmt in (21,22):rgba=[v[2],v[1],v[0],v[3] if fmt==21 else 255]
                 elif fmt==23:
                     bits=int.from_bytes(v,'little');rgba=[round((bits>>11)*255/31),round(((bits>>5)&63)*255/63),round((bits&31)*255/31),255]
                 elif fmt==28:rgba=[0,0,0,v[0]]

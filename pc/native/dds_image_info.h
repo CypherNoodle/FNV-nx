@@ -16,6 +16,7 @@ static inline uint32_t fnv_dds_image_info(const unsigned char *data,uint32_t byt
     uint32_t flags=fnv_dds_u32(data+80),fourcc=fnv_dds_u32(data+84),bits=fnv_dds_u32(data+88),format=0,block=0,type=3,faces=1;
     uint32_t r=fnv_dds_u32(data+92),g=fnv_dds_u32(data+96),b=fnv_dds_u32(data+100),a=fnv_dds_u32(data+104);
     if(flags&4){if((fourcc&0xffffffu)==0x545844u && (fourcc>>24)>=0x31 && (fourcc>>24)<=0x35){format=fourcc;block=fourcc==0x31545844u?8:16;}else return FNV_DDS_UNSUPPORTED;}
+    else if((flags&0x40) && bits==24 && r==0xff0000 && g==0xff00 && b==0xff && !a){format=20;}
     else if((flags&0x40) && bits==32 && r==0xff0000 && g==0xff00 && b==0xff && (a==0xff000000 || !a)){format=a?21:22;}
     else if((flags&0x40) && bits==32 && r==0xff && g==0xff00 && b==0xff0000 && (a==0xff000000 || !a)){format=a?32:33;}
     else if((flags&0x40) && bits==16 && r==0xf800 && g==0x7e0 && b==0x1f && !a){format=23;}
