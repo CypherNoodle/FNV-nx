@@ -211,9 +211,8 @@ sd:/switch/FNV-nx/Data/...
 sd:/switch/FNV-nx/fnv-pc.ini     # configuracion nativa futura, opcional
 ```
 
-EXE y datos junto al NRO, sin `pc/` ni `switch/wine/`. El cargador actual
-no crea ni copia carpetas. El INI `pc/fnv-pc.ini` conservado en este repo
-pertenece al experimento Wine y no configura la biblioteca nativa.
+EXE y datos junto al NRO, sin `pc/`. 
+El cargador actual no crea ni copia carpetas.
 Las rutas de guardados y cache nativos se definiran al integrar esos servicios.
 
 ## Proxima integracion
