@@ -76,6 +76,21 @@ int main(void){
     uintptr_t blank=0;CHECK(!p.create_texture(p.context,4,4,1,0,21,1,&blank));
     CHECK(fnv_vk_backend_read_texture(b,blank,0,out,sizeof(out),1000000000ull)==FNV_VK_INVALID);
     puts("uninitialized texture readback rejected OK");
+    /* Managed mip surfaces are logical aliases; they must not allocate GPU images. */
+    uintptr_t managed=0,aliases[4];CHECK(!p.create_texture(p.context,8,8,0,0,21,1,&managed));
+    struct fnv_vk_stats prior;CHECK(!fnv_vk_backend_stats(b,&prior));
+    for(unsigned l=0;l<4;l++) {
+        uintptr_t again=0;CHECK(!p.texture_surface(p.context,managed,l,&aliases[l]));
+        CHECK(!p.texture_surface(p.context,managed,l,&again) && again==aliases[l]);p.release(p.context,again);
+        uint32_t desc[8];CHECK(!p.surface_desc(p.context,aliases[l],desc));
+        CHECK(desc[0]==21 && desc[1]==1 && desc[2]==0 && desc[3]==1 && desc[6]==(8u>>l) && desc[7]==(8u>>l));
+        CHECK(p.set_target(p.context,0,0,aliases[l])==FNV_VK_INVALID);
+    }
+    uintptr_t invalid=0;CHECK(p.texture_surface(p.context,managed,4,&invalid)==FNV_VK_INVALID);
+    struct fnv_vk_stats after;CHECK(!fnv_vk_backend_stats(b,&after) && after.allocated_bytes==prior.allocated_bytes);
+    p.release(p.context,managed);
+    for(unsigned l=0;l<4;l++){uint32_t desc[8];CHECK(!p.surface_desc(p.context,aliases[l],desc));p.release(p.context,aliases[l]);}
+    puts("managed mip surface identity, dimensions, lifetime and no GPU allocation OK");
     p.release(p.context,a8);p.release(p.context,blank);p.device_release(p.context);CHECK(!fnv_vk_backend_wait(b,5000000000ull));
     struct fnv_vk_stats final;CHECK(!fnv_vk_backend_stats(b,&final));CHECK(!final.device_references && !final.live_textures && !final.allocated_bytes);CHECK(!fnv_vk_backend_destroy(b));
 #ifdef _WIN32

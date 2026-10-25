@@ -63,14 +63,15 @@ static uint32_t texture_surface(void *ctx,uintptr_t id,uint32_t level,uintptr_t 
     struct fnv_vk_backend *d=ctx;if(!out)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
-    if(!t || t->usage!=1 || level)goto done;
-    for(unsigned i=0;i<d->config.resource_capacity;i++)if(d->surfaces[i].id && d->surfaces[i].parent_texture==id){
+    if(!t || level>=t->levels || (t->usage==1 && level))goto done;
+    for(unsigned i=0;i<d->config.resource_capacity;i++)if(d->surfaces[i].id && d->surfaces[i].parent_texture==id && d->surfaces[i].level==level){
         struct surface *s=d->surfaces+i;if(!s->refs)d->device_refs++;s->refs++;*out=s->id;hr=0;goto done;
     }
     if(resource_count(d)>=d->config.resource_capacity){hr=FNV_VK_OOM;goto done;}
     if(d->next_id==UINTPTR_MAX)goto done;
     for(unsigned i=0;i<d->config.resource_capacity;i++)if(!d->surfaces[i].id){
         struct surface *s=d->surfaces+i;
+        if(t->usage!=1){*s=(struct surface){.id=++d->next_id,.refs=1,.width=mip_size(t->width,level),.height=mip_size(t->height,level),.parent_texture=id,.level=level,.shadow_alias=1};pin(d,id,1);d->device_refs++;*out=s->id;hr=0;break;}
         *s=(struct surface){.id=++d->next_id,.refs=1,.width=t->width,.height=t->height,.image=t->version->image,.view=t->version->view,.texture=t->version,.parent_texture=id,.layout=t->version->initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED};
         t->version->refs++;pin(d,id,1);d->device_refs++;*out=s->id;hr=0;break;
     }

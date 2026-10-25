@@ -1,7 +1,7 @@
 #define main baseline_main
 #include "d3d9_com_host.c"
 #undef main
-enum {CREATE_TEXTURE=20,LEVELS=21,LEVEL_DESC=22,LOCK_RECT=23,UNLOCK_RECT=24,SET_TEXTURE=25,GET_TEXTURE=26,RESOURCE_TYPE=27};
+enum {CREATE_TEXTURE=20,LEVELS=21,LEVEL_DESC=22,LOCK_RECT=23,UNLOCK_RECT=24,SET_TEXTURE=25,GET_TEXTURE=26,RESOURCE_TYPE=27,TEXTURE_SURFACE=28,SURFACE_LOCK=29,SURFACE_UNLOCK=30,SURFACE_DESC=31};
 _Static_assert(offsetof(IDirect3DDevice9Vtbl,CreateTexture)==23*sizeof(void*),"CreateTexture slot");
 _Static_assert(offsetof(IDirect3DDevice9Vtbl,SetTexture)==65*sizeof(void*),"SetTexture slot");
 _Static_assert(offsetof(IDirect3DTexture9Vtbl,GetLevelCount)==13*sizeof(void*),"LevelCount slot");
@@ -9,6 +9,14 @@ _Static_assert(offsetof(IDirect3DTexture9Vtbl,GetLevelDesc)==17*sizeof(void*),"L
 _Static_assert(offsetof(IDirect3DTexture9Vtbl,LockRect)==19*sizeof(void*) && sizeof(D3DSURFACE_DESC)==32,"texture ABI");
 static unsigned texture_creates,texture_updates,texture_roundtrips,mip_roundtrips,failed_texture,failed_upload,failed_binding;
 static uintptr_t last_texture;
+static unsigned surface_roundtrips;
+static uint32_t texture_surface(void *ctx,uintptr_t handle,uint32_t level,uintptr_t *out) {
+    (void)ctx;IDirect3DSurface9 *s=NULL;HRESULT hr=IDirect3DTexture9_GetSurfaceLevel((IDirect3DTexture9*)handle,level,&s);
+    if(SUCCEEDED(hr))*out=(uintptr_t)s;return (uint32_t)hr;
+}
+static uint32_t surface_desc(void *ctx,uintptr_t handle,uint32_t *out) {
+    (void)ctx;return (uint32_t)IDirect3DSurface9_GetDesc((IDirect3DSurface9*)handle,(D3DSURFACE_DESC*)out);
+}
 static uint32_t fail_texture_level=UINT32_MAX;
 static uint32_t create_texture(void *ctx,uint32_t w,uint32_t h,uint32_t levels,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out) {
     (void)ctx;if(failed_texture)return 0x80004005;IDirect3DTexture9 *t=NULL;
@@ -49,7 +57,7 @@ static HWND setup(char **argv) {
     D3DPRESENT_PARAMETERS p={0};p.Windowed=TRUE;p.SwapEffect=D3DSWAPEFFECT_DISCARD;p.hDeviceWindow=window;assert(SUCCEEDED(IDirect3D9_CreateDevice(api,0,D3DDEVTYPE_NULLREF,window,D3DCREATE_SOFTWARE_VERTEXPROCESSING,&p,&device)));
     struct fnv_d3d9_com_config cc={.objects_address=objects,.objects_bytes=65536,.resource_capacity=4096,.vertex_floats=256,.pixel_floats=224,.catalog=catalog,.catalog_count=catalog_count,
         .backend={.create=backend_create,.addref=backend_addref,.release=backend_release,.device_addref=device_addref,.device_release=device_release,
-            .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture},.memory=vm,.buffer_address=shadow,.buffer_bytes=4u<<20};
+            .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,.texture_surface=texture_surface,.surface_desc=surface_desc},.memory=vm,.buffer_address=shadow,.buffer_bytes=4u<<20};
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);
 #ifdef FNV_TEXTURE_IMPORT_SETUP
     FNV_TEXTURE_IMPORT_SETUP(&image);
@@ -104,6 +112,29 @@ static void bindings(uint32_t texture,uintptr_t native) {
     assert(!call(GET_TEXTURE,3,get_args) && get(GUEST_OUT)==texture);assert(!release(texture));
     assert(!call(SET_TEXTURE,3,set));assert(!call(GET_TEXTURE,3,get_args) && !get(GUEST_OUT));
 }
+static void surface_mips(void) {
+    uint32_t t=make_texture(8,8,0,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED);
+    IDirect3DTexture9 *native=(IDirect3DTexture9*)last_texture;
+    for(unsigned level=0;level<4;level++) {
+        uint32_t get_surface[]={t,level,GUEST_OUT};assert(!call(TEXTURE_SURFACE,3,get_surface));uint32_t s=get(GUEST_OUT);
+        assert(!call(TEXTURE_SURFACE,3,get_surface) && get(GUEST_OUT)==s);release(s);
+        D3DSURFACE_DESC expected;assert(SUCCEEDED(IDirect3DTexture9_GetLevelDesc(native,level,&expected)));
+        uint32_t desc[]={s,DATA};assert(!call(SURFACE_DESC,2,desc) && !memcmp(ptr(DATA),&expected,32));
+        uint32_t lock[]={s,GUEST_OUT,0,0};assert(!call(SURFACE_LOCK,4,lock));unsigned pitch=get(GUEST_OUT),at=get(GUEST_OUT+4);
+        for(unsigned y=0;y<expected.Height;y++)memset(ptr(at)+y*pitch,(int)(0x31+level),expected.Width*4);
+        failed_upload=1;assert(call(SURFACE_UNLOCK,1,&s)==0x80004005);failed_upload=0;assert(!call(SURFACE_UNLOCK,1,&s));
+        D3DLOCKED_RECT actual;assert(SUCCEEDED(IDirect3DTexture9_LockRect(native,level,&actual,NULL,D3DLOCK_READONLY)));
+        for(unsigned y=0;y<expected.Height;y++)assert(!memcmp(ptr(at)+y*pitch,(char*)actual.pBits+y*actual.Pitch,expected.Width*4));
+        assert(SUCCEEDED(IDirect3DTexture9_UnlockRect(native,level)));
+        uint32_t tl[]={t,level,GUEST_OUT,0,D3DLOCK_READONLY};assert(!call(LOCK_RECT,5,tl) && get(GUEST_OUT+4)==at);
+        uint32_t tu[]={t,level};assert(!call(UNLOCK_RECT,2,tu));
+        unsigned updates=texture_updates;lock[3]=D3DLOCK_READONLY;assert(!call(SURFACE_LOCK,4,lock));assert(!call(SURFACE_UNLOCK,1,&s) && texture_updates==updates);
+        assert(call(SURFACE_UNLOCK,1,&s)==FNV_D3D9_INVALIDCALL);assert(!release(s));surface_roundtrips++;
+    }
+    uint32_t invalid[]={t,4,GUEST_OUT};assert(call(TEXTURE_SURFACE,3,invalid)==FNV_D3D9_INVALIDCALL);
+    uint32_t get_surface[]={t,0,GUEST_OUT};assert(!call(TEXTURE_SURFACE,3,get_surface));uint32_t s=get(GUEST_OUT);assert(!release(t));
+    uint32_t lock[]={s,GUEST_OUT,0,D3DLOCK_READONLY};assert(!call(SURFACE_LOCK,4,lock) && !call(SURFACE_UNLOCK,1,&s));assert(!release(s));
+}
 #ifndef FNV_TEXTURE_BASELINE_MAIN
 #define FNV_TEXTURE_BASELINE_MAIN main
 #endif
@@ -120,6 +151,7 @@ int FNV_TEXTURE_BASELINE_MAIN(int argc,char **argv) {
         uint32_t t=make_texture(8,8,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED),args[]={t,0,GUEST_OUT,0,0};assert(!call(LOCK_RECT,5,args));struct fnv_cpu_fault fault;
         assert(invoke(LOCK_RECT,5,args,NULL,&fault)==FNV_CPU_GUEST_FAULT && fault.kind==FNV_CPU_UNIMPLEMENTED);
     } else {
+        surface_mips();
         const D3DFORMAT formats[]={D3DFMT_A8R8G8B8,D3DFMT_X8R8G8B8,D3DFMT_R5G6B5,D3DFMT_A8,D3DFMT_L8,D3DFMT_DXT1,D3DFMT_DXT2,D3DFMT_DXT3,D3DFMT_DXT4,D3DFMT_DXT5};
         for(unsigned i=0;i<sizeof(formats)/sizeof(*formats);i++) {
             uint32_t t=make_texture(8,8,0,0,formats[i],D3DPOOL_MANAGED);IDirect3DTexture9 *native=(IDirect3DTexture9*)last_texture;
@@ -140,5 +172,5 @@ int FNV_TEXTURE_BASELINE_MAIN(int argc,char **argv) {
     assert(fnv_cpu_unregister_native(cpu,dummy_token,1)==FNV_CPU_OK && fnv_cpu_destroy(cpu)==FNV_CPU_OK && !fnv_vm_destroy(vm).error);
     assert(VirtualFree(arena,0,MEM_RELEASE));IDirect3D9_Release(api);DestroyWindow(window);
     for(unsigned i=0;i<catalog_count;i++)free((void*)catalog[i].bytes);free(catalog);
-    printf("{\"status\":\"PASS\",\"prepared_methods\":67,\"texture_creates\":%u,\"texture_updates\":%u,\"texture_roundtrips\":%u,\"mip_roundtrips\":%u}\n",texture_creates,texture_updates,texture_roundtrips,mip_roundtrips);return 0;
+    printf("{\"status\":\"PASS\",\"prepared_methods\":%u,\"texture_creates\":%u,\"texture_updates\":%u,\"texture_roundtrips\":%u,\"mip_roundtrips\":%u,\"surface_roundtrips\":%u}\n",FNV_D3D9_COM_METHOD_COUNT,texture_creates,texture_updates,texture_roundtrips,mip_roundtrips,surface_roundtrips);return 0;
 }

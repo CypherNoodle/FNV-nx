@@ -29,7 +29,7 @@ struct surface {
     uintptr_t id;uint32_t refs,pins,width,height,depth,flag;
     VkImage image;VkDeviceMemory memory;VkImageView view;VkDeviceSize allocation;
     VkImageLayout layout;
-    struct texture_version *texture;uintptr_t parent_texture;
+    struct texture_version *texture;uintptr_t parent_texture;uint32_t level,shadow_alias;
 };
 struct buffer_version {VkBuffer buffer;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs;};
 struct buffer_resource {
@@ -144,7 +144,7 @@ static void collect_buffer(struct fnv_vk_backend *d,struct buffer_resource *b){
 static void pin(struct fnv_vk_backend *,uintptr_t,int);
 static void collect(struct fnv_vk_backend *d,struct surface *s){
     if(!s || !s->id || s->refs || s->pins)return;
-    if(s->texture){struct texture_version *v=s->texture;uintptr_t parent=s->parent_texture;memset(s,0,sizeof(*s));release_texture_version(d,v);pin(d,parent,0);return;}
+    if(s->parent_texture){struct texture_version *v=s->texture;uintptr_t parent=s->parent_texture;memset(s,0,sizeof(*s));release_texture_version(d,v);pin(d,parent,0);return;}
     d->v.DestroyImageView(d->device,s->view,NULL);d->v.DestroyImage(d->device,s->image,NULL);
     d->v.FreeMemory(d->device,s->memory,NULL);d->allocated-=s->allocation;memset(s,0,sizeof(*s));
 }
@@ -418,7 +418,9 @@ static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_
 }
 static uint32_t describe(void *ctx,uintptr_t id,uint32_t values[8]){
     struct fnv_vk_backend *d=ctx;if(!values)return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);uint32_t hr=FNV_VK_INVALID;
-    if(s){const uint32_t v[8]={s->depth?75u:s->id==d->back && d->presentation_format?d->presentation_format:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}fnv_host_mutex_unlock(&d->guard);return hr;
+    if(s && s->shadow_alias){struct texture_resource *t=find_texture(d,s->parent_texture);if(t){const uint32_t v[8]={t->format,1,t->usage,t->pool,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}}
+    else if(s){const uint32_t v[8]={s->depth?75u:s->id==d->back && d->presentation_format?d->presentation_format:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}
+    fnv_host_mutex_unlock(&d->guard);return hr;
 }
 uint32_t fnv_vk_backend_presentation_format(struct fnv_vk_backend *d,uint32_t format){
     if(!d || (format!=21 && format!=22))return FNV_VK_INVALID;
@@ -430,7 +432,7 @@ uint32_t fnv_vk_backend_presentation_format(struct fnv_vk_backend *d,uint32_t fo
 static uint32_t set_target(void *ctx,int depth,uint32_t index,uintptr_t id){
     struct fnv_vk_backend *d=ctx;if(index || (depth!=0 && depth!=1))return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);
     struct surface *s=find(d,id),*other=find(d,depth?d->color:d->depth);uint32_t hr=FNV_VK_INVALID;
-    if(!d->lost && d->device_refs && ((!id && depth) || (s && s->depth==(uint32_t)depth)) &&
+    if(!d->lost && d->device_refs && ((!id && depth) || (s && !s->shadow_alias && s->depth==(uint32_t)depth)) &&
        (!s || !other || (depth?(s->width>=other->width && s->height>=other->height):(other->width>=s->width && other->height>=s->height)))){
         uintptr_t *slot=depth?&d->depth:&d->color;uintptr_t old=*slot;pin(d,id,1);*slot=id;pin(d,old,0);
         if(!depth){full_viewport(d,s);d->scissor[0]=d->scissor[1]=0;d->scissor[2]=s->width;d->scissor[3]=s->height;}hr=0;
@@ -588,7 +590,7 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     unsigned char *copy=NULL;struct frame *f=NULL;int held=0;
     if(buffer_read==2){if(!t || level>=t->levels || (!t->version->initialized && !t->dirty) || texture_level_bytes(t,level)>output_bytes)goto done;}
     else if(buffer_read){if(!b || !requested || offset>b->bytes || requested>b->bytes-offset || requested>output_bytes)goto done;}
-    else if(!s || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
+    else if(!s || s->shadow_alias || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
     size_t bytes=buffer_read==2?texture_level_bytes(t,level):buffer_read?requested:(size_t)s->width*s->height*4;
     VkDeviceSize aligned=buffer_read==1?offset&~(VkDeviceSize)3:0,skip=buffer_read==1?offset-aligned:0;
     VkDeviceSize transfer_bytes=buffer_read==1?(((VkDeviceSize)offset+bytes+3)&~(VkDeviceSize)3)-aligned:bytes;
@@ -661,7 +663,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
             release_version(d,f->read_version);release_texture_version(d,f->read_texture);
         }
         if(d->surfaces)for(uint32_t i=0;i<d->config.resource_capacity;++i){struct surface *s=d->surfaces+i;
-            if(s->texture)release_texture_version(d,s->texture);
+            if(s->parent_texture)release_texture_version(d,s->texture);
             else {if(s->view)d->v.DestroyImageView(d->device,s->view,NULL);
                 if(s->image)d->v.DestroyImage(d->device,s->image,NULL);
                 if(s->memory)d->v.FreeMemory(d->device,s->memory,NULL);}
