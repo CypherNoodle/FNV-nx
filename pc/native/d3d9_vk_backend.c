@@ -36,10 +36,10 @@ struct buffer_resource {
     uintptr_t id;uint32_t refs,pins,kind,bytes,usage,format,pool;
     unsigned char *shadow;struct buffer_version *version;
 };
-struct texture_version {VkImage image;VkImageView view;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,initialized;};
+struct texture_version {VkImage image;VkImageView view;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,initialized,layers;};
 struct texture_resource {
     uintptr_t id;uint32_t refs,pins,block_pins,width,height,levels,usage,format,pool;
-    size_t bytes,offsets[16];unsigned char *shadow;struct texture_version *version;uint32_t dirty;
+    size_t bytes,offsets[16],face_bytes;uint32_t faces;unsigned char *shadow;struct texture_version *version;uint32_t dirty;
 };
 struct shader_catalog {
     struct shader_catalog *next;enum fnv_d3d9_stage stage;uint32_t code_bytes,spirv_bytes;
@@ -47,7 +47,7 @@ struct shader_catalog {
 };
 struct shader_resource {uintptr_t id;uint32_t refs,pins;struct shader_catalog *entry;VkShaderModule module;};
 struct declaration_resource {uintptr_t id;uint32_t refs,pins,count;unsigned char elements[65*8];VkFormat formats[64];};
-struct program_entry {struct program_entry *next;struct shader_catalog *stages[2];uint32_t count,mask;struct fnv_vk_vertex_input inputs[32];};
+struct program_entry {struct program_entry *next;struct shader_catalog *stages[2];uint32_t count,mask,cube_mask;struct fnv_vk_vertex_input inputs[32];};
 struct draw_resources {
     uintptr_t ids[40];uint32_t count;
     struct buffer_version *vertices[16],*indices,*ubo[2];struct texture_version *textures[16];
@@ -77,7 +77,7 @@ struct fnv_vk_backend {
     struct program_entry *programs;uint32_t program_count;uint64_t draws,resets;
     struct fnv_d3d9_blend blend_state;struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
     /* Internal sampled NULL: no public resource identity or device reference. */
-    struct texture_resource null_texture;unsigned char null_texel[4];
+    struct texture_resource null_texture,null_cube;unsigned char null_texel[4],null_cube_texels[24];
     struct shader_catalog *catalog;uint32_t catalog_count;
     struct shader_resource *shaders;struct declaration_resource *declarations;
     uintptr_t bound_shaders[2],declaration,fixed_vertex,fixed_directional,fixed_pixel[4];uint32_t texture_stage[2][6],texture_coord_index[2];uint32_t lighting,normalize_normals,color_vertex,specular,ambient;struct fnv_uniform_state *uniforms;
@@ -500,7 +500,7 @@ static uint32_t cooperative(void *ctx){struct fnv_vk_backend *d=ctx;fnv_host_mut
 void fnv_vk_backend_callbacks(struct fnv_vk_backend *d,struct fnv_d3d9_shader_backend *out){
     if(!out)return;
     *out=(struct fnv_d3d9_shader_backend){.context=d,.create=create_shader,.bind_shader=bind_shader,.create_declaration=create_declaration,.bind_declaration=bind_declaration,.upload_constants=upload_constants,.addref=addref,.release=release,.device_addref=device_addref,.device_release=device_release,
-        .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,.texture_surface=texture_surface,
+        .create_texture=create_texture,.upload_texture=upload_texture,.create_cube_texture=create_cube_texture,.upload_cube_texture=upload_cube_texture,.bind_texture=bind_texture,.texture_surface=texture_surface,
         .create_buffer=create_buffer,.update_buffer=update_buffer,.bind_stream=bind_stream,.bind_indices=bind_indices,.stream_frequency=frequency,
         .create_surface=create_surface,.surface_desc=describe,.set_target=set_target,.get_target=get_target,.state=state,.state_batch=state_batch,.resource_pin=resource_pin,.clear=clear,.scene=scene,.draw=draw,.draw_fixed_unlit=draw_fixed_unlit,.draw_fixed_directional=draw_fixed_directional,.draw_up=draw_up,.present=d && d->wsi.chain?present_device:NULL,.reset=reset_device,.cooperative=cooperative};
 }
@@ -588,7 +588,7 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     if(!d || !output)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);struct buffer_resource *b=find_buffer(d,id);uint32_t hr=FNV_VK_INVALID;struct texture_resource *t=find_texture(d,id);uint32_t level=offset;
     unsigned char *copy=NULL;struct frame *f=NULL;int held=0;
-    if(buffer_read==2){if(!t || level>=t->levels || (!t->version->initialized && !t->dirty) || texture_level_bytes(t,level)>output_bytes)goto done;}
+    if(buffer_read==2){if(!t || (requested ? (t->faces!=6 || requested>6) : t->faces==6) || level>=t->levels || (!t->version->initialized && !t->dirty) || texture_level_bytes(t,level)>output_bytes)goto done;}
     else if(buffer_read){if(!b || !requested || offset>b->bytes || requested>b->bytes-offset || requested>output_bytes)goto done;}
     else if(!s || s->shadow_alias || s->depth || (uint64_t)s->width*s->height*4>output_bytes)goto done;
     size_t bytes=buffer_read==2?texture_level_bytes(t,level):buffer_read?requested:(size_t)s->width*s->height*4;
@@ -611,7 +611,7 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     if(buffer_read==2){
         f->read_texture=t->version;f->read_texture->refs++;
         texture_barrier(d,f->cmd,t->version,VK_IMAGE_LAYOUT_GENERAL,VK_ACCESS_MEMORY_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT,t->levels);
-        VkBufferImageCopy region={.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,level,0,1},.imageExtent={mip_size(t->width,level),mip_size(t->height,level),1}};
+        VkBufferImageCopy region={.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,level,requested?requested-1:0,1},.imageExtent={mip_size(t->width,level),mip_size(t->height,level),1}};
         d->v.CmdCopyImageToBuffer(f->cmd,t->version->image,VK_IMAGE_LAYOUT_GENERAL,f->read_buffer,1,&region);
     }else if(buffer_read){
         f->read_version=b->version;f->read_version->refs++;
@@ -644,6 +644,10 @@ done:
 uint32_t fnv_vk_backend_read_color(struct fnv_vk_backend *d,uintptr_t id,void *out,size_t bytes,uint64_t timeout){return read_resource(d,id,0,0,0,out,bytes,timeout);}
 uint32_t fnv_vk_backend_read_buffer(struct fnv_vk_backend *d,uintptr_t id,uint32_t offset,uint32_t bytes,void *out,size_t capacity,uint64_t timeout){return read_resource(d,id,offset,bytes,1,out,capacity,timeout);}
 uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *d,uintptr_t id,uint32_t level,void *out,size_t bytes,uint64_t timeout){return read_resource(d,id,level,0,2,out,bytes,timeout);}
+uint32_t fnv_vk_backend_read_cube_texture(struct fnv_vk_backend *d,uintptr_t id,uint32_t face,uint32_t level,void *out,size_t bytes,uint64_t timeout){
+    if(face>=6)return FNV_VK_INVALID;
+    return read_resource(d,id,level,face+1,2,out,bytes,timeout);
+}
 static uint32_t destroy_storage(struct fnv_vk_backend *d){
     if(d->device){
         VkResult idle=VK_SUCCESS;
@@ -671,7 +675,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
         if(d->buffer_resources)for(uint32_t i=0;i<d->config.resource_capacity;++i){struct buffer_resource *b=d->buffer_resources+i;
             release_version(d,b->version);free(b->shadow);}
         if(d->textures)for(uint32_t i=0;i<d->config.resource_capacity;++i){release_texture_version(d,d->textures[i].version);free(d->textures[i].shadow);}
-        release_texture_version(d,d->null_texture.version);
+        release_texture_version(d,d->null_texture.version);release_texture_version(d,d->null_cube.version);
         if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
         for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->variant_module)d->v.DestroyShaderModule(d->device,e->variant_module,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
@@ -697,7 +701,7 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     if(!out)return FNV_VK_INVALID;
     *out=NULL;
     if(!gp || !cfg || !cfg->width || !cfg->height || cfg->frames<1 || cfg->frames>3 || cfg->commands<1 || cfg->commands>128 ||
-       cfg->resource_capacity<2 || cfg->resource_capacity>2048 || !cfg->memory_budget || cfg->auto_depth>1)return FNV_VK_INVALID;
+       cfg->resource_capacity<2 || cfg->resource_capacity>8192 || !cfg->memory_budget || cfg->auto_depth>1)return FNV_VK_INVALID;
     if(window && (!window->extension || !window->create_surface || window->vsync>1))return FNV_VK_INVALID;
     struct fnv_vk_backend *d=calloc(1,sizeof(*d));if(!d)return FNV_VK_OOM;
     if(!fnv_host_mutex_init(&d->guard)){free(d);return FNV_VK_OOM;}

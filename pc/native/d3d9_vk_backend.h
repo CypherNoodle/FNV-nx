@@ -10,7 +10,7 @@ struct fnv_vk_prepared_program;
  * no replacement of an existing original pair. Later failure may be partial. */
 uint32_t fnv_vk_backend_prepare_variant(struct fnv_vk_backend *,const struct fnv_vk_prepared_program *);
 struct fnv_vk_config {
-    uint32_t width,height,resource_capacity,frames,commands; /* resource capacity: 2..2048 */
+    uint32_t width,height,resource_capacity,frames,commands; /* resource capacity: 2..8192 */
     uint64_t memory_budget;
     uint32_t auto_depth; /* D24S8, optional. Offscreen color is ARGB8. */
 };
@@ -105,6 +105,8 @@ uint32_t fnv_vk_backend_read_buffer(struct fnv_vk_backend *,uintptr_t,uint32_t o
 /* Diagnostic readback: RGBA8 for converted textures, tightly packed BC blocks
  * for DXT1/3/5. This is not a D3D9 application method or decoder. */
 uint32_t fnv_vk_backend_read_texture(struct fnv_vk_backend *,uintptr_t,uint32_t level,void *,size_t,uint64_t timeout_ns);
+/* Explicit cube face readback; rejects 2D resources and invalid faces. */
+uint32_t fnv_vk_backend_read_cube_texture(struct fnv_vk_backend *,uintptr_t,uint32_t face,uint32_t level,void *,size_t,uint64_t timeout_ns);
 /* Admit exact original tokens already validated by a trusted offline tool.
  * Copies bytes, idempotent by stage+tokens. This does not validate shader
  * instructions, compile SPIR-V, link a pair or change advertised caps.

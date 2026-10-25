@@ -24,8 +24,8 @@ static void api_reset(void){
        values[12]!=c->present_params[12] || values[13]!=c->present_params[13])goto failure;
     for(uint32_t i=0;i<c->used;++i){struct resource *r=c->resources+i;
         if(!r->handle)continue;
-        if(r->locked || ((r->references || r->state_pins) && (r->kind==FNV_D3D9_SURFACE || ((r->kind==FNV_D3D9_VB || r->kind==FNV_D3D9_IB || r->kind==FNV_D3D9_TEXTURE2D) && !r->pool))))goto failure;
-        for(uint32_t level=0;level<r->levels;++level)if(r->mips[level].locked)goto failure;
+        if(r->locked || ((r->references || r->state_pins) && (r->kind==FNV_D3D9_SURFACE || ((r->kind==FNV_D3D9_VB || r->kind==FNV_D3D9_IB || r->kind==FNV_D3D9_TEXTURE2D || r->kind==FNV_D3D9_TEXTURECUBE) && !r->pool))))goto failure;
+        for(uint32_t level=0;level<r->levels*(r->faces?r->faces:1);++level)if(r->mips[level].locked)goto failure;
     }
     hr=fnv_d3d9_constants_create(c->config.vertex_floats,c->config.pixel_floats,&fresh);if(hr)goto failure;
     hr=c->config.backend.reset(c->config.backend.context,c->config.reset_timeout_ns);if(hr)goto failure;

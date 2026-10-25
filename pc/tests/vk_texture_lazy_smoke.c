@@ -17,6 +17,8 @@ static uint32_t submissions(struct fnv_vk_backend *b){struct fnv_vk_stats s;if(f
 static unsigned seed=12345;
 static unsigned char rnd(void){seed=seed*1103515245u+12345u;return (unsigned char)(seed>>16);}
 
+#include "vk_cube_texture_fixture.h"
+
 int main(void){
     struct fnv_vk_config cfg={64,64,16,2,8,256u<<20,0};struct fnv_vk_backend *b=NULL;VkResult why=VK_SUCCESS;
     PFN_vkGetInstanceProcAddr gpa;
@@ -84,6 +86,7 @@ int main(void){
     unsigned char patch[3]={91,92,93};CHECK(!p.upload_texture(p.context,rgb24,0,1,1,1,1,0,3,patch));unsigned char partial[24];CHECK(!fnv_vk_backend_read_texture(b,rgb24,0,partial,sizeof(partial),1000000000ull));
     CHECK(partial[16]==93 && partial[17]==92 && partial[18]==91 && partial[19]==255);CHECK(!memcmp(partial,expanded,16) && !memcmp(partial+20,expanded+20,4));p.release(p.context,rgb24);
     puts("BGR24 odd pitch, opaque alpha and partial upload GPU readback OK");
+    CHECK(!cube_textures(b,&p));
     /* Managed mip surfaces are logical aliases; they must not allocate GPU images. */
     uintptr_t managed=0,aliases[4];CHECK(!p.create_texture(p.context,8,8,0,0,21,1,&managed));
     struct fnv_vk_stats prior;CHECK(!fnv_vk_backend_stats(b,&prior));

@@ -47,7 +47,7 @@ def test(a,host_source='d3d9_com_host.c',slots=None,modes=None,strict_fault_case
         dll=b'd3dx9_38.dll\0' if image_import else b'd3d9.dll\0'
         raw[0x330:0x330+len(dll)]=dll
         struct.pack_into('<II',raw,0x340,0x1160,0)
-        name=b'\0\0D3DXCreateTextureFromFileInMemory\0' if image_import else b'\0\0Direct3DCreate9\0'
+        name=b'\0\0D3DXCreateCubeTextureFromFileInMemory\0' if image_import=='cube' else b'\0\0D3DXCreateTextureFromFileInMemory\0' if image_import else b'\0\0Direct3DCreate9\0'
         raw[0x3a0:0x3a0+len(name)]=name
         struct.pack_into('<I',raw,0x340,0x11a0)
         struct.pack_into('<II',raw,0x380,0x11a0,0)

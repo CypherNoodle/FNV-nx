@@ -58,6 +58,9 @@ static HWND setup(char **argv) {
     struct fnv_d3d9_com_config cc={.objects_address=objects,.objects_bytes=65536,.resource_capacity=4096,.vertex_floats=256,.pixel_floats=224,.catalog=catalog,.catalog_count=catalog_count,
         .backend={.create=backend_create,.addref=backend_addref,.release=backend_release,.device_addref=device_addref,.device_release=device_release,
             .create_texture=create_texture,.upload_texture=upload_texture,.bind_texture=bind_texture,.texture_surface=texture_surface,.surface_desc=surface_desc},.memory=vm,.buffer_address=shadow,.buffer_bytes=4u<<20};
+#ifdef FNV_TEXTURE_BACKEND_SETUP
+    FNV_TEXTURE_BACKEND_SETUP(&cc.backend);
+#endif
     assert(fnv_d3d9_com_create(cpu,&cc,&com)==FNV_CPU_OK);device_at=fnv_d3d9_com_device(com);
 #ifdef FNV_TEXTURE_IMPORT_SETUP
     FNV_TEXTURE_IMPORT_SETUP(&image);

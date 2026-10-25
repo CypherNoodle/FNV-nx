@@ -7,7 +7,7 @@ static void bind_dds_import(struct fnv_native_image *);
 #include "dds_image_info.h"
 static void bind_dds_import(struct fnv_native_image *image){
     size_t n,bound;const struct fnv_cpu_export *e=fnv_d3d9_com_exports(com,&n);struct fnv_native_import imports[4];
-    assert(n==1 && !strcmp(e[0].name,"D3DXCreateTextureFromFileInMemory"));
+    assert(n==2 && !strcmp(e[0].name,"D3DXCreateTextureFromFileInMemory"));
     assert(fnv_cpu_bind_imports(cpu,image,imports,4,e,n,&bound)==FNV_NATIVE_OK && bound==1);
 }
 static unsigned char image_data[262144];

@@ -1,3 +1,4 @@
+#include "d3d9_vk_sampler_shapes.inc"
 /* Initial native draws: immediate submissions, explicit backpressure, no cache. */
 static void release_draw(struct fnv_vk_backend *d,struct draw_resources *r){
     if(!r)return;
@@ -19,12 +20,13 @@ static uint32_t link_program(struct fnv_vk_backend *d,const void *vertex,uint32_
     for(struct shader_catalog *e=d->catalog;e;e=e->next){const void *code=e->stage?pixel:vertex;uint32_t bytes=e->stage?pixel_bytes:vertex_bytes;
         if(e->spirv_bytes && !next.stages[e->stage] && e->code_bytes==bytes && !memcmp(e->code,code,bytes) && (!variant || shader_payload(e,variant->stages[e->stage].spirv,variant->stages[e->stage].spirv_bytes,&variant->stages[e->stage].plan)))next.stages[e->stage]=e;}
     if(!next.stages[0] || !next.stages[1] || count>d->properties.limits.maxVertexInputAttributes)goto done;
+    uint32_t shape_hr=sampler_shapes(next.stages[1]->spirv,next.stages[1]->spirv_bytes,mask,&next.cube_mask);if(shape_hr){hr=shape_hr;goto done;}
     uint32_t samplers=0;for(unsigned i=0;i<16;++i)samplers+=(mask>>i)&1;
     if(samplers>d->properties.limits.maxPerStageDescriptorSamplers || samplers>d->properties.limits.maxPerStageDescriptorSampledImages)goto done;
     for(uint32_t i=0;i<count;++i){if(inputs[i].usage>13 || inputs[i].index>15 || inputs[i].location>=d->properties.limits.maxVertexInputAttributes)goto done;
         for(uint32_t j=0;j<i;++j)if(inputs[i].location==inputs[j].location || (inputs[i].usage==inputs[j].usage && inputs[i].index==inputs[j].index))goto done;}
     for(struct program_entry *e=d->programs;e;e=e->next)if(same_shader_code(e->stages[0],next.stages[0]) && same_shader_code(e->stages[1],next.stages[1])){
-        if(!reuse || (variant && (e->stages[0]!=next.stages[0] || e->stages[1]!=next.stages[1])) || e->count!=count || e->mask!=mask)goto done;
+        if(!reuse || (variant && (e->stages[0]!=next.stages[0] || e->stages[1]!=next.stages[1])) || e->count!=count || e->mask!=mask || e->cube_mask!=next.cube_mask)goto done;
         for(uint32_t i=0;i<count;i++)if(e->inputs[i].usage!=inputs[i].usage || e->inputs[i].index!=inputs[i].index || e->inputs[i].location!=inputs[i].location)goto done;
         hr=0;goto done;
     }
@@ -184,9 +186,12 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     VkSamplerCreateInfo sampler_info[16];struct texture_resource *sampled[16]={0};
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
         if(!d->texture_bindings[i]){
-            t=&d->null_texture;
-            if(!t->width){d->null_texel[3]=255;t->width=t->height=t->levels=1;t->format=21;t->bytes=4;t->shadow=d->null_texel;t->dirty=1;}
+            if(program->cube_mask&(1u<<i)){t=&d->null_cube;
+                if(!t->width){for(unsigned face=0;face<6;face++)d->null_cube_texels[face*4+3]=255;t->width=t->height=t->levels=1;t->faces=6;t->format=21;t->bytes=24;t->face_bytes=4;t->shadow=d->null_cube_texels;t->dirty=1;}
+            }else{t=&d->null_texture;
+                if(!t->width){d->null_texel[3]=255;t->width=t->height=t->levels=1;t->format=21;t->bytes=t->face_bytes=4;t->faces=1;t->shadow=d->null_texel;t->dirty=1;}}
         }
+        if(t && ((t->faces==6)!=!!(program->cube_mask&(1u<<i)))){hr=FNV_VK_INVALID;goto done;}
         sampled[i]=t;
         if(t && t->usage==1){
             if(color->parent_texture==t->id){hr=FNV_VK_INVALID;goto done;}

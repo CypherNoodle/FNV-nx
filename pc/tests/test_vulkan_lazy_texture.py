@@ -10,7 +10,7 @@ def run(a):
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     sources=[pc/'native'/name for name in ('d3d9_vk_backend.c','d3d9_texture_upload.c','d3d9_uniform_state.c','d3d9_uniform_pack.c','d3d9_geometry.c','d3d9_vk_state.c')]
     tests=[pc/'tests'/name for name in ('vk_texture_lazy_smoke.c','vk_texture_lazy_regression.c')]
-    inputs=[*sources,*tests,Path(__file__).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),*sorted(a.headers.resolve().rglob('*.h'))]
+    inputs=[*sources,*tests,pc/'tests/vk_cube_texture_fixture.h',Path(__file__).resolve(),*sorted((pc/'native').glob('*.h')),*sorted((pc/'native').glob('*.inc')),*sorted(a.headers.resolve().rglob('*.h'))]
     def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
     frozen={str(p):sha(p) for p in inputs};results={}
     for test in tests:

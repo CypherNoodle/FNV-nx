@@ -2,10 +2,10 @@
 #define FNV_D3D9_COM_H
 #include "cpu_runtime.h"
 #include "d3d9_constants.h"
-#define FNV_D3D9_COM_METHOD_COUNT 112u
+#define FNV_D3D9_COM_METHOD_COUNT 115u
 struct fnv_guest_memory;
 struct fnv_d3d9_com;
-enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE,FNV_D3D9_STATEBLOCK };
+enum fnv_d3d9_resource_kind { FNV_D3D9_VS,FNV_D3D9_PS,FNV_D3D9_VB,FNV_D3D9_IB,FNV_D3D9_DECL,FNV_D3D9_TEXTURE2D,FNV_D3D9_SURFACE,FNV_D3D9_STATEBLOCK,FNV_D3D9_TEXTURECUBE };
 enum fnv_d3d9_state_kind { FNV_D3D9_RENDER_STATE,FNV_D3D9_SAMPLER_STATE,FNV_D3D9_VIEWPORT,FNV_D3D9_SCISSOR,FNV_D3D9_TEXTURE_BINDING,FNV_D3D9_SHADER_BINDING,FNV_D3D9_TEXTURE_STAGE_STATE };
 struct fnv_d3d9_state_value {enum fnv_d3d9_state_kind kind;uint32_t sampler,name,values[6];};
 struct fnv_d3d9_shader_code { const void *bytes;uint32_t size; };
@@ -104,6 +104,10 @@ struct fnv_d3d9_shader_backend {
     /* Acquires one public surface reference for a texture mip. The provider
      * must retain its parent texture/storage through the surface lifetime. */
     uint32_t (*texture_surface)(void *,uintptr_t texture,uint32_t level,uintptr_t *);
+    /* Managed/default sampled cube, six ordered D3DCUBEMAP_FACES. No RT cubes.
+     * Per-face upload has the same transactional/version contract as 2D. */
+    uint32_t (*create_cube_texture)(void *,uint32_t edge,uint32_t levels,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *);
+    uint32_t (*upload_cube_texture)(void *,uintptr_t,uint32_t face,uint32_t level,uint32_t left,uint32_t top,uint32_t width,uint32_t height,uint32_t flags,uint32_t pitch,const void *);
 };
 /* Optional single prepared virtual-adapter factory. Dimensions/formats must
  * match the provider's real implicit targets. No swapchain/caps are invented.
