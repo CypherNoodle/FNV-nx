@@ -103,10 +103,40 @@ static void listener_test(uint32_t root,IDirectSound8 *native){
     }
     uint32_t zero[]={listener,0,0,0,0,0,0,0};assert(call(L_ORIENTATION_SET,zero,8,0)==(uint32_t)IDirectSound3DListener_SetOrientation(nl,0,0,0,0,0,0,0));listener_compare(listener,nl);
     /* The listener keeps its controlling primary alive after buffer Release. */
-    uint32_t drop[]={primary};assert(call(RELEASE,drop,1,0)>0);IDirectSoundBuffer_Release(np);listener_compare(listener,nl);
+    uint32_t drop[]={primary};assert(call(RELEASE,drop,1,0)==IDirectSoundBuffer_Release(np));listener_compare(listener,nl);
     release(listener);IDirectSound3DListener_Release(nl);
 }
 #include "dsound_spatial_fixture.h"
+static void interface_refs_test(uint32_t root,IDirectSound8 *native){
+    wave(48000,1,16);uint32_t b=make(root,0x10090,512);
+    WAVEFORMATEX f;memcpy(&f,arena+FORMAT-BASE,18);DSBUFFERDESC d={0};
+    d.dwSize=sizeof(d);d.dwFlags=0x10090;d.dwBufferBytes=512;d.lpwfxFormat=&f;
+    IDirectSoundBuffer *nb=NULL;IDirectSoundBuffer8 *nb8=NULL;IDirectSound3DBuffer *ns=NULL;
+    assert(IDirectSound8_CreateSoundBuffer(native,&d,&nb,NULL)==S_OK);
+    uint32_t qi[]={b,GUID_AT,OUTPUT_AT};memcpy(arena+GUID_AT-BASE,&IID_IDirectSoundBuffer8,16);
+    assert(!call(QUERY,qi,3,0) && get(OUTPUT_AT)==b);
+    assert(IDirectSoundBuffer_QueryInterface(nb,&IID_IDirectSoundBuffer8,(void**)&nb8)==S_OK);
+    memcpy(arena+GUID_AT-BASE,&IID_IDirectSound3DBuffer,16);
+    assert(!call(QUERY,qi,3,0));uint32_t s=get(OUTPUT_AT);assert(s==b+4);
+    assert(IDirectSoundBuffer_QueryInterface(nb,&IID_IDirectSound3DBuffer,(void**)&ns)==S_OK);
+    assert(call(ADDREF,&root,1,0)==IDirectSound8_AddRef(native));
+    assert(call(RELEASE,&root,1,0)==IDirectSound8_Release(native));
+    assert(call(ADDREF,&b,1,0)==IDirectSoundBuffer_AddRef(nb));
+    assert(call(RELEASE,&b,1,0)==IDirectSoundBuffer_Release(nb));
+    assert(call(ADDREF,&s,1,0)==IDirectSound3DBuffer_AddRef(ns));
+    assert(call(RELEASE,&s,1,0)==IDirectSound3DBuffer_Release(ns));
+    assert(call(RELEASE,&b,1,0)==IDirectSoundBuffer8_Release(nb8));
+    assert(call(RELEASE,&b,1,0)==IDirectSoundBuffer_Release(nb));
+    DWORD mode=99;uint32_t args[]={s,DATA};assert(!call(S_MODE_GET,args,2,0));
+    assert(IDirectSound3DBuffer_GetMode(ns,&mode)==S_OK && get(DATA)==mode);
+    /* A live tear-off may reacquire its controlling buffer after base zero. */
+    qi[0]=s;memcpy(arena+GUID_AT-BASE,&IID_IUnknown,16);IUnknown *identity=NULL;
+    assert(!call(QUERY,qi,3,0) && get(OUTPUT_AT)==b);
+    assert(IDirectSound3DBuffer_QueryInterface(ns,&IID_IUnknown,(void**)&identity)==S_OK);
+    assert(call(RELEASE,&b,1,0)==IUnknown_Release(identity));
+    assert(call(RELEASE,&s,1,0)==IDirectSound3DBuffer_Release(ns));
+    native_checks+=11;wave(48000,2,16);
+}
 int main(int argc,char **argv){
     assert(argc==2||argc==3);arena=VirtualAlloc(NULL,BYTES,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(arena);
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,BYTES,&image)==FNV_NATIVE_OK);
@@ -143,7 +173,7 @@ int main(int argc,char **argv){
     uint32_t self[]={root};assert(call(ADDREF,self,1,0)==IDirectSound8_AddRef(native));assert(call(RELEASE,self,1,0)==IDirectSound8_Release(native));
     memcpy(arena+GUID_AT-BASE,&IID_IDirectSound8,16);uint32_t qi[]={root,GUID_AT,OUTPUT_AT};assert(!call(QUERY,qi,3,0)&&get(OUTPUT_AT)==root);IUnknown *unk;assert(IDirectSound8_QueryInterface(native,&IID_IDirectSound8,(void **)&unk)==S_OK);IUnknown_Release(unk);call(RELEASE,self,1,0);native_checks++;
     put(DATA,96);uint32_t caps[]={root,DATA};DSCAPS nc={0};nc.dwSize=sizeof(nc);assert(call(CAPS,caps,2,0)==(uint32_t)IDirectSound8_GetCaps(native,&nc));assert(get(DATA)==96&&!(get(DATA+4)&DSCAPS_CERTIFIED));native_checks++;
-    listener_test(root,native);spatial_test(root,native);
+    interface_refs_test(root,native);listener_test(root,native);spatial_test(root,native);
     uint32_t primary=make(root,DSBCAPS_PRIMARYBUFFER,0);uint32_t fmtset[]={primary,FORMAT};assert(!call(FORMAT_SET,fmtset,2,0));release(primary);
     const uint32_t flags=DSBCAPS_CTRLFREQUENCY|DSBCAPS_CTRLPAN|DSBCAPS_CTRLVOLUME|DSBCAPS_LOCSOFTWARE|DSBCAPS_GETCURRENTPOSITION2;
     uint32_t b=make(root,flags,1024);WAVEFORMATEX nf;memcpy(&nf,arena+FORMAT-BASE,18);DSBUFFERDESC bd={0};bd.dwSize=sizeof(bd);bd.dwFlags=flags;bd.dwBufferBytes=1024;bd.lpwfxFormat=&nf;IDirectSoundBuffer *nb;assert(IDirectSound8_CreateSoundBuffer(native,&bd,&nb,NULL)==S_OK);

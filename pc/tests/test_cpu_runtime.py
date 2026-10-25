@@ -37,7 +37,8 @@ def test(sdk,deps,cc,output,game=None):
         bytes.fromhex('ffd0c705')+marker+struct.pack('<I',1)+b'\xc3',
         bytes.fromhex('0fa2c3'),bytes.fromhex('0f31c3'),
         bytes.fromhex('ff15')+struct.pack('<I',0x400000+iat2)+b'\xc3',
-        bytes.fromhex('64a118000000c3'),bytes.fromhex('ffe0')]
+        bytes.fromhex('64a118000000c3'),bytes.fromhex('ffe0'),
+        bytes.fromhex('ff15')+struct.pack('<I',0x400000+iat2)+bytes.fromhex('ebf8')]
     functions={}
     for i,code in enumerate(programs):
         va=0x401500+i*0x80;at=va-0x401000+0x200;raw[at:at+len(code)]=code

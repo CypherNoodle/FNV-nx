@@ -62,7 +62,9 @@ static void spatial_test(uint32_t root,IDirectSound8 *native){
     uint32_t doppler[]={listener,0,0};assert(!call(L_DOPPLER_SET,doppler,3,0));assert(!call(SEEK,reset,2,0));assert(fnv_dsound8_pump(sound,16)==FNV_PCM_OK);read_exact(output,16);assert(cursor(b)==32);
     /* FULL queue preserves the spatial voice cursor as well. */
     int16_t silence[2048]={0};assert(fnv_pcm_write(queue,silence,1024)==FNV_PCM_OK);unsigned before=cursor(b);assert(fnv_dsound8_pump(sound,16)==FNV_PCM_FULL && cursor(b)==before);read_exact(silence,1024);
-    uint32_t stop_args[]={b};assert(!call(STOP,stop_args,1,0));assert(call(RELEASE,&b,1,0)>0);release(s);assert(call(RELEASE,&primary,1,0)>0);release(listener);
+    uint32_t stop_args[]={b};assert(!call(STOP,stop_args,1,0));assert(!call(RELEASE,&b,1,0));
+    uint32_t live_mode[]={s,DATA};assert(!call(S_MODE_GET,live_mode,2,0));release(s);
+    assert(!call(RELEASE,&primary,1,0));release(listener);
     IDirectSound3DBuffer_Release(ns);IDirectSoundBuffer_Release(nb);sample_checks+=320;
     /* Retired COM identities never revive; released staging is reusable. */
     wave(48000,1,16);unsigned char marker[32];memset(marker,0x31,sizeof(marker));

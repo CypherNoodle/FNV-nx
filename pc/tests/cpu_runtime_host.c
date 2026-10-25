@@ -27,6 +27,7 @@
 #define ORDINAL 0x401780u
 #define READ_FS 0x401800u
 #define ITAIL 0x401880u
+#define POLL 0x401900u
 #define MARKER 0x401C00u
 static unsigned char *arena;
 static const char *fixture;
@@ -34,7 +35,8 @@ static struct fnv_native_image image;
 static struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];
 static struct fnv_cpu_runtime *runtime;
 static atomic_uint ready,start_gate;
-static atomic_uint peer_entered,peer_release;
+static atomic_uint peer_entered,peer_release,poll_after_fault;
+static unsigned poll_mode;
 static atomic_uint_fast64_t clock_value;
 static unsigned ordinal_mode,diagnostics;
 static void yield_host(void) {
@@ -65,6 +67,10 @@ static void native_ordinal(void) {
     if(ordinal_mode==4){
         atomic_store(&peer_entered,1);
         while(!atomic_load(&peer_release))yield_host();
+    }
+    if(ordinal_mode==5){
+        atomic_store(&peer_entered,1);
+        if(fnv_cpu_is_faulted(runtime) && atomic_fetch_add(&poll_after_fault,1)>1000)fnv_cpu_stop_for_peer();
     }
     fnv_cpu_return_u32(42,0);
 }
@@ -195,15 +201,16 @@ static void *peer_worker(void *unused) {
 #endif
     (void)unused;struct fnv_cpu_state s=initial(1);struct fnv_cpu_fault fault;
     assert(fnv_cpu_attach(runtime,&s)==FNV_CPU_OK);
-    assert(fnv_cpu_execute(ORDINAL,&fault)==FNV_CPU_GUEST_FAULT);
-    assert(fault.kind==FNV_CPU_PEER_FAULT && fault.entry==ORDINAL);
-    assert(fault.state.gpr[0]==42 && fault.state.gpr[4]==s.gpr[4]+4);
+    assert(fnv_cpu_execute(poll_mode?POLL:ORDINAL,&fault)==FNV_CPU_GUEST_FAULT);
+    assert(fault.kind==FNV_CPU_PEER_FAULT && fault.entry==(poll_mode?POLL:ORDINAL));
+    if(poll_mode)assert(atomic_load(&poll_after_fault)<=1);
+    else assert(fault.state.gpr[0]==42 && fault.state.gpr[4]==s.gpr[4]+4);
     assert(fnv_cpu_execute(SUM,NULL)==FNV_CPU_FAULTED);
     assert(fnv_cpu_set_state(&s)==FNV_CPU_FAULTED);
     assert(fnv_cpu_detach()==FNV_CPU_OK);return 0;
 }
-static void peer_fault(void) {
-    new_session(0,0);bind_all();ordinal_mode=4;
+static void peer_fault(unsigned polling) {
+    new_session(0,0);bind_all();poll_mode=polling;ordinal_mode=polling?5:4;atomic_store(&poll_after_fault,0);
     atomic_store(&peer_entered,0);atomic_store(&peer_release,0);
 #ifdef _WIN32
     HANDLE peer=CreateThread(NULL,0,peer_worker,NULL,0,NULL);assert(peer);
@@ -234,7 +241,7 @@ int main(int argc,char **argv) {
     fault_case(ICALL,0x4019F0,0,FNV_CPU_UNKNOWN_TARGET);fault_case(ICALL,0x1337,0,FNV_CPU_NOT_CODE);
     fault_case(ICALL,0xFE000100u,0,FNV_CPU_UNKNOWN_TARGET);fault_case(ITAIL,0x4019F0,0,FNV_CPU_UNKNOWN_TARGET);
     fault_case(ORDINAL,0,2,FNV_CPU_BAD_MEMORY);fault_case(ORDINAL,0,3,FNV_CPU_BAD_MEMORY);
-    fault_case(CPUID,7,0,FNV_CPU_CPUID_UNAVAILABLE);fault_case(TICKS,0,0,FNV_CPU_CLOCK_UNAVAILABLE);cpu_clock();peer_fault();
+    fault_case(CPUID,7,0,FNV_CPU_CPUID_UNAVAILABLE);fault_case(TICKS,0,0,FNV_CPU_CLOCK_UNAVAILABLE);cpu_clock();peer_fault(0);peer_fault(1);
     size_t real_imports=0;
     if(argc==3){
         free(arena);arena=calloc(1,64u*1024*1024);assert(arena);
@@ -245,5 +252,5 @@ int main(int argc,char **argv) {
         assert(fnv_cpu_bind_imports(runtime,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&real_imports)==FNV_NATIVE_UNRESOLVED);
         assert(!memcmp(before,image.data,image.size));assert(fnv_cpu_destroy(runtime)==FNV_CPU_OK);free(before);
     }
-    free(arena);printf("{\"status\":\"PASS\",\"concurrent_calls\":1000,\"guest_fault_cases\":12,\"peer_fault_invalidates_session\":true,\"diagnostics\":%u,\"real_imports_rejected_atomically\":%zu}\n",diagnostics,real_imports);return 0;
+    free(arena);printf("{\"status\":\"PASS\",\"concurrent_calls\":1000,\"guest_fault_cases\":12,\"peer_fault_invalidates_session\":true,\"polling_peer_fault_stops_dispatch\":true,\"diagnostics\":%u,\"real_imports_rejected_atomically\":%zu}\n",diagnostics,real_imports);return 0;
 }

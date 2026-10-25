@@ -249,6 +249,10 @@ enum fnv_cpu_result fnv_cpu_set_state(const struct fnv_cpu_state *s) {
 recomp_func_t recomp_lookup_manual(uint32_t va) { (void)va;return NULL; /* No overrides are configured. */ }
 recomp_func_t recomp_lookup_kernel(uint32_t va) {
     if(!thread_runtime || va<0xFE000000u || ((va-0xFE000000u)&3u))return NULL;
+    /* Dispatch is outside provider locks: stop polling guest threads before
+     * another native call after a peer has failed. Keep the first diagnostic. */
+    if(fault_boundary && fnv_cpu_is_faulted(thread_runtime))
+        fail(FNV_CPU_PEER_FAULT,va,0,"guest native dispatch stopped after peer fault");
     if(va>=FNV_CPU_NATIVE_METHOD_BASE){uint32_t slot=(va-FNV_CPU_NATIVE_METHOD_BASE)/4;
         return slot<thread_runtime->methods_count?thread_runtime->methods[slot]:NULL;}
     uint32_t index=(va-0xFE000000u)/4u;

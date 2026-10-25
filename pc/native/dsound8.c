@@ -15,7 +15,8 @@
 #define METHODS 75u
 #define MOVIE_FRAMES 48000u
 struct sound_object {
-    uint32_t refs,kind,parent,flags,bytes,address,rate,frequency,channels,bits;
+    /* Lifetime includes child holds; public base and 3D counts are separate. */
+    uint32_t refs,base_refs,alias_refs,kind,parent,flags,bytes,address,rate,frequency,channels,bits;
     uint32_t cooperative,playing,looping,locked,offset,first,second;
     int32_t volume,pan,gain[2];uint64_t phase;
     unsigned char *samples;
@@ -66,9 +67,9 @@ static struct sound_object *acquire(uint32_t self,int kind){
 }
 static void finish(uint32_t hr,unsigned bytes){fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32(hr,bytes);}
 static uint32_t allocate(unsigned kind,unsigned parent){
-    if(active->count==CAPACITY)return 0;
+    if(active->count==CAPACITY || (parent && active->objects[parent-1].refs==UINT32_MAX))return 0;
     unsigned i=active->count++;struct sound_object *o=active->objects+i;
-    o->refs=1;o->kind=kind;o->parent=parent;o->gain[0]=o->gain[1]=65536;
+    o->refs=o->base_refs=1;o->kind=kind;o->parent=parent;o->gain[0]=o->gain[1]=65536;
     o->rate=o->frequency=48000;o->channels=2;o->bits=16;
     if(parent)active->objects[parent-1].refs++;
     wr(active->memory+512+i*8,active->config.arena_address+(kind?48:0));return address(i);
@@ -90,14 +91,24 @@ static void query(void){
        (o->kind && (!memcmp(id,buffer,16)||(!(o->flags&1) && !memcmp(id,buffer8,16)))))target=base;
     else if(o->kind && (o->flags&0x10) && !memcmp(id,(o->flags&1)?listener_iid:spatial_iid,16))target=base+4;
     uint32_t hr=0x80004002u;
-    if(target){if(o->refs==UINT32_MAX)hr=NOMEM;else {o->refs++;wr(p,target);hr=0;}}
+    if(target){if(o->refs==UINT32_MAX)hr=NOMEM;else {
+        uint32_t *public_refs=target==base?&o->base_refs:&o->alias_refs;
+        o->refs++;(*public_refs)++;wr(p,target);hr=0;
+    }}
     finish(hr,12);
 }
 static void ref(int add){
-    struct sound_object *o=acquire(fnv_cpu_argument_u32(0),-1);if(!o)return;
-    if(add && o->refs==UINT32_MAX){fnv_host_mutex_unlock(&active->guard);recomp_unimpl("DirectSound COM references exhausted",0);return;}
-    uint32_t n=add?++o->refs:--o->refs;
-    if(!n){o->playing=0;free(o->samples);o->samples=NULL;if(o->parent)active->objects[o->parent-1].refs--;}
+    uint32_t self=fnv_cpu_argument_u32(0);
+    struct sound_object *o=acquire(self,-1);if(!o)return;
+    uint32_t base=address((unsigned)(o-active->objects));
+    uint32_t *public_refs=self==base?&o->base_refs:&o->alias_refs;
+    if((add && o->refs==UINT32_MAX) || (!add && !*public_refs)){
+        fnv_host_mutex_unlock(&active->guard);
+        recomp_unimpl(add?"DirectSound COM references exhausted":"DirectSound released interface reference",self);return;
+    }
+    uint32_t n;
+    if(add){o->refs++;n=++*public_refs;}else {o->refs--;n=--*public_refs;}
+    if(!o->refs){o->playing=0;free(o->samples);o->samples=NULL;if(o->parent)active->objects[o->parent-1].refs--;}
     finish(n,4);
 }
 static void addref(void){ref(1);}static void release(void){ref(0);}
@@ -144,7 +155,7 @@ static void create_buffer(void){
     if(flags&1)for(unsigned i=0;i<active->count;i++){struct sound_object *o=active->objects+i;
         if(o->refs && o->parent==(uint32_t)(root-active->objects)+1 && (o->flags&1)){
             if(o->refs==UINT32_MAX){free(samples);finish(NOMEM,16);return;}
-            o->refs++;wr(p,address(i));free(samples);finish(0,16);return;}}
+            o->refs++;o->base_refs++;wr(p,address(i));free(samples);finish(0,16);return;}}
     uint32_t staging=bytes?staging_offset(bytes):0;
     if(bytes && !staging){free(samples);finish(NOMEM,16);return;}
     uint32_t at=allocate(1,(unsigned)(root-active->objects)+1);
