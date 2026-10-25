@@ -23,7 +23,7 @@ def compiler_environment(command):
             environment['PATH']=str(Path(compiler).resolve().parent)+os.pathsep+environment.get('PATH','')
     return environment
 
-def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None,native_sources=(),codegen_setup=None,translator_options=None,linker_options=()):
+def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--strict-flags',),wrapper_stride=32,guest_programs=None,native_sources=(),codegen_setup=None,translator_options=None,linker_options=(),cdecl_imports=()):
     pc=Path(__file__).resolve().parents[1];sdk=a.sdk.resolve();out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh private directory')
     sys.path[:0]=[str(sdk),str(a.python_deps.resolve()),str(pc/'tools')]
@@ -49,7 +49,8 @@ def test(a,host_source='windows_heap_host.c',extra_inputs=(),strict_modes=('--st
         struct.pack_into('<I',raw,lookup-0x1000+0x200,cursor-0x200+0x1000);cursor+=len(text)
         push=bytes([0xFF,0x74,0x24,argc*4])*argc
         ret=b'\xC2'+struct.pack('<H',argc*4) if argc else b'\xC3'
-        programs.append(push+b'\xFF\x15'+struct.pack('<I',0x400000+iat)+ret)
+        cleanup=bytes([0x83,0xc4,argc*4]) if i in cdecl_imports and argc else b''
+        programs.append(push+b'\xFF\x15'+struct.pack('<I',0x400000+iat)+cleanup+ret)
     functions={}
     for i,code in enumerate(programs):
         assert len(code)<wrapper_stride;va=0x401500+i*wrapper_stride;offset=va-0x401000+0x200;raw[offset:offset+len(code)]=code

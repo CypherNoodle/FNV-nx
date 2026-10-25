@@ -292,7 +292,7 @@ enum fnv_cpu_result fnv_cpu_execute(uint32_t entry,struct fnv_cpu_fault *out) {
     if(out)*out=thread_fault;
     return FNV_CPU_GUEST_FAULT;
 }
-uint32_t fnv_cpu_invoke_stdcall(uint32_t entry,uint32_t frame,uint32_t bytes){
+static uint32_t invoke_guest_callback(uint32_t entry,uint32_t frame,uint32_t bytes,int callee_pops){
     if(!thread_runtime || !fault_boundary)
         fail(FNV_CPU_UNIMPLEMENTED,entry,0,"guest callback outside execution boundary");
     if(atomic_load_explicit(&thread_runtime->faulted,memory_order_acquire))
@@ -311,14 +311,16 @@ uint32_t fnv_cpu_invoke_stdcall(uint32_t entry,uint32_t frame,uint32_t bytes){
     callback_depth++;g_esp=frame;
     fnv_cpu_icall_trace[fnv_cpu_icall_trace_idx++&15]=entry;fnv_cpu_icall_count++;
     fn();
-    if(g_esp!=(uint32_t)end || g_ebx!=caller.gpr[3] || g_ebp!=caller.gpr[5] ||
+    if(g_esp!=(callee_pops?(uint32_t)end:frame+4u) || g_ebx!=caller.gpr[3] || g_ebp!=caller.gpr[5] ||
        g_esi!=caller.gpr[6] || g_edi!=caller.gpr[7] || g_fs_base!=caller.fs_base || g_df)
-        fail(FNV_CPU_UNIMPLEMENTED,entry,g_esp,"guest callback stdcall ABI mismatch");
+        fail(FNV_CPU_UNIMPLEMENTED,entry,g_esp,callee_pops?"guest callback stdcall ABI mismatch":"guest callback cdecl ABI mismatch");
     uint32_t answer=g_eax;restore_state(&caller);callback_depth--;
     if(atomic_load_explicit(&thread_runtime->faulted,memory_order_acquire))
         fail(FNV_CPU_PEER_FAULT,entry,0,"guest callback completed after peer fault");
     return answer;
 }
+uint32_t fnv_cpu_invoke_stdcall(uint32_t entry,uint32_t frame,uint32_t bytes){return invoke_guest_callback(entry,frame,bytes,1);}
+uint32_t fnv_cpu_invoke_cdecl(uint32_t entry,uint32_t frame,uint32_t bytes){return invoke_guest_callback(entry,frame,bytes,0);}
 _Noreturn void fnv_cpu_exit_thread(uint32_t code){
     if(!thread_runtime || !fault_boundary)fail(FNV_CPU_UNIMPLEMENTED,0,0,"thread exit outside execution boundary");
     g_eax=code;longjmp(*fault_boundary,2);
@@ -342,4 +344,8 @@ void fnv_cpu_return_u32(uint32_t value,uint32_t bytes) {
     if((bytes&3u) || next>UINT32_MAX || !thread_runtime || !within(thread_runtime,g_esp,(size_t)bytes+4u))
         fail(FNV_CPU_BAD_MEMORY,g_esp,bytes,"invalid guest return frame");
     g_eax=value;g_esp=(uint32_t)next;
+}
+
+void fnv_cpu_return_u64(uint64_t value,uint32_t bytes){
+    fnv_cpu_return_u32((uint32_t)value,bytes);g_edx=(uint32_t)(value>>32);
 }

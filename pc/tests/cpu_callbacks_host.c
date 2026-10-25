@@ -12,14 +12,17 @@ static unsigned callbacks;
 static void put(uint32_t at,uint32_t v){memcpy(arena+at-BASE,&v,4);}
 static void invoke(void){
     uint32_t target=fnv_cpu_argument_u32(0);
+    if(target==0x12345678){fnv_cpu_return_u64(UINT64_C(0xfedcba9876543210),4);return;}
     struct fnv_cpu_state before,after;assert(fnv_cpu_get_state(&before)==FNV_CPU_OK);
     uint32_t frame=before.gpr[4]-64;
     put(frame,0x401500);put(frame+4,40);put(frame+8,2);
+    uint32_t bytes=8;if(target==0x401950){put(frame+4,7);put(frame+8,0xfffffff0);put(frame+12,0xffffffff);put(frame+16,2);bytes=16;}
     if(mode && !strcmp(mode,"--strict-frame"))frame=before.gpr[4];
     if(mode && !strcmp(mode,"--strict-depth")){
         target=fnv_cpu_import_token(invoke);put(frame+4,target);
     }
-    uint32_t result=fnv_cpu_invoke_stdcall(target,frame,8);
+    int uses_cdecl=(target==0x401720 || target==0x4017b0 || target==0x401920 || target==0x401950) || (mode && !strcmp(mode,"--strict-cdecl-ret"));
+    uint32_t result=uses_cdecl?fnv_cpu_invoke_cdecl(target,frame,bytes):fnv_cpu_invoke_stdcall(target,frame,bytes);
     assert(fnv_cpu_get_state(&after)==FNV_CPU_OK && !memcmp(&before,&after,sizeof(before)));
     callbacks++;fnv_cpu_return_u32(result,4);
 }
@@ -39,12 +42,14 @@ int main(int argc,char **argv){
     for(unsigned i=0;i<(mode?1:200);i++){
         struct fnv_cpu_state state,after;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1bf00;
         assert(fnv_cpu_set_state(&state)==FNV_CPU_OK);put(state.gpr[4],0x401500);
-        uint32_t target=i&1?0x401780:0x401700;
+        const uint32_t targets[4]={0x401700,0x401780,0x401720,0x4017b0};uint32_t target=targets[i%4];
         if(mode){
-            if(!strcmp(mode,"--strict-target"))target=0x401a00;
+            if(!strcmp(mode,"--strict-target"))target=0x401b00;
             else if(!strcmp(mode,"--strict-ret"))target=0x401800;
             else if(!strcmp(mode,"--strict-register"))target=0x401880;
             else if(!strcmp(mode,"--strict-instruction"))target=0x401900;
+            else if(!strcmp(mode,"--strict-cdecl-ret"))target=0x401700;
+            else if(!strcmp(mode,"--strict-cdecl-register"))target=0x401920;
         }
         put(state.gpr[4]+4,target);struct fnv_cpu_fault fault;
         enum fnv_cpu_result r=fnv_cpu_execute(0x401500,&fault);
@@ -53,9 +58,21 @@ int main(int argc,char **argv){
         assert(r==FNV_CPU_OK && fnv_cpu_get_state(&after)==FNV_CPU_OK);
         assert(after.gpr[4]==state.gpr[4]+8 && after.gpr[0]==(i&1?45u:42u));
     }
+    if(!mode){
+        struct fnv_cpu_state state,after;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1bf00;
+        assert(fnv_cpu_set_state(&state)==FNV_CPU_OK);put(state.gpr[4],0x401500);put(state.gpr[4]+4,0x401950);
+        struct fnv_cpu_fault fault;assert(fnv_cpu_execute(0x401500,&fault)==FNV_CPU_OK);
+        assert(fnv_cpu_get_state(&after)==FNV_CPU_OK && after.gpr[0]==UINT32_MAX && after.gpr[4]==state.gpr[4]+8);
+    }
+    if(!mode){
+        struct fnv_cpu_state state,after;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1bf00;
+        assert(fnv_cpu_set_state(&state)==FNV_CPU_OK);put(state.gpr[4],0x401500);put(state.gpr[4]+4,0x12345678);
+        struct fnv_cpu_fault fault;assert(fnv_cpu_execute(0x401500,&fault)==FNV_CPU_OK);
+        assert(fnv_cpu_get_state(&after)==FNV_CPU_OK && after.gpr[0]==0x76543210 && after.gpr[2]==0xfedcba98 && after.gpr[4]==state.gpr[4]+8);
+    }
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK);
     assert(VirtualFree(arena,0,MEM_RELEASE));
     if(mode){puts("strict PASS");return 0;}
-    assert(callbacks==300);
-    puts("{\"status\":\"PASS\",\"callbacks\":300,\"nested_pairs\":100,\"engine_started\":false}");return 0;
+    assert(callbacks==301);
+    puts("{\"status\":\"PASS\",\"callbacks\":301,\"nested_pairs\":100,\"engine_started\":false}");return 0;
 }

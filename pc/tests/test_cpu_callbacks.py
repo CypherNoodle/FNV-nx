@@ -1,4 +1,4 @@
-"""Verify nested translated stdcall callbacks through native import bridges."""
+"""Verify nested translated stdcall and cdecl callbacks through native import bridges."""
 import argparse
 from pathlib import Path
 import struct
@@ -14,7 +14,11 @@ def programs(raw):
     nested=b'\x68'+struct.pack('<I',0x401700)+b'\xff\x15'+struct.pack('<I',iat)+bytes.fromhex('83c003c20800')
     return {0x401700:add,0x401780:nested,0x401800:bytes.fromhex('31c0c3'),
             0x401880:bytes.fromhex('bb0100000031c0c20800'),
-            0x401900:bytes.fromhex('f4c20800')}
+            0x401900:bytes.fromhex('f4c20800'),
+            0x401720:add[:-3]+b'\xc3',
+            0x4017b0:nested[:1]+struct.pack('<I',0x401720)+nested[5:-3]+b'\xc3',
+            0x401920:bytes.fromhex('bb0100000031c0c3'),
+            0x401950:bytes.fromhex('8b44240cc3')}
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
@@ -34,4 +38,4 @@ if __name__=='__main__':
     shared.NAMES=['Invoke'];shared.ARGS=[1];shared.DLLS=['callback-test.dll']
     shared.test(a,codegen_setup=setup,host_source='cpu_callbacks_host.c',guest_programs=programs,
         extra_inputs=extra,linker_options=link,
-        strict_modes=('--strict-target','--strict-frame','--strict-ret','--strict-register','--strict-instruction','--strict-depth'))
+        strict_modes=('--strict-target','--strict-frame','--strict-ret','--strict-register','--strict-instruction','--strict-depth','--strict-cdecl-ret','--strict-cdecl-register'))

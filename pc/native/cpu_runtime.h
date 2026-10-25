@@ -28,11 +28,13 @@
 #define fnv_cpu_set_state fnv_cpu_set_state_x87e1
 #define fnv_cpu_execute fnv_cpu_execute_x87e1
 #define fnv_cpu_invoke_stdcall fnv_cpu_invoke_stdcall_x87e1
+#define fnv_cpu_invoke_cdecl fnv_cpu_invoke_cdecl_x87e1
 #define fnv_cpu_exit_thread fnv_cpu_exit_thread_x87e1
 #define fnv_cpu_memory fnv_cpu_memory_x87e1
 #define fnv_cpu_try_memory fnv_cpu_try_memory_x87e1
 #define fnv_cpu_argument_u32 fnv_cpu_argument_u32_x87e1
 #define fnv_cpu_return_u32 fnv_cpu_return_u32_x87e1
+#define fnv_cpu_return_u64 fnv_cpu_return_u64_x87e1
 #endif
 
 typedef void (*fnv_cpu_function)(void);
@@ -137,6 +139,9 @@ enum fnv_cpu_result fnv_cpu_execute(uint32_t entry, struct fnv_cpu_fault *);
  * on success, preserving memory side effects; returns callback EAX. Invalid
  * frame/ABI or guest faults unwind to the outer execute boundary. */
 uint32_t fnv_cpu_invoke_stdcall(uint32_t entry,uint32_t frame,uint32_t argument_bytes);
+/* Same frame/state contract, but the guest RET leaves argument cleanup to
+ * its caller. The bridge restores the complete original caller state. */
+uint32_t fnv_cpu_invoke_cdecl(uint32_t entry,uint32_t frame,uint32_t argument_bytes);
 /* Nonfaulting control-flow unwind to the current execute boundary. EAX holds
  * the exit code; caller must detach/complete its thread. Never under a lock. */
 _Noreturn void fnv_cpu_exit_thread(uint32_t code);
@@ -148,4 +153,6 @@ void *fnv_cpu_memory(uint32_t address, size_t bytes);
 void *fnv_cpu_try_memory(uint32_t address,size_t bytes);
 uint32_t fnv_cpu_argument_u32(unsigned index);
 void fnv_cpu_return_u32(uint32_t value, uint32_t argument_bytes);
+/* Windows x86 integer return: high DWORD in EDX, low DWORD in EAX. */
+void fnv_cpu_return_u64(uint64_t value, uint32_t argument_bytes);
 #endif

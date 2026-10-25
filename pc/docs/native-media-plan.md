@@ -3,8 +3,9 @@
 Ya existe [salida PCM y XInput](native-input-audio.md), con backend audout/HID
 compilado para Horizon. Tambien existe [MP3 streaming nativo](native-mp3.md).
 Ya hay un [adaptador Bink sobre FFmpeg y seleccion de sonido](native-bink.md),
-con decodificacion real en PC y enlace ARM64/libnx. Vorbis y la reproduccion
-Bink completa dentro del motor siguen pendientes.
+con decodificacion real en PC y enlace ARM64/libnx. Ya existe el [puente Vorbisfile nativo](native-vorbis.md), verificado con
+callbacks x86 sinteticos y compilado para Switch. La reproduccion completa
+dentro del motor y en hardware requiere validacion aparte.
 
 ## MP3 y formatos encontrados
 
@@ -15,7 +16,8 @@ MP3 ya tiene decoder minimp3 y conversion streaming a stereo 48000 s16, con
 pruebas reales de pistas a 44,1/48 kHz. La cola no remuestrea: esa conversion
 ocurre antes en pcm_convert. El adaptador FFmpeg de Bink ya devuelve RGBA y
 PCM estereo 48 kHz; falta conectar esa salida al reproductor del motor y al
-mezclador. DirectSound8 ya tiene un proveedor PCM; Vorbis sigue pendiente.
+mezclador. DirectSound8 ya tiene un proveedor PCM; el puente Vorbisfile devuelve los
+buffers PCM al juego y no crea una salida de sonido adicional.
 
 WINMM importa mmioOpenA/Descend/Close/Read/Ascend/GetInfo/Advance y timeGetTime;
 ole32 incluye CoCreateInstance. DSOUND usa ordinal 11; DINPUT8 importa
