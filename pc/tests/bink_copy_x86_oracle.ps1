@@ -42,8 +42,18 @@ public static class BinkCopyOracle {
     for(int y=0;y<16;y++)for(int x=0;x<16*4;x++){Check(rect[y*64+x]==all[f-3][((y+16)*width+32)*4+x],"Rectangle mismatch");comparisons++;}
     bool[] values=new bool[256];for(int i=3;i<all[f-3].Length;i+=4)values[all[f-3][i]]=true;string s="";for(int i=0;i<256;i++)if(values[i])s+=(s.Length>0?",":"")+i;alpha[f-3]=s;
    }
+   int edgeComparisons=0;
+   for(uint format=3;format<=4;format++)for(int which=0;which<2;which++){
+    uint sx=which==0?0:(uint)width-128,sy=which==0?(uint)height-208:16;
+    uint cw=Math.Min(256u,(uint)width-sx),ch=Math.Min(256u,(uint)height-sy);int er;
+    byte[] edge=Pixels(copy,h,256,height,sx,sy,256,256,0,0,format,out er);Check(er==0,"Edge copy return");
+    for(int y=0;y<256;y++)for(int x=0;x<256;x++)for(int c=0;c<4;c++){
+     byte expected=x<cw&&y<ch?all[format-3][((y+(int)sy)*width+x+(int)sx)*4+c]:(byte)0xa5;
+     Check(edge[(y*256+x)*4+c]==expected,"Edge tile clipping/guard mismatch");edgeComparisons++;
+    }
+   }
    long[] sums=new long[3];int nonGray=0;for(int i=0;i<all[0].Length;i+=4){for(int c=0;c<3;c++){Check(all[0][i+c]==all[1][i+2-c],"32 versus 32R mismatch");comparisons++;sums[c]+=all[0][i+c];}if(all[0][i]!=all[0][i+2])nonGray++;}
-   Console.WriteLine("{\"status\":\"PASS\",\"pixel_bytes_compared\":"+comparisons+",\"non_gray_pixels\":"+nonGray+",\"channel_sums_32\":["+String.Join(",",sums)+"],\"alpha_32\":\""+alpha[0]+"\",\"alpha_32R\":\""+alpha[1]+"\",\"alpha_32A\":\""+alpha[2]+"\",\"alpha_32RA\":\""+alpha[3]+"\",\"played_audio\":false,\"game_started\":false}");
+   Console.WriteLine("{\"status\":\"PASS\",\"pixel_bytes_compared\":"+comparisons+",\"edge_pixel_bytes_compared\":"+edgeComparisons+",\"non_gray_pixels\":"+nonGray+",\"channel_sums_32\":["+String.Join(",",sums)+"],\"alpha_32\":\""+alpha[0]+"\",\"alpha_32R\":\""+alpha[1]+"\",\"alpha_32A\":\""+alpha[2]+"\",\"alpha_32RA\":\""+alpha[3]+"\",\"played_audio\":false,\"game_started\":false}");
   }finally{if(h!=IntPtr.Zero)Get<Close>(dll,"_BinkClose@4")(h);FreeLibrary(dll);}
  }
 }

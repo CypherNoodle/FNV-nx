@@ -25,6 +25,16 @@ int main(void){
     const unsigned char cropped[16]={33,22,11,0,133,122,111,0,0,0,0,0,128,64,32,0};
     assert(!memcmp(dest+68,cropped,8)&&!memcmp(dest+100,cropped+8,8));
     for(unsigned i=0;i<160;i++)if(!((i>=68&&i<76)||(i>=100&&i<108)))assert(dest[i]==0xa5);
+    for(unsigned format=3;format<=4;format++){
+        memset(dest,0xa5,sizeof(dest));
+        assert(fnv_bink_copy_rect(&f,48,dest,160,32,5,1,2,1,1,256,256,format)==FNV_BINK_COPY_OK);
+        for(unsigned i=0;i<160;i++){
+            unsigned y=i/32,x=i%32;unsigned char expected=0xa5;
+            if(y>=2&&y<4&&x>=4&&x<12){unsigned c=(x-4)%4;
+                expected=c==3?0:source[(y-1)*16+(1+(x-4)/4)*4+(format==3?2-c:c)];}
+            assert(dest[i]==expected);checks++;
+        }
+    }
     memset(dest,0x6d,sizeof(dest));memcpy(snapshot,dest,sizeof(dest));
     assert(fnv_bink_copy_rect(&f,48,dest,160,32,5,0,0,0,0,3,3,5)==FNV_BINK_COPY_UNSUPPORTED);
     assert(fnv_bink_copy_rect(&f,48,dest,160,32,5,0,0,0,0,3,3,0x10000003)==FNV_BINK_COPY_UNSUPPORTED);

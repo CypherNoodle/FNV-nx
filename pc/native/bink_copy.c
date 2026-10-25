@@ -8,8 +8,11 @@ enum fnv_bink_copy_result fnv_bink_copy_rect(const struct fnv_bink_frame *f,size
     if((flags&~0xf00000ffu) || (format!=3 && format!=4) || (scale!=0 && scale!=7))return FNV_BINK_COPY_UNSUPPORTED;
     if(!f || !f->rgba || !destination || pitch<=0 || !destination_height || !width || !height ||
        !f->width || !f->height || (uint64_t)f->width*4>f->pitch ||
-       sx>f->width || width>f->width-sx || sy>f->height || height>f->height-sy ||
-       dy>destination_height || height>destination_height-dy ||
+       sx>=f->width || sy>=f->height)return FNV_BINK_COPY_INVALID;
+    /* Bink clips edge tiles to the decoded image, not to the caller buffer. */
+    if(width>f->width-sx)width=f->width-sx;
+    if(height>f->height-sy)height=f->height-sy;
+    if(dy>destination_height || height>destination_height-dy ||
        ((uint64_t)dx+width)*4>(uint32_t)pitch)return FNV_BINK_COPY_INVALID;
     uint64_t source_span=(uint64_t)(f->height-1)*f->pitch+(uint64_t)f->width*4;
     uint64_t target_span=(uint64_t)destination_height*(uint32_t)pitch;
