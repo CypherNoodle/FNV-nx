@@ -12,12 +12,14 @@ This is evidence of the pairing, not proof of visual correctness.
 
 Pass `--capture`, a fresh `--output`, `--linker` and its `--linker-build` report.
 The tool verifies the external linker binary and own adapter identities. It
-checks a bounded D3D9 vertex declaration, reads explicit VS 2/3 DCL semantics,
+checks a bounded D3D9 vertex declaration, reads explicit vertex DCL semantics,
 links with the existing centroid-preserving adapter, and associates reflected
 SPIR-V vertex locations with those original input registers. Sampler bindings
 come from the linked fragment module. Unsupported formats or mappings are
-reported per pair without inventing replacements. VS 1.x requires a separate
-input mapping policy and is currently rejected by this tool.
+reported per pair without inventing replacements. VS 2/3 use encoded instruction
+lengths. A bounded VS 1.1 family also accepts explicit DCL, NOP, MOV, ADD, MAD
+and DEF instructions with fixed operand counts. Legacy shaders without explicit
+input semantics or with other instruction shapes remain rejected.
 
 The output includes per-pair headers, a manifest for `emit_prepared_bundle.py`,
 and a report with input hashes and explicit rejected-pair reasons. A partial

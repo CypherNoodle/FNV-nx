@@ -80,7 +80,8 @@ struct fnv_vk_backend {
     struct program_entry *programs;uint32_t program_count;uint64_t draws,resets;
     struct fnv_d3d9_blend blend_state;struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
     /* Internal sampled NULL: no public resource identity or device reference. */
-    struct texture_resource null_texture,null_cube;unsigned char null_texel[4],null_cube_texels[24];
+    struct texture_resource null_texture,null_cube,mismatch_texture,mismatch_cube;
+    unsigned char null_texel[4],null_cube_texels[24],mismatch_texel[4],mismatch_cube_texels[24];
     struct shader_catalog *catalog;uint32_t catalog_count;
     struct shader_resource *shaders;struct declaration_resource *declarations;
     uintptr_t bound_shaders[2],declaration,fixed_vertex,fixed_directional,fixed_pixel[4],fixed_screen[2];uint32_t texture_stage[2][6],texture_coord_index[2];uint32_t lighting,normalize_normals,color_vertex,specular,ambient;struct fnv_uniform_state *uniforms;
@@ -678,6 +679,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
             release_version(d,b->version);free(b->shadow);}
         if(d->textures)for(uint32_t i=0;i<d->config.resource_capacity;++i){release_texture_version(d,d->textures[i].version);free(d->textures[i].shadow);}
         release_texture_version(d,d->null_texture.version);release_texture_version(d,d->null_cube.version);
+        release_texture_version(d,d->mismatch_texture.version);release_texture_version(d,d->mismatch_cube.version);
         if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
         for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->variant_module)d->v.DestroyShaderModule(d->device,e->variant_module,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);

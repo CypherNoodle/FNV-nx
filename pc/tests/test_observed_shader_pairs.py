@@ -25,6 +25,14 @@ class ObservedPairs(unittest.TestCase):
         for data in (b'',END,element(0),element(0)+END+b'\0',element(0)+element(0)+END,element(0,kind=8)+END,element(0,kind=17)+END):
             with self.subTest(data=data.hex()),self.assertRaises(ValueError):declaration(data)
 
+    def test_explicit_legacy_declarations(self):
+        words=[0xfffe0101,0x0002fffe,31,0xffff,81,0xa00f0000,0,0,0,0,
+               31,0x80000000,0x900f0000,31,0x80000005,0x900f0003,0xffff]
+        code=struct.pack('<%dI'%len(words),*words)
+        self.assertEqual(vertex_semantics(code),{0:(0,0),3:(5,0)})
+        for bad in (words[:-2],words+[0],words[:-1]+[0x0200001f,0,0,0xffff],words[:-1]+[0xdead,0xffff]):
+            with self.subTest(words=bad),self.assertRaises(ValueError):vertex_semantics(struct.pack('<%dI'%len(bad),*bad))
+
     def test_bad_bytecode(self):
         for data in (b'',shader((0,0,0))[:-4],shader((0,0,0),(0,5,0)),shader((0,0,0),(1,0,0)),struct.pack('<2I',0xfffe0101,0xffff),struct.pack('<2I',0xffff0300,0xffff)):
             with self.subTest(data=data.hex()),self.assertRaises(ValueError):vertex_semantics(data)

@@ -136,6 +136,18 @@ static uint32_t draw_slot(struct fnv_vk_backend *d,struct draw_watch *watch){
     if(hr==FNV_VK_BUSY){d->lost=1;return FNV_VK_LOST;}
     return hr;
 }
+/* Measured Windows D3D9 behavior: NULL samples (0,0,0,1), a bound resource of
+ * the wrong dimension samples (0,0,0,0). Both allow the draw to continue. */
+static struct texture_resource *default_sampled_texture(struct fnv_vk_backend *d,int cube,int mismatch){
+    struct texture_resource *t=mismatch?(cube?&d->mismatch_cube:&d->mismatch_texture):(cube?&d->null_cube:&d->null_texture);
+    unsigned char *data=mismatch?(cube?d->mismatch_cube_texels:d->mismatch_texel):(cube?d->null_cube_texels:d->null_texel);
+    if(!t->width){
+        uint32_t faces=cube?6u:1u;
+        if(!mismatch)for(uint32_t face=0;face<faces;face++)data[face*4+3]=255;
+        t->width=t->height=t->levels=1;t->faces=faces;t->format=21;t->bytes=faces*4;t->face_bytes=4;t->shadow=data;t->dirty=1;
+    }
+    return t;
+}
 static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
     if(d->lost || !d->device_refs)return FNV_VK_LOST;
     uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;struct draw_watch watch={0};struct stream_binding streams[16];memcpy(streams,d->streams,sizeof(streams));
@@ -186,13 +198,9 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i))bindings[binding_count++]=(VkVertexInputBindingDescription){i,streams[i].stride,VK_VERTEX_INPUT_RATE_VERTEX};
     VkSamplerCreateInfo sampler_info[16];struct texture_resource *sampled[16]={0};
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
-        if(!d->texture_bindings[i]){
-            if(program->cube_mask&(1u<<i)){t=&d->null_cube;
-                if(!t->width){for(unsigned face=0;face<6;face++)d->null_cube_texels[face*4+3]=255;t->width=t->height=t->levels=1;t->faces=6;t->format=21;t->bytes=24;t->face_bytes=4;t->shadow=d->null_cube_texels;t->dirty=1;}
-            }else{t=&d->null_texture;
-                if(!t->width){d->null_texel[3]=255;t->width=t->height=t->levels=1;t->format=21;t->bytes=t->face_bytes=4;t->faces=1;t->shadow=d->null_texel;t->dirty=1;}}
-        }
-        if(t && ((t->faces==6)!=!!(program->cube_mask&(1u<<i)))){hr=FNV_VK_INVALID;goto done;}
+        int cube=!!(program->cube_mask&(1u<<i));
+        if(!d->texture_bindings[i])t=default_sampled_texture(d,cube,0);
+        else if(t && ((t->faces==6)!=cube))t=default_sampled_texture(d,cube,1);
         sampled[i]=t;
         if(t && t->usage==1){
             if(color->parent_texture==t->id){hr=FNV_VK_INVALID;goto done;}

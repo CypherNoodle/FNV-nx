@@ -35,12 +35,23 @@ def declaration(data):
 
 def vertex_semantics(code):
     normalized,_=normalize(code);words=struct.unpack('<%dI'%(len(normalized)//4),normalized)
-    if words[0]>>16!=0xfffe or (words[0]>>8)&255 not in (2,3):raise ValueError('require SM2/3 vertex declarations')
-    result={};seen=set();pos=1
+    major=(words[0]>>8)&255
+    if words[0]>>16!=0xfffe or major not in (1,2,3):raise ValueError('require explicit vertex declarations')
+    if major==1 and words[0]!=0xfffe0101:raise ValueError('unsupported legacy vertex version')
+    result={};seen=set();pos=1;ended=False
     while pos<len(words):
         token=words[pos];op=token&65535
-        if op==65535:break
-        length=((token>>16)&32767) if op==65534 else (token>>24)&15
+        if op==65535:
+            if token!=65535 or pos!=len(words)-1:raise ValueError('invalid END or trailing bytecode')
+            ended=True;break
+        if op==65534:length=(token>>16)&32767
+        elif major==1:
+            # Bounded legacy family with explicit DCL: NOP, MOV, ADD, MAD, DEF.
+            sizes={0:0,1:2,2:3,4:4,31:2,81:5}
+            if token!=op or op not in sizes:raise ValueError('unsupported VS1.1 instruction shape')
+            length=sizes[op]
+        else:length=(token>>24)&15
+        if pos+1+length>len(words):raise ValueError('truncated vertex instruction')
         if op==31:
             if length!=2:raise ValueError('invalid vertex DCL')
             semantic,dest=words[pos+1:pos+3];kind=((dest>>28)&7)|((dest>>8)&24)
@@ -49,7 +60,7 @@ def vertex_semantics(code):
                 if key[0]>13 or register in result or key in seen:raise ValueError('duplicate or unsupported vertex input')
                 result[register]=key;seen.add(key)
         pos+=length+1
-    if not result:raise ValueError('no explicit vertex inputs')
+    if not ended or not result:raise ValueError('missing END or explicit vertex inputs')
     return result
 
 
