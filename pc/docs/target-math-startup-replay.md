@@ -109,14 +109,20 @@ Missing, malformed, mismatched, invalid-result or state-mutating failure replies
 disable the channel and leave the caller state untouched. Fault handling occurs
 after releasing the mutex. Close only after all guest workers have exited.
 
-The Python driver bounds request count (default4,096, explicit maximum16,384),
+The Python driver bounds request count (default4,096, explicit maximum65,536),
 line size and total session duration,
 checks executable/evaluator hashes before and after execution, and writes a
 private answer cache and observation. Exhausting a budget closes input or kills
 the diagnostic; it never fabricates a numerical answer. Cache-miss counts include
 successfully answered pipe requests, so they no longer mean unresolved math.
-The answer cache contains only requests handled by that session, not the seed
-cache supplied to its child. States, logs and generated executables stay private.
+The answer cache retains at most 16,384 requests handled by that session, using
+least-recently-used eviction. Evicted requests are evaluated again if needed;
+no approximate answer replaces them. This bound is independent of the total
+request budget and does not change the replay file format or native cache.
+The report records retained count, evaluations and evictions. `unique_requests`
+is null after eviction, since a bounded cache cannot establish the total number
+of distinct requests across the whole session. The cache excludes the seed
+supplied to its child. States, logs and generated executables stay private.
 
 `test_startup_math_pipe.py` applies fourteen distinct requests1,792 times from
 two threads across all seven supported operation selectors. It compares every

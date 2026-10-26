@@ -73,7 +73,7 @@ def test(a):
     assert budget['requests']==4200 and budget['unique_requests']==1 and budget['host']['status']=='PASS' and budget['exit_code']==0
     limited=session([sys.executable,client],target,out/'budget-default',timeout=30,env=env)
     assert limited['requests']==4096 and limited['reason']=='REQUEST_LIMIT' and limited['exit_code']!=0
-    for invalid in (0,16385):
+    for invalid in (0,65537):
         try:session([program,'threaded'],target,out/('invalid-'+str(invalid)),max_requests=invalid)
         except ValueError:pass
         else:raise AssertionError('Unbounded request budget accepted')

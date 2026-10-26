@@ -18,8 +18,10 @@ cannot read a partially published answer. A failed channel remains disabled,
 including for requests that were previously cached. Close/reopen clears valid
 slots. Memory stays bounded at 733,184 bytes of packet and valid-byte arrays;
 the offline replay-file ceiling is 16,384 records. The helper still defaults to
-4,096 requests and requires an explicit larger budget, up to 16,384, for longer
-sessions. The file schema and exact reply validation remain unchanged.
+4,096 requests and requires an explicit larger budget, up to 65,536, for longer
+sessions. The Python memo retains at most 16,384 requests, evicting the least
+recently used; repeated evicted requests execute the verified evaluator again.
+The file schema and exact reply validation remain unchanged.
 
 `test_startup_math_pipe.py` applies 14 distinct synthetic operations 1,792 times
 from two host threads and checks every result against the exact ARM64 evaluator.
