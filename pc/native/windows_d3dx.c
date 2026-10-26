@@ -66,6 +66,25 @@ static void matrix_multiply(int transpose){
 }
 static void api_matrix_multiply(void){matrix_multiply(0);}
 static void api_matrix_multiply_transpose(void){matrix_multiply(1);}
+static void api_matrix_rotation_yaw_pitch_roll(void){
+    uint32_t out=fnv_cpu_argument_u32(0);float angle[3];
+    unsigned char *destination=checked(out,1);if(!destination)return;
+    for(unsigned i=0;i<3;i++){uint32_t bits=fnv_cpu_argument_u32(i+1);memcpy(angle+i,&bits,4);}
+    if(fegetround()!=FE_TONEAREST){recomp_unimpl("D3DX rotation rounding mode unsupported",out);return;}
+    for(unsigned i=0;i<3;i++)if(!supported(angle[i]) || fabsf(angle[i])>64.0f){
+        recomp_unimpl("D3DX rotation angle unsupported",out);return;
+    }
+    /* Row vectors: roll around Z, pitch around X, then yaw around Y.
+     * Native float libm is a bounded numerical implementation, not a claim of
+     * bit identity with Microsoft's trigonometric approximation. No FMA. */
+    float sy=sinf(angle[0]),cy=cosf(angle[0]),sp=sinf(angle[1]),cp=cosf(angle[1]);
+    float sr=sinf(angle[2]),cr=cosf(angle[2]);
+    float value[16]={cr*cy+sr*sp*sy,sr*cp,sr*sp*cy-cr*sy,0,
+                    cr*sp*sy-sr*cy,cr*cp,sr*sy+cr*sp*cy,0,
+                    cp*sy,-sp,cp*cy,0,0,0,0,1};
+    for(unsigned i=0;i<16;i++)if(!supported(value[i])){recomp_unimpl("D3DX rotation result unsupported",out);return;}
+    memcpy(destination,value,sizeof(value));fnv_cpu_return_u32(out,16);
+}
 static void api_perf_options(void){
     uint32_t options=fnv_cpu_argument_u32(0);
     if(options>1){recomp_unimpl("D3DPERF profiler options unsupported",options);return;}
@@ -76,6 +95,7 @@ static void api_perf_options(void){
 static const struct fnv_cpu_export exports[]={
     {"d3dx9_38.dll","D3DXMatrixMultiply",0,0,api_matrix_multiply},
     {"d3dx9_38.dll","D3DXMatrixMultiplyTranspose",0,0,api_matrix_multiply_transpose},
+    {"d3dx9_38.dll","D3DXMatrixRotationYawPitchRoll",0,0,api_matrix_rotation_yaw_pitch_roll},
     {"d3dx9_38.dll","D3DXGetImageInfoFromFileInMemory",0,0,api_image_info_memory},
     {"d3d9.dll","D3DPERF_SetOptions",0,0,api_perf_options}};
 const struct fnv_cpu_export *fnv_windows_d3dx_exports(size_t *count){if(count)*count=sizeof(exports)/sizeof(*exports);return exports;}
