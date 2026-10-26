@@ -285,6 +285,7 @@ static int files_close(struct fnv_windows_process *,uint32_t,uint32_t *,uint32_t
 #include "windows_shell.inc"
 #include "windows_profiles.inc"
 #include "windows_directory.inc"
+#include "windows_full_path.inc"
 #include "windows_parameters.inc"
 #include "windows_environment.inc"
 #include "windows_charset.inc"
@@ -399,6 +400,8 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","GetModuleFileNameW",0,0,api_module_filename_w},
     {"kernel32.dll","GetCurrentDirectoryA",0,0,api_current_directory_a},
     {"kernel32.dll","GetCurrentDirectoryW",0,0,api_current_directory_w},
+    {"kernel32.dll","GetFullPathNameA",0,0,api_full_path_a},
+    {"kernel32.dll","GetFullPathNameW",0,0,api_full_path_w},
     {"kernel32.dll","LocalFree",0,0,api_local_free},
     {"shell32.dll","CommandLineToArgvW",0,0,api_command_argv},
     {"kernel32.dll","CreateFileA",0,0,api_file_create_a},
