@@ -52,6 +52,13 @@ The capability remains reported in buffer caps. Existing DirectSound tests run
 with this flag and validate204606 PCM samples plus Windows ABI and cursor rules.
 No spatial secondary-buffer support is inferred from this flag.
 
+`wErrorRet` is an output field. The custom-procedure open path accepts a stale
+input value, clears it for the OPEN callback and caller on success, and reports
+the procedure's error on failure. This is checked with native x86 and x64
+Windows MMIO as well as translated guest callbacks. Other unsupported input
+fields still trigger explicit diagnostics. No audio device is opened by these
+MMIO comparison tests.
+
 References:
 https://learn.microsoft.com/en-us/windows/win32/api/mmiscapi/nf-mmiscapi-mmioopena
 https://learn.microsoft.com/en-us/previous-versions/dd757322(v=vs.85)

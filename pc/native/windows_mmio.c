@@ -18,7 +18,8 @@ static unsigned char *checked(uint32_t at,uint32_t n,int write){
     unsigned char *p=at?fnv_cpu_try_memory(at,n):NULL;struct fnv_guest_memory *vm=fnv_windows_current_memory();
     if(vm){unsigned char *backing;uint32_t base,bytes;
         if(!fnv_vm_binding(vm,&backing,&base,&bytes) || ((uint64_t)at<(uint64_t)base+bytes && (uint64_t)at+n>base && !fnv_vm_access(vm,at,n,write)))p=NULL;}
-    if(!p)bad("MMIO guest memory unavailable",at);return p;
+    if(!p)bad("MMIO guest memory unavailable",at);
+    return p;
 }
 static int ready(void){if(active && active->cpu==fnv_cpu_current())return 1;bad("MMIO provider unavailable",0);return 0;}
 static uint32_t callback(struct mmio_slot *s,uint32_t msg,uint32_t a,uint32_t b){
@@ -49,7 +50,8 @@ static int fill(struct mmio_slot *s){
     uint32_t pos=position(s);if(pos==UINT32_MAX)return -1;unsigned char *p=info(s);if(!p)return -1;
     if(get32(p+44)!=pos && callback(s,2,pos,0)!=pos)return -1;
     empty_buffer(s,pos);int32_t n=(int32_t)callback(s,0,s->buffer,BUFFER_BYTES);
-    if(n<0)return -1;if(n>(int32_t)BUFFER_BYTES){bad("MMIO I/O procedure read count invalid",s->procedure);return -1;}
+    if(n<0)return -1;
+    if(n>(int32_t)BUFFER_BYTES){bad("MMIO I/O procedure read count invalid",s->procedure);return -1;}
     put32(p+32,s->buffer+(uint32_t)n);return n;
 }
 static int32_t stream_read(struct mmio_slot *s,uint32_t at,uint32_t bytes){
@@ -78,13 +80,15 @@ static void api_open(void){
     unsigned char *source=at?checked(at,72,1):NULL;
     if(!source || flags!=0x10000 || !get32(source+8) || get32(source+20) || get32(source+24)){
         bad("MMIO open mode or custom procedure pending",at);return;}
-    for(unsigned i=0;i<72;i+=4)if(i!=4 && i!=8 && !(i>=48 && i<60) && get32(source+i)){bad("MMIO custom open fields pending",at+i);return;}
+    /* wErrorRet is an output, not a required-zero input. */
+    for(unsigned i=0;i<72;i+=4)if(i!=4 && i!=8 && i!=12 && !(i>=48 && i<60) && get32(source+i)){bad("MMIO custom open fields pending",at+i);return;}
     if(name){unsigned i;for(i=0;i<512;i++){unsigned char *c=checked(name+i,1,0);if(!c)return;if(!*c)break;}if(i==512){bad("MMIO file name length pending",name);return;}}
     struct mmio_slot *s=NULL;fnv_host_mutex_lock(&active->guard);
     for(unsigned i=0;i<SLOT_COUNT;i++)if(!active->slots[i].phase && active->slots[i].generation<0xfffffu){s=active->slots+i;s->phase=1;s->generation++;s->handle=0x9a000000u|(s->generation<<4)|i;break;}
     fnv_host_mutex_unlock(&active->guard);
     if(!s){put32(source+12,258);fnv_cpu_return_u32(0,12);return;}
     s->procedure=get32(source+8);unsigned char *p=info(s);if(!p)return;memmove(p,source,72);put32(p,flags);put32(p+20,BUFFER_BYTES);put32(p+24,s->buffer);put32(p+28,s->buffer);put32(p+32,s->buffer);put32(p+36,s->buffer+BUFFER_BYTES);put32(p+68,s->handle);
+    put32(p+12,0);put32(source+12,0);
     uint32_t error=callback(s,3,name,flags);
     if(error){put32(source+12,error);fnv_host_mutex_lock(&active->guard);s->phase=0;fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32(0,12);return;}
     release(s);fnv_cpu_return_u32(s->handle,12);
@@ -112,7 +116,8 @@ static void api_descend(void){
  struct mmio_slot *s=acquire(h);if(!s){fnv_cpu_return_u32(5,16);return;}uint32_t result=265;
  for(;;){uint32_t pos=position(s);if(pos==UINT32_MAX || (uint64_t)pos+8>limit)break;
     uint32_t scratch=s->buffer+BUFFER_BYTES;unsigned char *bytes=checked(scratch,12,1);if(!bytes)break;
-    if(stream_read(s,scratch,8)!=8)break;uint32_t id=get32(bytes),size=get32(bytes+4),form=0;
+    if(stream_read(s,scratch,8)!=8)break;
+    uint32_t id=get32(bytes),size=get32(bytes+4),form=0;
     uint64_t end=(uint64_t)pos+8+size,padded=end+(size&1u);
     if(end>limit || padded>INT32_MAX)break;
     int container=id==0x46464952u || id==0x5453494cu;
@@ -137,7 +142,8 @@ static const struct fnv_cpu_export exports[]={
  {"winmm.dll","mmioAscend",0,0,api_ascend}};
 const struct fnv_cpu_export *fnv_windows_mmio_exports(size_t *n){if(n)*n=9;return exports;}
 enum fnv_cpu_result fnv_windows_mmio_create(struct fnv_windows_process *process,const struct fnv_mmio_config *c,struct fnv_windows_mmio **out){
- if(!out)return FNV_CPU_INVALID;*out=NULL;if(!process || !c || (c->arena_address&63) || c->arena_bytes<0x11000)return FNV_CPU_INVALID;if(active)return FNV_CPU_BUSY;
+ if(!out)return FNV_CPU_INVALID;
+ *out=NULL;if(!process || !c || (c->arena_address&63) || c->arena_bytes<0x11000)return FNV_CPU_INVALID;if(active)return FNV_CPU_BUSY;
  void *backing;struct fnv_cpu_runtime *cpu=fnv_windows_runtime(process);enum fnv_cpu_result r=fnv_cpu_prepare_memory(cpu,c->arena_address,c->arena_bytes,&backing);if(r)return r;
  if(c->memory && (!fnv_vm_access(c->memory,c->arena_address,c->arena_bytes,1) || !fnv_vm_retain(c->memory)))return FNV_CPU_INVALID;
  struct fnv_windows_mmio *m=calloc(1,sizeof(*m));if(!m){if(c->memory)fnv_vm_release_reference(c->memory);return FNV_CPU_NO_MEMORY;}

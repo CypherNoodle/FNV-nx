@@ -24,7 +24,7 @@ static LRESULT CALLBACK native_io(LPSTR value,UINT msg,LPARAM a,LPARAM b){
  assert(0);return -1;
 }
 static void test_io(void){uint32_t at=fnv_cpu_argument_u32(0),msg=fnv_cpu_argument_u32(1),a=fnv_cpu_argument_u32(2),b=fnv_cpu_argument_u32(3),answer=0;
- if(msg==3){if(strcmp(fnv_cpu_memory(a,1),"synthetic"))answer=257;else {put(at+44,0);put(at+48,0x12345678);}}
+ if(msg==3){assert(!get(at+12));if(strcmp(fnv_cpu_memory(a,1),"synthetic"))answer=257;else {put(at+44,0);put(at+48,0x12345678);}}
  else if(msg==4)guest_closes++;
  else if(msg==2){int32_t n=io_seek((int32_t)get(at+44),(int32_t)a,b);answer=(uint32_t)n;if(n>=0)put(at+44,(uint32_t)n);}
  else if(msg==0){guest_reads++;uint32_t pos=get(at+44),n=pos>=data_bytes?0:data_bytes-pos;if(n>b)n=b;if(n)memcpy(fnv_cpu_memory(a,n),data+pos,n);put(at+44,pos+n);answer=n;}
@@ -60,6 +60,14 @@ int main(int argc,char **argv){
   if(!strcmp(argv[2],"--strict-callback-abi")){put(INFO+8,0x401500+2*32);} /* wrong callback uses mmioRead with invalid handle then ret12 */
   assert(invoke(api,args,&answer,&f)==FNV_CPU_GUEST_FAULT);puts("strict PASS");return 0;
  }
+ const unsigned stale_errors[]={0,1,257,0xdeadbeef};
+ for(unsigned i=0;i<4;i++){
+  initial_info();put(INFO+12,stale_errors[i]);uint32_t opened=call(0,NAME,INFO,0x10000,0);assert(opened && !get(INFO+12));
+  assert(!call(4,opened,INFO,0,0) && !get(INFO+12));assert(!call(1,opened,0,0,0));
+  MMIOINFO in={0},out={0};in.pIOProc=native_io;in.wErrorRet=stale_errors[i];HMMIO nh=mmioOpenA("synthetic",&in,MMIO_ALLOCBUF);
+  assert(nh && !in.wErrorRet && !mmioGetInfo(nh,&out,0) && !out.wErrorRet && !mmioClose(nh,0));
+ }
+ guest_closes=native_closes=0;initial_info();
  uint32_t h=call(0,NAME,INFO,0x10000,0);assert(h);HMMIO native=native_open();assert(native);unsigned checks=0;
  unsigned char native_data[1000];unsigned seed=0x12345;
  for(unsigned i=0;i<1000;i++){seed=seed*1664525u+1013904223u;uint32_t pos=seed%(data_bytes+200);
