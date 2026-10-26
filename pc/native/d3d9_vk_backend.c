@@ -68,6 +68,9 @@ struct frame {
 };
 struct wsi_image {VkImage image;VkSemaphore ready;VkFence presented;int pending;};
 struct wsi_state {VkSurfaceKHR surface;VkSwapchainKHR chain;uint32_t count;struct wsi_image images[8];VkPresentModeKHR mode;uint64_t presents,timeouts;};
+/* Resource arrays have stable addresses until backend destruction. Validate the
+ * live identity on every hit, including hits for a different resource kind. */
+struct resource_lookup {uintptr_t id;const uintptr_t *identity;void *resource;unsigned kind;};
 struct fnv_vk_backend {
     fnv_host_mutex guard;struct dispatch v;struct fnv_vk_config config;
     VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;struct wsi_state wsi;
@@ -86,6 +89,7 @@ struct fnv_vk_backend {
     uintptr_t next_id,back,auto_depth,color,depth;uint32_t presentation_format;
     uint32_t viewport[6],scissor[4];uint64_t device_refs,allocated,submissions,completions,draw_timeout_ns,draw_waits;
     VkResult last;int lost,in_scene,queue_touched;uint32_t scissor_enabled;
+    struct resource_lookup lookups[128];
 };
 static uint32_t result(struct fnv_vk_backend *d,VkResult r){
     d->last=r;
@@ -94,18 +98,21 @@ static uint32_t result(struct fnv_vk_backend *d,VkResult r){
     if(r==VK_ERROR_OUT_OF_HOST_MEMORY || r==VK_ERROR_OUT_OF_DEVICE_MEMORY)return FNV_VK_OOM;
     d->lost=1;return FNV_VK_LOST;
 }
-static struct surface *find(struct fnv_vk_backend *d,uintptr_t id){
-    if(id)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id==id)return d->surfaces+i;
+static void *lookup_resource(struct fnv_vk_backend *d,uintptr_t id,unsigned kind,void *base,size_t stride){
+    if(!id || !base)return NULL;
+    struct resource_lookup *entry=d->lookups+(id%128);
+    if(entry->id==id && entry->identity && *entry->identity==id)
+        return entry->kind==kind?entry->resource:NULL;
+    for(uint32_t i=0;i<d->config.resource_capacity;++i){
+        /* Every array element starts with its uintptr_t identity member. */
+        void *resource=(unsigned char*)base+(size_t)i*stride;uintptr_t *identity=resource;
+        if(*identity==id){*entry=(struct resource_lookup){id,identity,resource,kind};return resource;}
+    }
     return NULL;
 }
-static struct buffer_resource *find_buffer(struct fnv_vk_backend *d,uintptr_t id){
-    if(id && d->buffer_resources)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id==id)return d->buffer_resources+i;
-    return NULL;
-}
-static struct texture_resource *find_texture(struct fnv_vk_backend *d,uintptr_t id){
-    if(id && d->textures)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->textures[i].id==id)return d->textures+i;
-    return NULL;
-}
+static struct surface *find(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,0,d->surfaces,sizeof(*d->surfaces));}
+static struct buffer_resource *find_buffer(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,1,d->buffer_resources,sizeof(*d->buffer_resources));}
+static struct texture_resource *find_texture(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,2,d->textures,sizeof(*d->textures));}
 static void release_texture_version(struct fnv_vk_backend *d,struct texture_version *v){
     if(v && !--v->refs){d->v.DestroyImageView(d->device,v->view,NULL);d->v.DestroyImage(d->device,v->image,NULL);
         d->v.FreeMemory(d->device,v->memory,NULL);d->allocated-=v->allocation;d->texture_versions--;free(v);}
@@ -114,14 +121,8 @@ static void collect_texture(struct fnv_vk_backend *d,struct texture_resource *t)
     if(!t || !t->id || t->refs || t->pins)return;
     release_texture_version(d,t->version);free(t->shadow);memset(t,0,sizeof(*t));
 }
-static struct shader_resource *find_shader(struct fnv_vk_backend *d,uintptr_t id){
-    if(id && d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].id==id)return d->shaders+i;
-    return NULL;
-}
-static struct declaration_resource *find_declaration(struct fnv_vk_backend *d,uintptr_t id){
-    if(id && d->declarations)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->declarations[i].id==id)return d->declarations+i;
-    return NULL;
-}
+static struct shader_resource *find_shader(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,3,d->shaders,sizeof(*d->shaders));}
+static struct declaration_resource *find_declaration(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,4,d->declarations,sizeof(*d->declarations));}
 static void collect_shader(struct fnv_vk_backend *d,struct shader_resource *s){
     if(!s || !s->id || s->refs || s->pins)return;
     if(s->module)d->v.DestroyShaderModule(d->device,s->module,NULL);
