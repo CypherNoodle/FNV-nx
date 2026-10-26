@@ -80,7 +80,7 @@ struct fnv_vk_backend {
     struct texture_resource null_texture,null_cube;unsigned char null_texel[4],null_cube_texels[24];
     struct shader_catalog *catalog;uint32_t catalog_count;
     struct shader_resource *shaders;struct declaration_resource *declarations;
-    uintptr_t bound_shaders[2],declaration,fixed_vertex,fixed_directional,fixed_pixel[4];uint32_t texture_stage[2][6],texture_coord_index[2];uint32_t lighting,normalize_normals,color_vertex,specular,ambient;struct fnv_uniform_state *uniforms;
+    uintptr_t bound_shaders[2],declaration,fixed_vertex,fixed_directional,fixed_pixel[4],fixed_screen[2];uint32_t texture_stage[2][6],texture_coord_index[2];uint32_t lighting,normalize_normals,color_vertex,specular,ambient;struct fnv_uniform_state *uniforms;
     uint32_t buffer_versions,texture_versions;struct texture_resource *textures;uintptr_t texture_bindings[16];
     struct clear_command *commands;uint32_t count;
     uintptr_t next_id,back,auto_depth,color,depth;uint32_t presentation_format;
@@ -164,6 +164,7 @@ static void close_device(struct fnv_vk_backend *d){
     uintptr_t fixed=d->fixed_vertex;d->fixed_vertex=0;pin(d,fixed,0);
     fixed=d->fixed_directional;d->fixed_directional=0;pin(d,fixed,0);
     for(unsigned i=0;i<4;i++){fixed=d->fixed_pixel[i];d->fixed_pixel[i]=0;pin(d,fixed,0);}
+    for(unsigned i=0;i<2;i++){fixed=d->fixed_screen[i];d->fixed_screen[i]=0;pin(d,fixed,0);}
     uintptr_t ids[4]={d->color,d->depth,d->back,d->auto_depth};
     d->color=d->depth=d->back=d->auto_depth=0;
     for(unsigned i=0;i<4;++i)pin(d,ids[i],0);

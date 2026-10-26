@@ -27,8 +27,10 @@ uint32_t fnv_vk_backend_reset(struct fnv_vk_backend *d,uint64_t timeout){
     for(uint32_t i=0;i<d->count;++i){pin(d,d->commands[i].color,0);pin(d,d->commands[i].depth,0);}d->count=0;
     uintptr_t fixed_vertex=d->fixed_vertex,directional=d->fixed_directional;pin(d,fixed_vertex,1);pin(d,directional,1);
     uintptr_t pixels[4];memcpy(pixels,d->fixed_pixel,sizeof(pixels));for(unsigned i=0;i<4;i++)pin(d,pixels[i],1);
+    uintptr_t screen[2];memcpy(screen,d->fixed_screen,sizeof(screen));for(unsigned i=0;i<2;i++)pin(d,screen[i],1);
     close_device(d); /* Drop internal refs, retaining all public managed/shader refs. */
     d->fixed_vertex=fixed_vertex;d->fixed_directional=directional;memcpy(d->fixed_pixel,pixels,sizeof(pixels));
+    memcpy(d->fixed_screen,screen,sizeof(screen));
     struct fnv_uniform_state *previous=d->uniforms;d->uniforms=uniforms;uniforms=NULL;(void)fnv_uniform_state_destroy(previous);
     color.id=++d->next_id;*old_color=color;memset(&color,0,sizeof(color));d->back=old_color->id;pin(d,d->back,1);d->color=d->back;pin(d,d->color,1);
     if(d->config.auto_depth){depth.id=++d->next_id;*old_depth=depth;memset(&depth,0,sizeof(depth));d->auto_depth=old_depth->id;pin(d,d->auto_depth,1);d->depth=d->auto_depth;pin(d,d->depth,1);}

@@ -133,6 +133,10 @@ uint32_t fnv_vk_backend_fixed_vertex(struct fnv_vk_backend *,uintptr_t);
  * TEXCOORD0. Keeps public binding unchanged. */
 uint32_t fnv_vk_backend_fixed_pixel(struct fnv_vk_backend *,uint32_t mode,uintptr_t);
 uint32_t fnv_vk_backend_fixed_directional(struct fnv_vk_backend *,uintptr_t);
+/* Trusted XYZRHW/TEX1 unlit UP pair. VS consumes one float4 viewport register;
+ * PS samples texture zero with no uniforms. No caps or guest bindings change.
+ * Both zero clears the pair; rejects partial registration transactionally. */
+uint32_t fnv_vk_backend_fixed_screen(struct fnv_vk_backend *,uintptr_t vertex,uintptr_t pixel);
 /* Supported logical D3D9 resource/usage -> actual Vulkan format query.
  * Unsupported capabilities return D3DERR_NOTAVAILABLE; never allocate here. */
 uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *,uint32_t usage,uint32_t resource_type,uint32_t format);
