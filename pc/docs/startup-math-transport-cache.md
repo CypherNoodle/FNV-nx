@@ -17,7 +17,9 @@ The pipe mutex protects the cache and transport together. Concurrent requests
 cannot read a partially published answer. A failed channel remains disabled,
 including for requests that were previously cached. Close/reopen clears valid
 slots. Memory stays bounded at 733,184 bytes of packet and valid-byte arrays;
-the offline replay-file limit and helper request limit remain 4,096.
+the offline replay-file ceiling is 16,384 records. The helper still defaults to
+4,096 requests and requires an explicit larger budget, up to 16,384, for longer
+sessions. The file schema and exact reply validation remain unchanged.
 
 `test_startup_math_pipe.py` applies 14 distinct synthetic operations 1,792 times
 from two host threads and checks every result against the exact ARM64 evaluator.
@@ -31,3 +33,10 @@ runtime. It changes neither arithmetic nor game instruction translation. A
 longer diagnostic trace is not a measurement of Switch game performance or
 evidence of complete game startup. Diagnostic binaries, caches and game traces
 remain local.
+
+The Python codec and native replay loader both accept 4,097 and 16,384 unique
+structural records and reject an over-limit header. Those parser fixtures do
+not claim numerical validation of their padding rows. A separate synthetic
+protocol client verifies 4,200 exact replies under an explicit larger budget;
+the same client is cut off at 4,096 with the default budget. Zero and oversized
+budgets are rejected before spawning a child.

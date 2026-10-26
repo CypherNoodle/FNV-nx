@@ -11,13 +11,13 @@ import queue
 import subprocess
 import threading
 import time
-from replay_startup_math import encode
+from replay_startup_math import encode,MAX_REPLAY_RECORDS
 from x87_target_evaluator import Evaluator, sha, unchanged
 
 
 def session(command, target, output, max_requests=4096, timeout=180, env=None):
     output=Path(output).resolve()
-    if output.exists() or not command or not 1<=max_requests<=4096 or not 1<=timeout<=600:
+    if output.exists() or not command or not 1<=max_requests<=MAX_REPLAY_RECORDS or not 1<=timeout<=600:
         raise ValueError('Fresh output, executable and bounded budgets required')
     command=list(map(str,command));program=Path(command[0]).resolve()
     frozen={str(program):sha(program),str(Path(__file__).resolve()):sha(Path(__file__)),

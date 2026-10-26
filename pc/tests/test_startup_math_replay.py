@@ -6,7 +6,7 @@ import struct
 import subprocess
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from replay_startup_math import encode
+from replay_startup_math import encode,decode_cache,MAX_REPLAY_RECORDS
 from x87_target_evaluator import Evaluator,sha,unchanged
 
 
@@ -32,7 +32,7 @@ def test(a):
     good=encode([(request,result,after)]);header=good[:16];record=good[16:];checks=0
     cases={'valid':(good,'hit'),'short':(good[:7],'reject'),'magic':(b'BADMAGIC'+good[8:],'reject'),
            'reserved':(good[:12]+struct.pack('<I',1)+good[16:],'reject'),
-           'capacity':(good[:8]+struct.pack('<I',4097)+good[12:],'reject'),
+           'capacity':(good[:8]+struct.pack('<I',MAX_REPLAY_RECORDS+1)+good[12:],'reject'),
            'truncated':(good[:-1],'reject'),'trailing':(good+b'X','reject'),
            'duplicate':(good[:8]+struct.pack('<I',2)+good[12:]+record,'reject'),
            'kind':(header+bytes((2,))+record[1:],'reject'),
@@ -41,6 +41,23 @@ def test(a):
            'error-mutation':(header+record[:88]+struct.pack('<I',4)+bytes((record[92]^1,))+record[93:],'reject')}
     trig_request=bytes((1,0))+state;trig_result,trig_after=target.evaluate(trig_request);assert trig_result==0
     cases['threaded']=(encode([(request,result,after),(trig_request,trig_result,trig_after)]),'threads')
+    # Parser-capacity fixtures: unique, structurally valid rows. Only the first
+    # row is executed; these extra rows are not numerical evaluator evidence.
+    boundary_rows=[(request,result,after)]
+    for n in range(1,MAX_REPLAY_RECORDS):
+        q=bytearray(request);output=bytearray(after)
+        q[72:80]=struct.pack('<Q',n);output[70:78]=struct.pack('<Q',n)
+        boundary_rows.append((bytes(q),result,bytes(output)))
+    for count in (4097,MAX_REPLAY_RECORDS):
+        blob=encode(boundary_rows[:count]);assert len(decode_cache(blob))==count
+        cases['capacity-valid-'+str(count)]=(blob,'hit')
+    for bad in (good[:8]+struct.pack('<I',MAX_REPLAY_RECORDS+1)+good[12:],good[:-1],good+b'X'):
+        try:decode_cache(bad)
+        except ValueError:pass
+        else:raise AssertionError('Python cache decoder accepted malformed boundary')
+    try:encode(boundary_rows+[(request,result,after)])
+    except ValueError:pass
+    else:raise AssertionError('Python cache encoder accepted over-capacity input')
     quarter=struct.pack('<QH',1<<63,0x3ffd);seed_state=bytearray(state);seed_state[:10]=quarter
     delta_rows=[];variants=[]
     for op in (0,1,3):

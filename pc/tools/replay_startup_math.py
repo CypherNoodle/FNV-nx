@@ -12,10 +12,11 @@ import struct
 import subprocess
 from startup_memory_profile import configuration
 from x87_target_evaluator import Evaluator,sha,unchanged
+MAX_REPLAY_RECORDS=16384
 
 
 def encode(records):
-    if len(records)>4096:raise ValueError('Replay record limit')
+    if len(records)>MAX_REPLAY_RECORDS:raise ValueError('Replay record limit')
     keys=set();data=[]
     for request,result,state in records:
         if (len(request)!=88 or len(state)!=86 or request[0]>1 or
@@ -36,7 +37,7 @@ def diagnostic_file_root(report,exe):
 def decode_cache(data):
     if len(data)<16 or data[:8]!=b'FNVX87R1':raise ValueError('Invalid seed cache header')
     count,reserved=struct.unpack_from('<II',data,8)
-    if reserved or count>4096 or len(data)!=16+count*178:raise ValueError('Invalid seed cache size')
+    if reserved or count>MAX_REPLAY_RECORDS or len(data)!=16+count*178:raise ValueError('Invalid seed cache size')
     records=[]
     for at in range(16,len(data),178):
         records.append((data[at:at+88],struct.unpack_from('<I',data,at+88)[0],data[at+92:at+178]))

@@ -39,7 +39,7 @@ int fnv_startup_math_replay_open(const char *path){
     FILE *f=fopen(path,"rb");if(!f)return 0;
     unsigned char header[16];int ok=fread(header,1,16,f)==16 && !memcmp(header,"FNVX87R1",8) && !read32(header+12);
     uint32_t count=ok?read32(header+8):0;
-    if(!ok || count>4096){fclose(f);return 0;}
+    if(!ok || count>16384){fclose(f);return 0;}
     size_t bytes=(size_t)count*178;unsigned char *data=malloc(bytes?bytes:1);
     if(!data){fclose(f);return 0;}
     ok=fread(data,1,bytes,f)==bytes && fgetc(f)==EOF && !ferror(f);

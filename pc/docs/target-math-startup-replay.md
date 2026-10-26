@@ -12,7 +12,9 @@ The request prefixes operation family and operation index, giving 88 bytes.
 An immutable cache starts with `FNVX87R1`, a little-endian 32-bit record count
 and four reserved zero bytes. Each record contains the exact request, a 32-bit
 result code and the full 86-byte resulting state. Failed operations must retain
-identical state; duplicate keys and malformed records are rejected.
+identical state; duplicate keys and malformed records are rejected. The Python
+codec and native diagnostic loader accept at most16,384 records. The incremental
+offline replay command retains its narrower4,096-record work budget.
 
 `replay_startup_math.py` starts from a frozen baseline. On a math miss it executes
 only that exact request on the target model, writes a fresh cache, and restarts
@@ -38,7 +40,8 @@ register payloads against actual execution of the frozen ARM64 evaluator. It
 also checks changed occupied registers, control/status/TOP/mask, pushing trig,
 unsafe output changes, conflicting answers and the default-disabled path.
 The original parser, explicit-miss and two-native-thread tests remain enabled;
-there are17 native test cases. `--cc` selects a compatible host linker/compiler
+there are19 native test cases, including extended cache-capacity boundaries.
+`--cc` selects a compatible host linker/compiler
 without replacing any hash-checked arithmetic objects. Inputs are frozen before
 compilation and rechecked after execution. This mode only reduces unnecessary
 diagnostic cache variants; previously unseen live operands still stop and need
@@ -106,7 +109,8 @@ Missing, malformed, mismatched, invalid-result or state-mutating failure replies
 disable the channel and leave the caller state untouched. Fault handling occurs
 after releasing the mutex. Close only after all guest workers have exited.
 
-The Python driver bounds request count, line size and total session duration,
+The Python driver bounds request count (default4,096, explicit maximum16,384),
+line size and total session duration,
 checks executable/evaluator hashes before and after execution, and writes a
 private answer cache and observation. Exhausting a budget closes input or kills
 the diagnostic; it never fabricates a numerical answer. Cache-miss counts include
@@ -114,9 +118,12 @@ successfully answered pipe requests, so they no longer mean unresolved math.
 The answer cache contains only requests handled by that session, not the seed
 cache supplied to its child. States, logs and generated executables stay private.
 
-`test_startup_math_pipe.py` checks fourteen concurrent requests across all seven
-supported operation selectors, compares every returned complete state with the
-ARM64 evaluator, and checks seven missing/malformed response cases. It accepts
+`test_startup_math_pipe.py` applies fourteen distinct requests1,792 times from
+two threads across all seven supported operation selectors. It compares every
+returned complete state with the ARM64 evaluator and checks seven malformed
+replies plus a channel failure after caching a good reply. Transport memoization,
+collision/control/reopen checks and larger/default budget checks are described
+in `startup-math-transport-cache.md`. It accepts
 `--cc`, `--core` (strict host arithmetic objects), `--evaluator`, `--python-deps`
 and a fresh `--output`. The existing replay tests also run without the opt-in
 define, checking that their previous hit/miss behavior is preserved.

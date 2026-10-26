@@ -60,8 +60,25 @@ def test(a):
     stdout,stderr=child.communicate(b'broken\n',timeout=10)
     (out/'cached-negative.log').write_bytes(first+applied_line+second+stdout+stderr)
     assert child.returncode==0 and b'"PASS"' in stdout and b'FNV_X87_REQUEST' not in stdout
+    # A synthetic protocol client deliberately bypasses the native memo to
+    # exercise the driver's larger request budget and the retained default.
+    wire=bytes.fromhex(first.decode().split()[1]);result,state=target.evaluate(wire)
+    request_line=b'FNV_X87_REQUEST '+wire.hex().encode()+b'\n'
+    answer_line=b'FNV_X87_REPLY '+(wire+struct.pack('<I',result)+state).hex().encode()+b'\n'
+    client=out/'budget_client.py'
+    client.write_text('import sys\nrequest='+repr(request_line)+'\nanswer='+repr(answer_line)+
+        '\nfor i in range(4200):\n sys.stdout.buffer.write(request);sys.stdout.buffer.flush()\n assert sys.stdin.buffer.readline()==answer\nprint(\'{"status":"PASS"}\')\n')
+    frozen[str(client)]=sha(client)
+    budget=session([sys.executable,client],target,out/'budget-large',max_requests=4200,timeout=30,env=env)
+    assert budget['requests']==4200 and budget['unique_requests']==1 and budget['host']['status']=='PASS' and budget['exit_code']==0
+    limited=session([sys.executable,client],target,out/'budget-default',timeout=30,env=env)
+    assert limited['requests']==4096 and limited['reason']=='REQUEST_LIMIT' and limited['exit_code']!=0
+    for invalid in (0,16385):
+        try:session([program,'threaded'],target,out/('invalid-'+str(invalid)),max_requests=invalid)
+        except ValueError:pass
+        else:raise AssertionError('Unbounded request budget accepted')
     unchanged(frozen)
-    (out/'validation.json').write_text(json.dumps(dict(status='PASS',target_requests=14,exact_applications=len(applied),collision_reopen_and_control_checks=8,cached_channel_failure_checked=True,malformed_or_missing_replies=7,source_sha256=frozen,engine_started=False,hardware_tested=False),indent=2)+'\n')
+    (out/'validation.json').write_text(json.dumps(dict(status='PASS',target_requests=14,exact_applications=len(applied),collision_reopen_and_control_checks=8,cached_channel_failure_checked=True,large_budget_requests=4200,default_budget_still_bounded=True,malformed_or_missing_replies=7,source_sha256=frozen,engine_started=False,hardware_tested=False),indent=2)+'\n')
     print('PASS 1792 concurrent exact applications, collision/reopen/control checks and 8 fail-closed cases')
 
 if __name__=='__main__':
