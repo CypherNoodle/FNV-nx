@@ -34,7 +34,7 @@ int main(int argc,char **argv){
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,ARENA,&image)==FNV_NATIVE_OK);
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=ARENA;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
     c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
-    size_t n,bound;const struct fnv_cpu_export *exports=fnv_windows_d3dx_exports(&n);assert(n==5);
+    size_t n,bound;const struct fnv_cpu_export *exports=fnv_windows_d3dx_exports(&n);assert(n==13);
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&bound)==FNV_NATIVE_OK && bound==3);
     struct fnv_windows_thread_config t=config(0);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
     header(16,16,1,0,0);memcpy(arena+BUFFER-BASE,dds,sizeof(dds));

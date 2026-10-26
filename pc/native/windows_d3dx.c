@@ -85,6 +85,7 @@ static void api_matrix_rotation_yaw_pitch_roll(void){
     for(unsigned i=0;i<16;i++)if(!supported(value[i])){recomp_unimpl("D3DX rotation result unsupported",out);return;}
     memcpy(destination,value,sizeof(value));fnv_cpu_return_u32(out,16);
 }
+#include "d3dx_vector_matrix.inc"
 static void api_perf_options(void){
     uint32_t options=fnv_cpu_argument_u32(0);
     if(options>1){recomp_unimpl("D3DPERF profiler options unsupported",options);return;}
@@ -96,6 +97,14 @@ static const struct fnv_cpu_export exports[]={
     {"d3dx9_38.dll","D3DXMatrixMultiply",0,0,api_matrix_multiply},
     {"d3dx9_38.dll","D3DXMatrixMultiplyTranspose",0,0,api_matrix_multiply_transpose},
     {"d3dx9_38.dll","D3DXMatrixRotationYawPitchRoll",0,0,api_matrix_rotation_yaw_pitch_roll},
+    {"d3dx9_38.dll","D3DXMatrixTranspose",0,0,api_matrix_transpose},
+    {"d3dx9_38.dll","D3DXMatrixInverse",0,0,api_matrix_inverse},
+    {"d3dx9_38.dll","D3DXVec4Transform",0,0,api_vec4_transform},
+    {"d3dx9_38.dll","D3DXVec3TransformCoord",0,0,api_vec3_transform_coord},
+    {"d3dx9_38.dll","D3DXVec3TransformNormal",0,0,api_vec3_transform_normal},
+    {"d3dx9_38.dll","D3DXPlaneTransform",0,0,api_plane_transform},
+    {"d3dx9_38.dll","D3DXVec3Normalize",0,0,api_vec3_normalize},
+    {"d3dx9_38.dll","D3DXPlaneNormalize",0,0,api_plane_normalize},
     {"d3dx9_38.dll","D3DXGetImageInfoFromFileInMemory",0,0,api_image_info_memory},
     {"d3d9.dll","D3DPERF_SetOptions",0,0,api_perf_options}};
 const struct fnv_cpu_export *fnv_windows_d3dx_exports(size_t *count){if(count)*count=sizeof(exports)/sizeof(*exports);return exports;}
