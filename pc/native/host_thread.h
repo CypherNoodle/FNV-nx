@@ -11,6 +11,18 @@ typedef void (*fnv_host_thread_entry)(void *);
 typedef struct {Thread thread;} fnv_host_thread;
 static inline int fnv_host_thread_create(fnv_host_thread *t,fnv_host_thread_entry fn,void *arg,size_t stack){
     if(R_FAILED(threadCreate(&t->thread,fn,arg,NULL,stack,0x2c,-2)))return 0;
+    /* -2 chooses the process default core, not its allowed affinity mask.
+     * Configure the stopped worker before it can run. Never assume core 3
+     * belongs to the application, or silently start on an unknown mask. */
+    uint64_t allowed=0,mask=0;int32_t preferred=-1;
+    if(R_FAILED(svcGetInfo(&allowed,InfoType_CoreMask,CUR_PROCESS_HANDLE,0)) || !allowed || allowed>UINT32_MAX ||
+       R_FAILED(svcGetThreadCoreMask(&preferred,&mask,t->thread.handle))){(void)threadClose(&t->thread);return 0;}
+    if(preferred<0 || preferred>=32 || !(allowed&(UINT64_C(1)<<(unsigned)preferred))){
+        preferred=0;while(!(allowed&(UINT64_C(1)<<(unsigned)preferred)))preferred++;
+    }
+    if(mask!=allowed && R_FAILED(svcSetThreadCoreMask(t->thread.handle,preferred,(uint32_t)allowed))){
+        (void)threadClose(&t->thread);return 0;
+    }
     if(R_FAILED(threadStart(&t->thread))){(void)threadClose(&t->thread);return 0;}return 1;
 }
 static inline int fnv_host_thread_join(fnv_host_thread *t){
