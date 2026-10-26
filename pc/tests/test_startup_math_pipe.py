@@ -29,8 +29,17 @@ def test(a):
     r=session([program,'threaded'],target,out/'threaded',timeout=30,env=env)
     assert r['requests']==14 and r['exit_code']==0 and r['host']['status']=='PASS'
     applied=[bytes.fromhex(line.split()[1]) for line in (out/'threaded/stdout.log').read_text().splitlines() if line.startswith('FNV_X87_APPLIED ')]
-    assert len(applied)==14
-    for row in applied:assert target.evaluate(row[:88])==(struct.unpack_from('<I',row,88)[0],row[92:])
+    assert len(applied)==1792
+    verified={}
+    for row in applied:
+        if row[:88] not in verified:verified[row[:88]]=target.evaluate(row[:88])
+        assert verified[row[:88]]==(struct.unpack_from('<I',row,88)[0],row[92:])
+    assert len(verified)==14
+    memo=session([program,'memo'],target,out/'memo',timeout=30,env=env)
+    assert memo['requests']==5 and memo['exit_code']==0 and memo['host']['status']=='PASS'
+    memo_applied=[bytes.fromhex(line.split()[1]) for line in (out/'memo/stdout.log').read_text().splitlines() if line.startswith('FNV_X87_APPLIED ')]
+    assert len(memo_applied)==8 and memo_applied[0][:88]!=memo_applied[2][:88]
+    for row in memo_applied:assert target.evaluate(row[:88])==(struct.unpack_from('<I',row,88)[0],row[92:])
     for mode in ('eof','echo','hex','size','result','error-mutation','top'):
         child=subprocess.Popen([str(program),'negative'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
         request=child.stdout.readline();assert request.startswith(b'FNV_X87_REQUEST ');wire=bytes.fromhex(request.decode().split()[1]);result,state=target.evaluate(wire);row=bytearray(wire+struct.pack('<I',result)+state)
@@ -43,9 +52,17 @@ def test(a):
         if mode=='size':reply=reply[:-3]+b'\n'
         stdout,stderr=child.communicate(b'' if mode=='eof' else reply,timeout=10)
         (out/(mode+'.log')).write_bytes(request+stdout+stderr);assert child.returncode==0 and b'"PASS"' in stdout,(mode,stderr)
+    child=subprocess.Popen([str(program),'cached-negative'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
+    first=child.stdout.readline();wire=bytes.fromhex(first.decode().split()[1]);result,state=target.evaluate(wire)
+    child.stdin.write(b'FNV_X87_REPLY '+(wire+struct.pack('<I',result)+state).hex().encode()+b'\n');child.stdin.flush()
+    applied_line=child.stdout.readline();second=child.stdout.readline()
+    assert applied_line.startswith(b'FNV_X87_APPLIED ') and second.startswith(b'FNV_X87_REQUEST ') and first!=second
+    stdout,stderr=child.communicate(b'broken\n',timeout=10)
+    (out/'cached-negative.log').write_bytes(first+applied_line+second+stdout+stderr)
+    assert child.returncode==0 and b'"PASS"' in stdout and b'FNV_X87_REQUEST' not in stdout
     unchanged(frozen)
-    (out/'validation.json').write_text(json.dumps(dict(status='PASS',target_requests=14,malformed_or_missing_replies=7,source_sha256=frozen,engine_started=False,hardware_tested=False),indent=2)+'\n')
-    print('PASS 14 concurrent exact target replies and 7 fail-closed cases')
+    (out/'validation.json').write_text(json.dumps(dict(status='PASS',target_requests=14,exact_applications=len(applied),collision_reopen_and_control_checks=8,cached_channel_failure_checked=True,malformed_or_missing_replies=7,source_sha256=frozen,engine_started=False,hardware_tested=False),indent=2)+'\n')
+    print('PASS 1792 concurrent exact applications, collision/reopen/control checks and 8 fail-closed cases')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
