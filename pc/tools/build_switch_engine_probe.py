@@ -95,7 +95,7 @@ def build(a):
     mesa=[Path(name) for name in platform['source_sha256'] if Path(name).name=='libvulkan.a']
     if len(mesa)!=1:raise ValueError('Ambiguous static Mesa archive')
     archives=[pin(r['path'],r['sha256']) for r in runtime['archives'] if Path(r['path']).name not in ('libc.a','libm.a','libgcc.a','libsysbase.a')]
-    sources=[pc/'switch'/name for name in ('engine_probe.c','engine_layout.c','engine_process_plan.c','engine_movie_io.c')]
+    sources=[pc/'switch'/name for name in ('engine_probe.c','engine_layout.c','engine_process_plan.c','engine_movie_io.c','engine_crash.c')]
     for path in (*sources,*sorted((pc/'switch').glob('engine_*.h')),Path(__file__),a.profile,a.platform_validation,a.bundle_validation):pin(path)
     out.mkdir(parents=True);rom=out/'romfs';rom.mkdir()
     shutil.copyfile(capture,rom/'captured-text-data.bin');shutil.copyfile(catalog,rom/'catalog.sdp')
@@ -130,7 +130,8 @@ def build(a):
     includes+=['-I'+str(out),'-I'+str(pc/'switch')]
     objects=[]
     for i,source in enumerate(sources):
-        obj=out/(source.stem+'.o');run([cc,*flags,'-Wall','-Wextra','-Werror',*includes,
+        extra=['-mgeneral-regs-only'] if source.name=='engine_crash.c' else []
+        obj=out/(source.stem+'.o');run([cc,*flags,*extra,'-Wall','-Wextra','-Werror',*includes,
             '-include',pc/'native/fnv_sdk_runtime.h','-c',source,'-o',obj],f'compile-{i}');objects.append(obj)
     elf=out/'fnv-nx.elf';nro=out/'fnv-nx.nro';nacp=out/'fnv-nx.nacp'
     run([cc,'-specs='+str(nx/'switch.specs'),'-march=armv8-a+crc+crypto','-mtune=cortex-a57','-mtp=soft','-fPIE',
@@ -141,8 +142,11 @@ def build(a):
     headers=run([readelf,'-h','-l','-d',elf],'elf-headers')
     if 'AArch64' not in headers or 'DYN' not in headers or '(NEEDED)' in headers:raise ValueError('Invalid Horizon ELF')
     symbols=run([nm,'--defined-only','--extern-only','--format=posix',elf],'symbols')
-    for name in ('sub_00ECC4DB','sub_00C0CD80','__wrap_recomp_lookup','fnv_horizon_audio_open_source'):
+    for name in ('sub_00ECC4DB','sub_00C0CD80','__wrap_recomp_lookup','fnv_horizon_audio_open_source','__libnx_exception_handler'):
         if not any(line.split()[0]==name for line in symbols.splitlines() if line.strip()):raise ValueError('Missing engine link anchor: '+name)
+    records={p[0]:p for line in symbols.splitlines() if len(p:=line.split())>=4}
+    if records['__libnx_exception_handler'][1]!='T' or records.get('__nx_exception_stack',[0,0,0,'0'])[3]!='10000':
+        raise ValueError('Native crash handler/64 KiB exception stack not retained')
     run([nacptool,'--create','FNV PC Engine Experiment','FNV-nx','pc-engine-'+a.hardware_revision,nacp],'nacp')
     run([elf2nro,elf,nro,'--nacp='+str(nacp),'--icon='+str(icon),'--romfsdir='+str(rom)],'nro')
     raw=nro.read_bytes();size=struct.unpack_from('<I',raw,24)[0]
@@ -158,6 +162,7 @@ def build(a):
         elf_sha256=sha(elf),source_sha256=frozen,commands=commands,experimental_caps=bool(a.experimental_caps),
         volume=0,entry=entry['start'],prepared_programs=54,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
         captured_code_embedded=True,generated_game_code_embedded=True,private_output=True,
+        native_crash_capture=True,native_exception_stack_bytes=65536,
         guest_engine_execution_enabled=True,cold_boot_supported=False,game_started=False,switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');return result
 
@@ -166,5 +171,5 @@ if __name__=='__main__':
     for name in ('platform-validation','cpu-validation','runtime-validation','profile','entry-evidence','bundle-validation','exe','capture','catalog','fixed-screen','devkitpro','cc','nm','readelf','elf2nro','nacptool','icon','output'):
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--experimental-caps',action='store_true')
-    p.add_argument('--hardware-revision',default='hw02')
+    p.add_argument('--hardware-revision',default='hw03')
     r=build(p.parse_args());print(json.dumps({k:r[k] for k in ('status','nro_bytes','guest_engine_execution_enabled','cold_boot_supported','switch_hardware_tested')}))

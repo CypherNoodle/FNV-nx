@@ -13,6 +13,7 @@
 #include "fnv_sdk_runtime.h"
 #include "engine_process_plan.h"
 #include "engine_movie_io.h"
+#include "engine_crash.h"
 #include "windows_memory.h"
 #include "windows_modules.h"
 #include "windows_user32.h"
@@ -183,6 +184,7 @@ static int initialize(void) {
     REQUIRE(identify("romfs:/catalog.sdp",FNV_ENGINE_SDP_SHA256),"private shader catalog identity");
     plan=calloc(1,sizeof(*plan));REQUIRE(plan,"process blueprint allocation");
     unsigned char *arena=memalign(4096,808u<<20);REQUIRE(arena,"808 MiB guest backing");
+    fnv_engine_crash_guest(arena,FNV_ENGINE_BASE,808u<<20);
     fnv_vm_horizon_permissions(&permissions);
     REQUIRE(fnv_engine_process_plan_create(FNV_ENGINE_BASE,FNV_ENGINE_IMAGE_BYTES,arena,808u<<20,&permissions,plan),"nonoverlapping engine memory plan");
     REQUIRE(fnv_native_load_image(ROOT "/FalloutNV.exe",arena,plan->layout.arena_bytes,&image)==FNV_NATIVE_OK && image.base==FNV_ENGINE_BASE && image.size==FNV_ENGINE_IMAGE_BYTES,"PE data load");
@@ -259,11 +261,14 @@ static int initialize(void) {
 }
 static void guest_main(void *unused) {
     (void)unused;struct fnv_windows_thread_config *t=&plan->main_thread;
+    report("Guest main: entered native thread\n");fnv_engine_crash_phase(4);
     fnv_cpu_state_init(&t->state,t->stack_high-64,t->teb_address);
     execution_result=fnv_windows_thread_attach(process,t);
+    report("Guest main: attach=%u\n",execution_result);
     if(execution_result==FNV_CPU_OK) {
         store32(plan->process.cpu.memory+t->state.gpr[4]-image.base,0);
-        execution_result=fnv_cpu_execute(FNV_ENGINE_ENTRY,&execution_fault);
+        report("Guest main: execute=%08lX\n",(unsigned long)FNV_ENGINE_ENTRY);fnv_engine_crash_phase(5);
+        execution_result=fnv_cpu_execute(FNV_ENGINE_ENTRY,&execution_fault);fnv_engine_crash_phase(6);
         enum fnv_cpu_result detached=fnv_windows_thread_detach();report("Main guest return=%u detach=%u\n",execution_result,detached);
     }else report("Main attach failed=%u\n",execution_result);
     atomic_store(&done,1);
@@ -287,6 +292,8 @@ int main(void) {
     consoleInit(NULL);printf("FNV PC engine experiment\nPrivate captured-code startup; audio muted.\nHold L + R + Minus to stop.\nSee " ROOT "/fnv-pc-engine-" FNV_ENGINE_HW_TAG ".log\n");consoleUpdate(NULL);
     fnv_host_mutex_init(&log_guard);log_file=fopen(ROOT "/fnv-pc-engine-" FNV_ENGINE_HW_TAG ".log","w");
     if(!log_file){printf("Cannot open log in " ROOT "\n");consoleUpdate(NULL);svcSleepThread(3000000000ll);consoleExit(NULL);return 1;}
+    uint32_t crash_sink=fnv_engine_crash_prepare(FNV_ENGINE_HW_TAG);report("Native crash sink=%08lX\n",(unsigned long)crash_sink);fnv_engine_crash_phase(1);
+    if(crash_sink){report("Cannot prepare native crash record; guest execution not started\n");consoleExit(NULL);svcExitProcess();}
     Result rom=romfsInit();if(R_FAILED(rom)){report("ROMFS error=%08lX\n",(unsigned long)rom);fclose(log_file);consoleExit(NULL);return 1;}
     /* Release console framebuffer before any Vulkan swapchain ownership. */
     consoleExit(NULL);hidInitializeKeyboard();hidInitializeMouse();

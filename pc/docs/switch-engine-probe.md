@@ -1,5 +1,35 @@
 # Private captured-PC engine NRO: hw01
 
+## hw02 native fault and hw03 capture
+
+Atmosphere's hw02 report matches the exact ELF Build ID. Its stack reaches
+the real captured `WinMain`, then the engine's string intern/hash path. The
+faulting AArch64 instruction is a signed byte load in the translated hash
+routine. Its effective address lies in guest backing that is not accessible
+at the time of the fault. This does not yet identify why the input pointer or
+length became invalid. It is not evidence that another guessed function alias
+or a shader change would repair it.
+
+`tools/symbolize_switch_crash.py` now verifies the ELF Build ID before resolving
+PC/LR and the crashed thread's return offsets. Other threads' PCs are excluded.
+The first hardware report therefore establishes entry into engine startup,
+but still no game frame, menu or gameplay.
+
+hw03 adds `switch/engine_crash.c`: a libnx native exception handler with its own
+64 KiB exception stack and a preopened raw-FS crash sink. This path uses no
+stdio, malloc or provider mutex. It writes native registers, image-relative PC
+and LR, translated x86 registers, the guest stack, recent indirect targets and
+kernel memory permissions around relevant addresses. Stack probes first check
+kernel-readable bounds; the minimum register record is flushed before probing
+stack contents. It cannot resume execution or fix the bad input by itself.
+The handler compiles with general registers only; packaging checks that the
+strong handler and full exception stack survive linking.
+
+Return both `fnv-pc-engine-hw03.log` and `fnv-pc-engine-hw03-crash.log`. The crash
+file initially states that no native fault has been captured; that header alone
+is not a crash report. The diagnostic stops before guest execution if the sink
+cannot be prepared. This capture path still needs its first hardware test.
+
 ## Hardware observation and hw02 correction
 
 The first console log verifies the supported original EXE and both ROMFS

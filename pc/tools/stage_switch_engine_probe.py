@@ -82,6 +82,8 @@ Los ajustes de adaptador y tamaño se obtienen de la Switch. El perfil de caps
 es experimental, limitado a los programas gráficos preparados.
 '''
     text=text.replace('hw01',proof['build'].removeprefix('pc-engine-'))
+    if proof.get('native_crash_capture'):
+        text+='\nSi se cierra, envia tambien fnv-pc-engine-'+proof['build'].removeprefix('pc-engine-')+'-crash.log de la misma carpeta. Esta revision recoge el fallo nativo; no presupone corregida su causa.\n'
     (output/'LEEME.txt').write_text(text,encoding='utf-8')
     result=dict(status='STAGED',nro=str(root/'fnv-nx.nro'),nro_sha256=sha(root/'fnv-nx.nro'),
                 default_ini_sha256=sha(profile/'FALLOUT.INI'),private_output=True,
