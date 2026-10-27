@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <dsound.h>
 #include "dsound8.h"
+#include "dsound_streams.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -267,6 +268,18 @@ int main(int argc,char **argv){
         assert(fnv_dsound8_pump(sound,n)==FNV_PCM_OK);read_exact(output,n);
         for(unsigned i=0;i<n*2;i++){assert(output[i]==ring[f*2+i]);sample_checks++;}f+=n;}
     assert(fnv_dsound8_movie_stats(sound,&ms)==FNV_PCM_OK&&!ms.queued&&ms.played==48000);
+    uint32_t music[2];assert(fnv_dsound_stream_open(sound,music)==FNV_PCM_OK && fnv_dsound_stream_open(sound,music+1)==FNV_PCM_OK);
+    int16_t mpcm[16];for(unsigned k=0;k<16;k++)mpcm[k]=20000;
+    for(unsigned k=0;k<2;k++){assert(fnv_dsound_stream_write(sound,music[k],mpcm,8)==FNV_PCM_OK);assert(fnv_dsound_stream_control(sound,music[k],0,0,0)==FNV_PCM_OK);}
+    assert(fnv_pcm_write(queue,output,1024)==FNV_PCM_OK);assert(fnv_dsound8_pump(sound,8)==FNV_PCM_FULL);read_exact(output,1024);
+    struct fnv_dsound_stream_stats music_stats;assert(fnv_dsound_stream_stats(sound,music[0],&music_stats)==FNV_PCM_OK && music_stats.queued==8 && !music_stats.played);
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned k=0;k<16;k++)assert(output[k]==32767);
+    assert(fnv_dsound_stream_control(sound,music[0],1,0,0)==FNV_PCM_OK);
+    assert(fnv_dsound_stream_write(sound,music[0],mpcm,8)==FNV_PCM_OK);assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned k=0;k<16;k++)assert(!output[k]);
+    assert(fnv_dsound_stream_control(sound,music[0],0,-10000,0)==FNV_PCM_OK);assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned k=0;k<16;k++)assert(!output[k]);
+    assert(fnv_dsound_stream_reset(sound,music[0])==FNV_PCM_OK);assert(fnv_dsound_stream_stats(sound,music[0],&music_stats)==FNV_PCM_OK && !music_stats.queued && !music_stats.played);
+    uint32_t stale=music[0];assert(fnv_dsound_stream_close(sound,music[0])==FNV_PCM_OK);assert(fnv_dsound_stream_open(sound,music)==FNV_PCM_OK && music[0]!=stale);
+    assert(fnv_dsound_stream_write(sound,stale,mpcm,8)==FNV_PCM_INVALID);assert(fnv_dsound_stream_close(sound,music[0])==FNV_PCM_OK && fnv_dsound_stream_close(sound,music[1])==FNV_PCM_OK);
     /* Advance ring head, then append a full ring spanning both segments. */
     assert(fnv_dsound8_movie_write(sound,movie,8)==FNV_PCM_OK);
     assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);
@@ -279,7 +292,16 @@ int main(int argc,char **argv){
     assert(fnv_dsound8_movie_pause(sound,2)==FNV_PCM_INVALID);
     assert(fnv_dsound8_movie_write(sound,NULL,1)==FNV_PCM_INVALID);
     assert(fnv_dsound8_movie_write(sound,ring,48001)==FNV_PCM_INVALID);
-    assert(fnv_dsound8_movie_reset(sound)==FNV_PCM_OK);free(ring);
+    assert(fnv_dsound8_movie_reset(sound)==FNV_PCM_OK);
+    uint32_t simultaneous;assert(fnv_dsound_stream_open(sound,&simultaneous)==FNV_PCM_OK);
+    assert(fnv_dsound_stream_write(sound,simultaneous,mpcm,8)==FNV_PCM_OK && fnv_dsound_stream_write(sound,simultaneous,mpcm,8)==FNV_PCM_OK);
+    assert(fnv_dsound_stream_control(sound,simultaneous,0,0,0)==FNV_PCM_OK && fnv_dsound8_movie_write(sound,movie,8)==FNV_PCM_OK);
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned k=0;k<16;k++){assert(output[k]==(k&1?0:32767));sample_checks++;}
+    assert(fnv_dsound8_movie_reset(sound)==FNV_PCM_OK && fnv_dsound8_set_focus(sound,0)==FNV_CPU_OK);
+    assert(fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned k=0;k<16;k++)assert(!output[k]);
+    assert(fnv_dsound_stream_stats(sound,simultaneous,&music_stats)==FNV_PCM_OK && music_stats.queued==8 && music_stats.played==8);
+    assert(fnv_dsound8_set_focus(sound,1)==FNV_CPU_OK && fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned k=0;k<16;k++){assert(output[k]==20000);sample_checks++;}
+    assert(fnv_dsound_stream_close(sound,simultaneous)==FNV_PCM_OK);free(ring);
 finish:
     assert(DestroyWindow(window));assert(fnv_windows_thread_detach()==FNV_CPU_OK&&fnv_dsound8_destroy(sound)==FNV_CPU_OK&&fnv_windows_destroy(process)==FNV_CPU_OK);fnv_pcm_destroy(queue);assert(VirtualFree(arena,0,MEM_RELEASE));
     if(argc==3){puts("strict PASS");return 0;}

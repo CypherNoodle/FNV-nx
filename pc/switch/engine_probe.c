@@ -39,6 +39,7 @@
 #include "dinput8_hid.h"
 #include "media_horizon.h"
 #include "dsound8.h"
+#include "directshow_graph.h"
 #include "bink_sound.h"
 #include "bink_movie.h"
 #include "host_clock.h"
@@ -88,10 +89,10 @@ static uint32_t surface_write(void *context,uintptr_t handle,const void *in,size
 }
 static void com_activation_trace(void *unused,const struct fnv_com_activation *r){
     (void)unused;
-    report("COM activation clsid=%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X iid=%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X context=%08lX outer=%08lX hr=%08lX provider=none\n",
+    report("COM activation clsid=%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X iid=%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X context=%08lX outer=%08lX hr=%08lX provider=%s\n",
         r->clsid[3],r->clsid[2],r->clsid[1],r->clsid[0],r->clsid[5],r->clsid[4],r->clsid[7],r->clsid[6],r->clsid[8],r->clsid[9],r->clsid[10],r->clsid[11],r->clsid[12],r->clsid[13],r->clsid[14],r->clsid[15],
         r->iid[3],r->iid[2],r->iid[1],r->iid[0],r->iid[5],r->iid[4],r->iid[7],r->iid[6],r->iid[8],r->iid[9],r->iid[10],r->iid[11],r->iid[12],r->iid[13],r->iid[14],r->iid[15],
-        (unsigned long)r->context,(unsigned long)r->outer,(unsigned long)r->result);
+        (unsigned long)r->context,(unsigned long)r->outer,(unsigned long)r->result,r->result?"unavailable":"native");
 }
 static void diagnostic(void *unused,const struct fnv_cpu_fault *f) {
     (void)unused;report("CPU fault kind=%u entry=%08lX address=%08lX detail=%08lX %s\n",
@@ -272,6 +273,10 @@ static int initialize(void) {
     struct fnv_pcm_queue *queue;REQUIRE(fnv_pcm_create(2048,&queue)==FNV_PCM_OK,"PCM queue");
     struct fnv_dsound8_config sc={sound_pool,16u<<20,1,vm,queue,boot_ui,valid_window};
     REQUIRE(fnv_dsound8_create(process,&sc,&sound)==FNV_CPU_OK,"DirectSound mixer");
+    uint32_t graph_pool=pool(0x90000);struct fnv_directshow *directshow;
+    struct fnv_directshow_config dc={graph_pool,0x90000,vm,sound};
+    REQUIRE(graph_pool && fnv_directshow_create(process,&dc,&directshow)==FNV_CPU_OK,"DirectShow pull-MP3 graph");
+    report("DirectShow pull-MP3 provider installed: guest IAsyncReader, independent music rings, owner-thread callbacks\n");
     REQUIRE(!fnv_horizon_audio_open_source(queue,fnv_dsound8_produce,sound,&audio),"native audout worker");
     REQUIRE(R_SUCCEEDED(audoutSetAudioOutVolume(1.0f)),"audio output volume");
     struct fnv_bink_movie_config bc={movie_pool,65536,sound,(void *)ROOT,fnv_engine_movie_open,fnv_engine_movie_close,movie_now,movie_progress};struct fnv_bink_movie *movie;

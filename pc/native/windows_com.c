@@ -3,9 +3,16 @@
 #include "windows_thread.h"
 #include "guest_memory.h"
 #include "windows_com_diag.h"
+#include "windows_com_classes.h"
 #include <string.h>
 static void *activation_context;
 static fnv_com_activation_trace activation_trace;
+static void *class_context;
+static fnv_com_class_factory class_factory;
+int fnv_windows_com_set_factory(void *context,fnv_com_class_factory factory){
+    if(factory && class_factory)return 0;
+    class_context=context;class_factory=factory;return 1;
+}
 /* Setup only, before any guest thread attaches; caller owns callback lifetime. */
 void fnv_windows_com_activation_trace(void *context,fnv_com_activation_trace trace){
     activation_context=context;activation_trace=trace;
@@ -32,13 +39,19 @@ static void create_instance(void){
         if(!c || !i)return;
         memcpy(record.clsid,c,16);memcpy(record.iid,i,16);memset(p,0,4);
         if(!fnv_windows_com_initialization_count())hr=0x800401f0u;
-        else switch(context){
+        else {uint32_t object=0;
+          if(class_factory && class_factory(class_context,record.clsid,outer,context,record.iid,&hr,&object)){
+            if(!hr && !object){recomp_unimpl("COM factory returned null success",clsid);return;}
+            if(hr && object){recomp_unimpl("COM factory returned object on failure",clsid);return;}
+            p=activation_memory(out,4,1);if(!p)return;memcpy(p,&object,4);
+          }else switch(context){
             /* Verified Windows results for an unregistered class. No registered
              * classes, objects, RPC servers or DirectShow graph exist here. */
             case 0:case 1:case 2:case 3:case 4:case 5:case 7:case 16:case 23:case 0x80000000u:
                 hr=outer && (context&0x14u)?0x80040110u:0x80040154u;break;
             case 32:case UINT32_MAX:hr=0x80070057u;break;
             default:recomp_unimpl("COM activation context unsupported",context);return;
+        }
         }
     }
     record.result=hr;if(activation_trace)activation_trace(activation_context,&record);

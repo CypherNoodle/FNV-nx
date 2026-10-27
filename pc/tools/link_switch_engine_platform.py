@@ -31,7 +31,11 @@ def build(a):
         raise ValueError('Require the complete accepted CPU/runtime partial link')
     if cpu.get('generated_units')!=359 or not 2<=cpu.get('supplementary_entries',0)<=64:
         raise ValueError('Unexpected complete-generation inventory')
-    if runtime.get('status')!='PASS' or runtime.get('native_units')!=51:
+    expected_native={p.resolve() for p in (pc/'native').glob('*.c') if not p.name.startswith('x87_')}
+    native_rows=runtime.get('compiled',[])
+    native_sources=[Path(row['source']).resolve() for row in native_rows]
+    if (runtime.get('status')!='PASS' or runtime.get('native_units')!=len(expected_native) or
+        len(native_sources)!=len(expected_native) or set(native_sources)!=expected_native):
         raise ValueError('Require the accepted native runtime archive inventory')
     if Path(cpu['inputs']['runtime_validation']).resolve()!=a.runtime_validation.resolve():
         raise ValueError('CPU and native runtime proofs do not match')

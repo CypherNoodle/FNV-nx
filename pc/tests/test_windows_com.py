@@ -9,7 +9,7 @@ if __name__=='__main__':
     for n in ('sdk','python-deps','output'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True)
     p.add_argument('--x87-build',type=Path)
-    a=p.parse_args();extra=[Path(__file__).resolve(),Path(__file__).resolve().parents[1]/'native/windows_com.h',Path(__file__).resolve().parents[1]/'native/windows_com_diag.h']
+    a=p.parse_args();extra=[Path(__file__).resolve(),Path(__file__).resolve().parents[1]/'native/windows_com.h',Path(__file__).resolve().parents[1]/'native/windows_com_diag.h',Path(__file__).resolve().parents[1]/'native/windows_com_classes.h']
     link=['-Wl,--stack,8388608','-lole32']
     if a.x87_build:
         sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve()),str(Path(__file__).resolve().parents[1]/'tools')]

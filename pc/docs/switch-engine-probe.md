@@ -1,5 +1,16 @@
 # Private captured-PC engine NRO: hw01
 
+## hw10 pull-MP3 graph
+
+HW09's actual FilterGraph request cannot be rejected safely: the original game
+reads its null output. HW10 installs the [native pull-MP3 graph](native-directshow.md)
+with guest IAsyncReader callbacks, real decoding and independent music mixing.
+The class/interface lifecycle and 131,072 PCM samples passed the desktop fixture.
+The actual game's source object and console behavior remain to be verified.
+Audio is enabled; keep EXE, Data and UserData and replace only the NRO.
+Return fnv-pc-engine-hw10.log and the hw10 crash log if execution stops.
+
+
 ## hw08 result and hw09 COM boundary
 
 The supplied hw08 session creates the real NVK device and records 10 draws,

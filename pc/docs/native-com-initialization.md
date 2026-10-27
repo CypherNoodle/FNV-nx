@@ -63,3 +63,43 @@ interfaces. La reproduccion que dependa de DirectShow sigue pendiente.
 
 Por peticion del usuario, hw09 habilita la salida audout con volumen 1.0.
 El volumen fisico de la consola sigue bajo su control.
+
+
+## HW09: required FilterGraph, not an optional failure path
+
+The actual hw09 class request is FilterGraph/IFilterGraph, CLSCTX=1, outer=0.
+After the verified `80040154` response, the engine marks a failure flag but
+continues with an unconditional read of the graph pointer at x86 `0x0083101E`.
+The exact hw09 ELF places the native fault in `sub_00830B30`, with guest EAX=0
+and FAR equal to the guest backing offset. This is the null graph dereference.
+
+An isolated run of the original x86 block beginning at `0x00830FDB`, with
+REGDB_E_CLASSNOTREG and zero output, independently reproduces the read at
+address zero at `0x0083101E`. Therefore the earlier hypothesis that normal
+class rejection might let this engine continue is disproved. The rejection
+contract remains useful for genuinely unavailable classes; it is insufficient
+for this required engine dependency. Do not return success with a dummy graph
+or remove the null access from the translated game body.
+
+The guest stack contains `Data\Music\Special\MainTitle.mp3`. Static calls
+following graph creation request IGraphBuilder, IBasicAudio, IMediaControl,
+IMediaPosition and IMediaEvent. The first graph method is AddFilter, then
+IGraphBuilder::Render receives a pin supplied by the game's custom source.
+The provider needs real source/pin integration, guest-callback ownership,
+reference-counted interface identity, decoded PCM delivery, timing, completion,
+pause/stop/seek and volume semantics. A standalone MP3 decoder cannot satisfy
+those COM contracts on its own. Reuse the existing decoder and DirectSound
+mixer, but do not share the Bink movie ring with music as if they were one stream.
+
+No replacement NRO is warranted solely to reproduce this same missing provider.
+The next useful hardware build needs a working graph path, or an explicitly
+chosen diagnostic configuration that avoids starting it. No such configuration
+was silently applied; audio remains enabled at the user's request.
+
+
+## Native class provider
+
+`windows_com_classes.h` adds one explicit setup-time class factory. Unknown
+classes retain the verified Windows rejection contract. The [pull-MP3 graph](native-directshow.md)
+registers FilterGraph and returns actual reference-counted guest interfaces.
+This is a closed provider catalog, not automatic DLL loading or host COM.
