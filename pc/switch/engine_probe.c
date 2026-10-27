@@ -23,6 +23,7 @@
 #include "windows_debug.h"
 #include "windows_d3dx.h"
 #include "windows_com.h"
+#include "windows_com_diag.h"
 #include "windows_multimedia.h"
 #include "windows_mmio.h"
 #include "windows_vorbis.h"
@@ -46,6 +47,7 @@
 #include "d3d9_vk_horizon.h"
 #include "d3d9_vk_prepared.h"
 #include "d3d9_sdp.h"
+#include "d3d9_com_diag.h"
 #include "engine_profile.h"
 #include "engine_programs.h"
 #define ROOT "sdmc:/switch/FNV-nx"
@@ -74,6 +76,22 @@ static struct fnv_cpu_fault execution_fault;
 static void report(const char *format,...) {
     fnv_host_mutex_lock(&log_guard);va_list args;va_start(args,format);
     vfprintf(log_file,format,args);va_end(args);fflush(log_file);fnv_host_mutex_unlock(&log_guard);
+}
+/* Real host half of D3DPRESENTFLAG_LOCKABLE_BACKBUFFER. Both directions use
+ * the backend's fence-checked transfers; a failure reaches the guest as a lock
+ * error, never as staged or fabricated pixels. */
+static uint32_t surface_read(void *context,uintptr_t handle,void *out,size_t bytes,uint64_t timeout){
+    return fnv_vk_backend_read_color(context,handle,out,bytes,timeout);
+}
+static uint32_t surface_write(void *context,uintptr_t handle,const void *in,size_t bytes,uint64_t timeout){
+    return fnv_vk_backend_write_color(context,handle,in,bytes,timeout);
+}
+static void com_activation_trace(void *unused,const struct fnv_com_activation *r){
+    (void)unused;
+    report("COM activation clsid=%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X iid=%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X context=%08lX outer=%08lX hr=%08lX provider=none\n",
+        r->clsid[3],r->clsid[2],r->clsid[1],r->clsid[0],r->clsid[5],r->clsid[4],r->clsid[7],r->clsid[6],r->clsid[8],r->clsid[9],r->clsid[10],r->clsid[11],r->clsid[12],r->clsid[13],r->clsid[14],r->clsid[15],
+        r->iid[3],r->iid[2],r->iid[1],r->iid[0],r->iid[5],r->iid[4],r->iid[7],r->iid[6],r->iid[8],r->iid[9],r->iid[10],r->iid[11],r->iid[12],r->iid[13],r->iid[14],r->iid[15],
+        (unsigned long)r->context,(unsigned long)r->outer,(unsigned long)r->result);
 }
 static void diagnostic(void *unused,const struct fnv_cpu_fault *f) {
     (void)unused;report("CPU fault kind=%u entry=%08lX address=%08lX detail=%08lX %s\n",
@@ -176,8 +194,39 @@ static int add_exports(struct exports *all,const struct fnv_cpu_export *e,size_t
     return 1;
 }
 static int import_matches(const struct fnv_cpu_export *e,const struct fnv_native_import *i){return !strcasecmp(e->dll,i->dll) && e->by_ordinal==i->by_ordinal && (i->by_ordinal?e->ordinal==i->ordinal:!strcmp(e->name,i->name));}
+static atomic_int trace_lines;
+static void d3d9_trace_sink(const char *line) {
+    if(atomic_fetch_add_explicit(&trace_lines,1,memory_order_relaxed)>=4096)return;
+    report("%s",line);
+}
+static uint32_t guest32(uint32_t at) {const unsigned char *p=fnv_cpu_try_memory(at,4);return p?load32(p):0;}
+static uint32_t guest16(uint32_t at) {const unsigned char *p=fnv_cpu_try_memory(at,2);return p?(uint32_t)p[0]|(uint32_t)p[1]<<8:0;}
+static void guest_text(const char *label,uint32_t at) {
+    char text[257];unsigned i=0;
+    while(i<256){const unsigned char *p=at?fnv_cpu_try_memory(at+i,1):NULL;if(!p||!*p)break;char c=(char)*p;text[i++]=c=='\n'||c=='\r'||c=='\t'?' ':c;}
+    text[i]=0;report("%s=[%s] bytes=%u\n",label,text,i);
+}
+/* Diagnostic MessageBoxA trap: record the guest state around the call, then
+ * fault exactly like an unresolved import. Never returns success. */
+static void message_box_a(void) {
+    uint32_t owner=fnv_cpu_argument_u32(0),text=fnv_cpu_argument_u32(1),caption=fnv_cpu_argument_u32(2),type=fnv_cpu_argument_u32(3);
+    struct fnv_cpu_state state;uint32_t caller=0;
+    if(fnv_cpu_get_state(&state)==FNV_CPU_OK){const unsigned char *p=fnv_cpu_try_memory(state.gpr[4],4);if(p)caller=load32(p);}
+    report("MessageBoxA owner=%08lX text=%08lX caption=%08lX type=%08lX caller=%08lX\n",(unsigned long)owner,(unsigned long)text,(unsigned long)caption,(unsigned long)type,(unsigned long)caller);
+    guest_text("MessageBoxA text",text);guest_text("MessageBoxA caption",caption);
+    report("Guest globals 11C6FBA=%04lX 11C6FBC=%08lX 11C6FC0=%08lX 11C6FC4=%08lX 11C6FC8=%08lX 11C70CC=%08lX 11C73B4=%08lX 126F0D8=%08lX 126F0DC=%08lX 126F0E0=%08lX\n",
+        (unsigned long)guest16(0x11C6FBA),(unsigned long)guest32(0x11C6FBC),(unsigned long)guest32(0x11C6FC0),(unsigned long)guest32(0x11C6FC4),
+        (unsigned long)guest32(0x11C6FC8),(unsigned long)guest32(0x11C70CC),(unsigned long)guest32(0x11C73B4),
+        (unsigned long)guest32(0x126F0D8),(unsigned long)guest32(0x126F0DC),(unsigned long)guest32(0x126F0E0));
+    struct fnv_d3d9_com_stats stats={0};
+    if(!fnv_d3d9_com_stats(graphics_com,&stats))report("D3D9 stats refs=%lu created=%lu devrefs=%lu attempts=%lu ok=%lu fail=%lu last=%08lX factory=%08lX device=%08lX\n",
+        (unsigned long)stats.factory_refs,(unsigned long)stats.factory_created,(unsigned long)stats.device_references,
+        (unsigned long)stats.create_attempts,(unsigned long)stats.create_successes,(unsigned long)stats.create_failures,(unsigned long)stats.last_create_result,
+        (unsigned long)fnv_d3d9_com_factory(graphics_com),(unsigned long)fnv_d3d9_com_device(graphics_com));
+    recomp_unimpl("MessageBoxA diagnostic trap",caller);
+}
 static int initialize(void) {
-    report("FNV PC engine %s: captured-code experiment, cold_boot=0 experimental_caps=%d volume=0 cfg_corrected_units=%u\n",FNV_ENGINE_HW_TAG,FNV_ENGINE_EXPERIMENTAL_CAPS,FNV_ENGINE_CFG_CORRECTED_UNITS);
+    report("FNV PC engine %s: captured-code experiment, cold_boot=0 experimental_caps=%d volume=1 cfg_corrected_units=%u\n",FNV_ENGINE_HW_TAG,FNV_ENGINE_EXPERIMENTAL_CAPS,FNV_ENGINE_CFG_CORRECTED_UNITS);
     REQUIRE(appletGetAppletType()==AppletType_Application || appletGetAppletType()==AppletType_SystemApplication,"application memory mode (title takeover)");
     REQUIRE(identify(ROOT "/FalloutNV.exe",FNV_ENGINE_EXE_SHA256),"original supported EXE identity");
     REQUIRE(identify("romfs:/captured-text-data.bin",FNV_ENGINE_TEXT_SHA256),"captured text identity");
@@ -195,6 +244,7 @@ static int initialize(void) {
     int closed=fclose(blob);REQUIRE(copied && !closed,"captured code/data overlay");
     struct fnv_vm_result vr=fnv_vm_create(&plan->vm,&vm);report("VM create error=%lu native=%08lX\n",(unsigned long)vr.error,(unsigned long)vr.native_error);REQUIRE(!vr.error,"Horizon VM permissions");
     plan->process.memory=vm;plan->process.cpu.diagnostic=diagnostic;
+    fnv_windows_com_activation_trace(NULL,com_activation_trace);
     REQUIRE(fnv_windows_create(&plan->process,&process)==FNV_CPU_OK,"Windows process");
     REQUIRE(fnv_display_resolution_horizon(nwindowGetDefault(),&resolution),"Horizon display facts");
     report("Display mode=%lu output=%lux%lu surface=%lux%lu\n",(unsigned long)resolution.mode,(unsigned long)resolution.output_width,(unsigned long)resolution.output_height,(unsigned long)resolution.surface_width,(unsigned long)resolution.surface_height);
@@ -223,7 +273,7 @@ static int initialize(void) {
     struct fnv_dsound8_config sc={sound_pool,16u<<20,1,vm,queue,boot_ui,valid_window};
     REQUIRE(fnv_dsound8_create(process,&sc,&sound)==FNV_CPU_OK,"DirectSound mixer");
     REQUIRE(!fnv_horizon_audio_open_source(queue,fnv_dsound8_produce,sound,&audio),"native audout worker");
-    REQUIRE(R_SUCCEEDED(audoutSetAudioOutVolume(0.0f)),"silent diagnostic output");
+    REQUIRE(R_SUCCEEDED(audoutSetAudioOutVolume(1.0f)),"audio output volume");
     struct fnv_bink_movie_config bc={movie_pool,65536,sound,(void *)ROOT,fnv_engine_movie_open,fnv_engine_movie_close,movie_now,movie_progress};struct fnv_bink_movie *movie;
     REQUIRE(fnv_bink_movie_create(process,&bc,&movie)==FNV_CPU_OK,"Bink decoder/controller");
     struct fnv_bink_sound_config bs={movie,fnv_bink_movie_sound_factory};struct fnv_bink_sound *bink_sound;
@@ -239,7 +289,10 @@ static int initialize(void) {
     uint32_t graphics_objects=pool(65536),graphics_buffers=pool(128u<<20);REQUIRE(graphics_objects && graphics_buffers,"D3D9 COM pools");
     struct fnv_d3d9_factory_profile factory={gc.width,gc.height,22,0,60,graphics,graphics_query};
     struct fnv_d3d9_com_config cc={0};cc.objects_address=graphics_objects;cc.objects_bytes=65536;cc.resource_capacity=4096;cc.vertex_floats=256;cc.pixel_floats=224;cc.memory=vm;cc.buffer_address=graphics_buffers;cc.buffer_bytes=128u<<20;cc.factory=&factory;cc.catalog=codes;cc.catalog_count=catalog_count;cc.presentation_timeout_ns=10000000000ull;fnv_vk_backend_callbacks(graphics,&cc.backend);
-    REQUIRE(fnv_d3d9_com_create(fnv_windows_runtime(process),&cc,&graphics_com)==FNV_CPU_OK,"D3D9 COM factory");fnv_sdp_destroy(sdp);
+    fnv_d3d9_trace_hook=d3d9_trace_sink;report("D3D9 trace sink enabled cap=4096\n");
+    REQUIRE(fnv_d3d9_com_create(fnv_windows_runtime(process),&cc,&graphics_com)==FNV_CPU_OK,"D3D9 COM factory");
+    {struct fnv_d3d9_surface_io io={graphics,surface_read,surface_write};fnv_d3d9_com_surface_io(graphics_com,&io);report("D3D9 lockable backbuffer transfer provider installed\n");}
+    fnv_sdp_destroy(sdp);
     struct exports all={calloc(1024,sizeof(struct fnv_cpu_export)),calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(struct fnv_cpu_export)),0,0};REQUIRE(all.catalog && all.extras,"import catalogs");
     size_t n;const struct fnv_cpu_export *e=fnv_windows_exports(&n);REQUIRE(add_exports(&all,e,n,1),"kernel exports");
 #define ADD(fn) do{e=fn(&n);REQUIRE(add_exports(&all,e,n,0),#fn);}while(0)
@@ -254,7 +307,7 @@ static int initialize(void) {
     struct fnv_windows_modules *modules;REQUIRE(fnv_windows_modules_create(process,&image,"FalloutNV.exe",all.catalog,all.count,&modules)==FNV_CPU_OK,"native DLL catalog");
     struct fnv_native_import *imports=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*imports)),*scratch=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*scratch));size_t count,bound;
     REQUIRE(imports && scratch && fnv_native_collect_imports(&image,imports,FNV_NATIVE_MAX_IMPORTS,&count)==FNV_NATIVE_OK && count==FNV_ENGINE_IMPORT_COUNT,"original IAT inventory");
-    size_t supported=0;for(size_t i=0;i<count;i++){int found=0;for(size_t j=0;j<all.count;j++)if(import_matches(all.catalog+j,imports+i))found=1;if(found){supported++;continue;}REQUIRE(all.extra<FNV_NATIVE_MAX_IMPORTS,"trap catalog capacity");all.extras[all.extra++]=(struct fnv_cpu_export){imports[i].dll,imports[i].by_ordinal?NULL:imports[i].name,imports[i].ordinal,imports[i].by_ordinal,fnv_engine_missing_imports[i]};}
+    size_t supported=0;for(size_t i=0;i<count;i++){int found=0;for(size_t j=0;j<all.count;j++)if(import_matches(all.catalog+j,imports+i))found=1;if(found){supported++;continue;}REQUIRE(all.extra<FNV_NATIVE_MAX_IMPORTS,"trap catalog capacity");struct fnv_cpu_export trap={imports[i].dll,imports[i].by_ordinal?NULL:imports[i].name,imports[i].ordinal,imports[i].by_ordinal,fnv_engine_missing_imports[i]};if(!imports[i].by_ordinal && !strcasecmp(imports[i].dll,"user32.dll") && !strcmp(imports[i].name,"MessageBoxA"))trap.function=message_box_a;all.extras[all.extra++]=trap;}
     REQUIRE(fnv_windows_bind_imports(process,&image,scratch,FNV_NATIVE_MAX_IMPORTS,all.extras,all.extra,&bound)==FNV_NATIVE_OK && bound==count,"IAT and static TLS binding");
     report("Ready entry=%08lX imports=%u/%u trapped=%u programs=%u root=%s\n",(unsigned long)FNV_ENGINE_ENTRY,(unsigned)supported,(unsigned)count,(unsigned)(count-supported),FNV_STARTUP_PROGRAM_COUNT,ROOT);
     free(imports);free(scratch);free(all.catalog);free(all.extras);return 1;

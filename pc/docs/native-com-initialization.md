@@ -14,8 +14,8 @@ alterarlo. Reserved distinto de cero y flags desconocidos devuelven E_INVALIDARG
 Una desinicializacion adicional es inocua. Agotamiento del contador produce un
 error explicito. Detach elimina estos metadatos; no quedan objetos COM propios.
 
-Esto NO implementa CoCreateInstance, apartamentos de objetos, proxies, RPC,
-marshalling, OLE ni bombeo de mensajes. Ningun objeto se anuncia como disponible
+La creacion de objetos, apartamentos de objetos, proxies, RPC,
+marshalling, OLE y el bombeo de mensajes siguen pendientes. Ningun objeto se anuncia como disponible
 por el mero hecho de inicializar COM. Cuando existan objetos con vida util COM,
 su proveedor debera gestionar liberacion y reglas de afinidad por separado.
 
@@ -34,3 +34,32 @@ interfaz vacia para ocultar ese bloqueo.
 Contratos primarios:
 [CoInitializeEx](https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex),
 [CoUninitialize](https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-couninitialize).
+
+
+## Activacion sin clases registradas (hw09)
+
+`CoCreateInstance` ahora tiene un contrato de rechazo comprobado contra Windows:
+borra el puntero de salida y devuelve `REGDB_E_CLASSNOTREG` cuando la clase no
+tiene proveedor. Sin inicializacion COM devuelve `CO_E_NOTINITIALIZED`;
+comprueba salida nula, agregacion con contextos de servidor y los contextos
+verificados. Un contexto aun no modelado se detiene con un diagnostico.
+Los punteros guest se validan contra el arena y los permisos de la VM.
+No se entrega un objeto ficticio ni se declara DirectShow disponible.
+
+El test sintetico traduce llamadas x86 y compara 1.002 rechazos de activacion
+con ole32 real, ademas de los 5.003 casos de inicializacion existentes. Verifica
+la limpieza stdcall, el puntero nulo, contextos y agregacion. El observador de
+`windows_com_diag.h` recibe copias de CLSID/IID/contexto/resultado; se instala
+antes de adjuntar hilos y no cambia la vida de ningun objeto.
+
+El hw08 proporcionado por el usuario alcanza 10 draws, 18 submits y un present
+antes de detenerse en el import no implementado. No registra fallo nativo.
+Los tres callers directos del EXE piden `FilterGraph/IFilterGraph` o
+`FilterMapper/IFilterMapper`, con CLSCTX_INPROC_SERVER. El registro hw09
+identificara cual se solicita realmente. La ruta de error del juego es la que
+decide si puede seguir sin esas clases; no se ha verificado aun en consola.
+Los decodificadores MP3 y la salida DirectSound existentes no reemplazan esas
+interfaces. La reproduccion que dependa de DirectShow sigue pendiente.
+
+Por peticion del usuario, hw09 habilita la salida audout con volumen 1.0.
+El volumen fisico de la consola sigue bajo su control.

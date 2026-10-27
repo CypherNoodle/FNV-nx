@@ -162,7 +162,7 @@ def build(a):
         if sha(name)!=digest:raise ValueError('Changed build input: '+name)
     result=dict(status='BUILT',build='pc-engine-'+a.hardware_revision,nro=str(nro),nro_bytes=len(raw),nro_sha256=sha(nro),
         elf_sha256=sha(elf),source_sha256=frozen,commands=commands,experimental_caps=bool(a.experimental_caps),
-        volume=0,entry=entry['start'],prepared_programs=54,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
+        volume=1,entry=entry['start'],prepared_programs=54,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
         cfg_corrected_units=cpu.get('cfg_corrected_units',0),
         captured_code_embedded=True,generated_game_code_embedded=True,private_output=True,
         native_crash_capture=True,native_exception_stack_bytes=65536,

@@ -1,5 +1,23 @@
 # Private captured-PC engine NRO: hw01
 
+## hw08 result and hw09 COM boundary
+
+The supplied hw08 session creates the real NVK device and records 10 draws,
+18 submissions and one present, with 13 guest workers and zero worker failures.
+It then stops at the unimplemented `ole32.dll!CoCreateInstance` import. The
+native crash sink records no native fault. A present count is not proof of
+correct menu pixels or gameplay.
+
+HW09 implements the verified Windows rejection contract for absent COM classes
+and logs the requested CLSID/IID/context/result. No DirectShow class is
+registered, so FilterGraph/FilterMapper activation fails normally instead of
+unconditionally stopping at the import trap. Whether the engine tolerates this
+failure remains a console test. See [COM activation](native-com-initialization.md).
+The user requested audible output again: hw09 sets audout volume to 1.0.
+Keep the existing EXE, Data and UserData; replace only the NRO. Return the hw09
+normal log and crash log if execution stops. The PC cold-boot limitation remains.
+
+
 ## hw04 copy correction
 
 The hw03 native capture identified a byte-shifted register restore in a CRT

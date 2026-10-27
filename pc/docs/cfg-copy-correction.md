@@ -56,3 +56,29 @@ this repair does not establish successful menu rendering or gameplay.
 
 Generated replacements, original code, differential binaries and resulting NROs
 stay private. Only own tools, tests and documentation belong in publication.
+
+
+## HW04 result and second copy routine
+
+HW04 reports one corrected unit and now faults in a different copy routine,
+`0x00EC7230`, reached through the CRT numeric-formatting path. Its translated
+body also overlaps inline table bytes with instructions. The native failing
+load uses a bogus guest address ending in `EE830347`, matching the false rotate
+instruction in the generated body. This is not a Vulkan fault.
+
+The reviewed range is `0x00EC7230..0x00EC7595`, bounded by the next indexed
+entry. Recovered CFG code contains no unsupported-instruction calls. The new
+`compare_copy_cfg_translation.py` harness additionally marks spurious x87 WAIT
+calls in the legacy negative control as failures; it does not emulate them or
+permit them in the replacement. The original harness is retained unchanged
+because the first correction's accepted proof pins its exact bytes.
+
+The second routine passes 3,744 original-x86/compiled-ARM64 comparisons; the
+legacy control fails 1,905. Both non-SSE copy corrections are included in HW05,
+which reports two corrected units. Each unit retains its other 249 bodies.
+The two routines are the only exact matches for the selected 32-byte entry
+prefix in the captured code, but this is not a global audit of every table or
+a proof that no other function has the same class of decoding error.
+
+HW05 still requires console validation. SSE helper branches and whole-engine
+execution are not covered by these isolated non-SSE comparisons.

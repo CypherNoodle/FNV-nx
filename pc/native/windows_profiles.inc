@@ -92,6 +92,9 @@ static void profile_integer(int wide){
     profile_guest_string(p,section,wide,app,sizeof(app));profile_guest_string(p,key,wide,entry,sizeof(entry));
     int error=file_path(p,filename,wide,path,canonical);
     if(error)sync_invalid("Windows profile integer path unsupported",filename);
+#ifdef FNV_PROFILE_TRACE
+    fprintf(stderr,"FNV_PROFILE file=%s section=%s key=%s\n",path,app,entry);
+#endif
     snprintf(full,sizeof(full),"%s/%s",p->file_root,path);errno=0;FILE *stream=fopen(full,"rb");
     if(!stream){error=(int)fnv_host_file_error(errno);
         if(error!=2 && error!=3)sync_invalid("Windows profile open failed",(uint32_t)error);
@@ -124,6 +127,9 @@ static void api_profile_string_a(void){
     while(default_bytes && default_value[default_bytes-1]==' ')default_value[--default_bytes]=0;
     int error=file_path(p,filename,0,path,canonical);
     if(error)sync_invalid("Windows profile string path unsupported",filename);
+#ifdef FNV_PROFILE_TRACE
+    fprintf(stderr,"FNV_PROFILE file=%s section=%s key=%s\n",path,app,entry);
+#endif
     snprintf(full,sizeof(full),"%s/%s",p->file_root,path);errno=0;FILE *stream=fopen(full,"rb");
     if(!stream){error=(int)fnv_host_file_error(errno);
         if(error!=2 && error!=3)sync_invalid("Windows profile open failed",(uint32_t)error);

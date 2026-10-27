@@ -76,6 +76,34 @@ There are still zero engine draws/submissions in these startup diagnostics.
 They do not demonstrate cold EXE boot, a game frame, Switch presentation or
 gameplay performance. No new hardware test is requested by this work.
 
+## Observed vtable dispatch gap on hardware
+
+The hw07 console run reached the engine's own code and stopped exactly where a
+translated function was missing: `recomp_icall_fail_log` reported the destination
+`0x00E76A80` from entry `0x00ECC4DB`. That address is not garbage. An aligned
+dword at private image offset `0xCEDDC0` (`.rdata` VA `0x010EE7C0`) holds
+`0x00E76A80`, in a table whose neighbouring slots are already translated
+functions. `gap-entry-e76a80-audit01.json` bounds it at `0x00E76A80..0x00E76C28`
+with 160 instructions, two returns, three direct calls, two indirect calls and
+no tail exits, and no frozen-list interval owns it.
+
+The address had been audited and translated earlier but was never installed:
+the supplementary manifest of that build carried only `sub_00C0CD80` from the
+audited group. `gap-entry-vtable-batch02` therefore keeps the audited bodies and
+changes only the diagnostic wrapper token, `FNV_STARTUP_ICALL` to
+`RECOMP_ICALL_SAFE_AT`, at 245 sites, each one accounted for by the audit's
+`indirect_calls`. The wrapper is defined as a probe-site store followed by the
+same runtime call, so this drops a probe hook, not a guest behaviour. The body
+audit of the extended manifest stays `BODY_MATCH` with 88,830 identical common
+bodies and 13 candidate-only entries, and all six new symbols are text
+definitions in the final ELF.
+
+These six bodies remain bounded CFG audits with mechanical cross-compilation,
+not semantic-equivalence proofs; their records keep `translation_verified`
+false, and only `0x00E76A80` has hardware evidence of reachability. Installing
+them removes a proven dispatch hole. It does not show that the next destination
+exists, that a frame is drawn, or that gameplay is reached.
+
 ## Synthetic checks
 
 With Capstone installed, run:

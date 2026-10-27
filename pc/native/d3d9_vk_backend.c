@@ -651,6 +651,46 @@ uint32_t fnv_vk_backend_read_cube_texture(struct fnv_vk_backend *d,uintptr_t id,
     if(face>=6)return FNV_VK_INVALID;
     return read_resource(d,id,level,face+1,2,out,bytes,timeout);
 }
+/* Upload counterpart of read_color, used only by the probe's lockable
+ * backbuffer path. Requires a complete colour target of the same size, drains
+ * queued clears, waits a real fence and reports failure without claiming the
+ * pixels reached the image. Not a public backend contract entry point. */
+uint32_t fnv_vk_backend_write_color(struct fnv_vk_backend *d,uintptr_t id,const void *input,size_t bytes,uint64_t timeout){
+    if(!d || !input)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);
+    struct surface *s=find(d,id);uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;
+    if(!s || s->shadow_alias || s->depth || (uint64_t)s->width*s->height*4>bytes)goto done;
+    size_t upload=(size_t)s->width*s->height*4;
+    if((hr=wait_locked(d,timeout))!=0 || (hr=flush_locked(d))!=0 || (hr=wait_locked(d,timeout))!=0)goto done;
+    if((hr=begin_frame(d,&f))!=0)goto done;
+    f->read_surface=id;pin(d,id,1);
+    VkBufferCreateInfo ci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=upload,.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT};
+    VkBuffer buffer=VK_NULL_HANDLE;hr=result(d,d->v.CreateBuffer(d->device,&ci,NULL,&buffer));if(!hr)f->read_buffer=buffer;
+    if(!hr){VkMemoryRequirements req;d->v.GetBufferMemoryRequirements(d->device,f->read_buffer,&req);
+        hr=allocate(d,req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,&f->read_memory,&f->read_coherent);
+        if(!hr){f->read_allocation=req.size;hr=result(d,d->v.BindBufferMemory(d->device,f->read_buffer,f->read_memory,0));}}
+    if(hr){retire_frame(d,f);goto done;}
+    void *mapped=NULL;hr=result(d,d->v.MapMemory(d->device,f->read_memory,0,VK_WHOLE_SIZE,0,&mapped));
+    if(!hr){
+        memcpy(mapped,input,upload);
+        if(!f->read_coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=f->read_memory,.offset=0,.size=VK_WHOLE_SIZE};
+            hr=result(d,d->v.FlushMappedMemoryRanges(d->device,1,&range));}
+        d->v.UnmapMemory(d->device,f->read_memory);
+    }
+    if(hr){retire_frame(d,f);goto done;}
+    barrier(d,f->cmd,s);
+    VkBufferMemoryBarrier source={.sType=VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_HOST_WRITE_BIT,.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT,
+        .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=f->read_buffer,.offset=0,.size=VK_WHOLE_SIZE};
+    d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_HOST_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,NULL,1,&source,0,NULL);
+    VkBufferImageCopy region={.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},.imageExtent={s->width,s->height,1}};
+    d->v.CmdCopyBufferToImage(f->cmd,f->read_buffer,s->image,VK_IMAGE_LAYOUT_GENERAL,1,&region);
+    barrier(d,f->cmd,s);
+    if((hr=submit_frame(d,f))!=0){d->lost=1;goto done;}
+    if((hr=result(d,d->v.WaitForFences(d->device,1,&f->fence,VK_TRUE,timeout)))!=0)goto done;
+    retire_frame(d,f);if(d->lost)hr=FNV_VK_LOST;
+done:
+    fnv_host_mutex_unlock(&d->guard);return hr;
+}
 static uint32_t destroy_storage(struct fnv_vk_backend *d){
     if(d->device){
         VkResult idle=VK_SUCCESS;

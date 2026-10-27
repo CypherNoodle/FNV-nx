@@ -20,8 +20,9 @@ static void api_reset(void){
     if(!values[3])values[3]=1;
     if(values[0]!=c->factory.width || values[1]!=c->factory.height || values[2]!=c->factory.color_format || values[3]!=1 || values[4] || values[5] || values[6]!=1 ||
        (values[7] && values[7]!=c->config.presentation_window) || values[8]!=c->present_params[8] ||
-       (values[9]!=0)!=(c->factory.depth_format!=0) || (values[9] && values[10]!=c->factory.depth_format) || (values[11]&~2u) ||
+       (values[9]!=0)!=(c->factory.depth_format!=0) || (values[9] && values[10]!=c->factory.depth_format) || (values[11]&~3u) ||
        values[12]!=c->present_params[12] || values[13]!=c->present_params[13])goto failure;
+    if((values[11]&1u) && (!c->surface_io.read || !c->surface_io.write))goto failure;
     for(uint32_t i=0;i<c->used;++i){struct resource *r=c->resources+i;
         if(!r->handle)continue;
         if(r->locked || ((r->references || r->state_pins) && (r->kind==FNV_D3D9_SURFACE || ((r->kind==FNV_D3D9_VB || r->kind==FNV_D3D9_IB || r->kind==FNV_D3D9_TEXTURE2D || r->kind==FNV_D3D9_TEXTURECUBE) && !r->pool))))goto failure;
@@ -29,6 +30,11 @@ static void api_reset(void){
     }
     hr=fnv_d3d9_constants_create(c->config.vertex_floats,c->config.pixel_floats,&fresh);if(hr)goto failure;
     hr=c->config.backend.reset(c->config.backend.context,c->config.reset_timeout_ns);if(hr)goto failure;
+    /* The provider rebuilds the implicit targets, so the lockable identity must
+     * be re-queried. A failed query is reported, never kept as a stale claim. */
+    c->lockable_back=0;c->lockable_handle=0;
+    if(values[11]&1u){uintptr_t handle=0;hr=c->config.backend.get_target(c->config.backend.context,0,0,&handle);
+        if(hr)goto failure;c->lockable_handle=handle;c->lockable_back=1;c->config.backend.release(c->config.backend.context,handle);}
     fnv_transform_init(&c->transforms);memset(c->material,0,sizeof(c->material));c->lights.count=0;
     clear_bindings(c);for(unsigned i=0;i<16;++i)c->streams[i]=(struct stream){-1,0,0,1};
     struct fnv_d3d9_constants *old=c->constants;c->constants=fresh;fresh=NULL;fnv_d3d9_constants_destroy(old);

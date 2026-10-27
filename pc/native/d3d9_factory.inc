@@ -1,17 +1,16 @@
-#ifdef FNV_D3D9_FACTORY_TRACE
-#include <stdio.h>
-#define FACTORY_TRACE(...) ((void)fprintf(stderr,"FNV_D3D9_FACTORY " __VA_ARGS__))
-#else
-#define FACTORY_TRACE(...) ((void)0)
-#endif
+/* Always-on diagnostic trace: the sink is a host hook installed by the Switch
+ * probe. Horizon does not capture stderr and the factory path is the object of
+ * study, so this is not a compile-time option and never fabricates success. */
+#define FACTORY_TRACE(...) fnv_d3d9_trace(__VA_ARGS__)
 /* Single prepared virtual-adapter factory. All methods registered before attach. */
 #define NOT_AVAILABLE 0x8876086au
 static uint32_t factory_address(const struct fnv_d3d9_com *c){return c->config.objects_address+FACTORY_OBJECT;}
 static void factory_this(struct fnv_d3d9_com *c,uint32_t self){if(object(c,self,0)!=-2){fnv_host_mutex_unlock(&c->guard);invalid("D3D9 factory requires IDirect3D9",self);}}
 static void api_direct3d9(void){
-    uint32_t version=fnv_cpu_argument_u32(0);struct fnv_d3d9_com *c=module();uint32_t result=0;
+    uint32_t version=fnv_cpu_argument_u32(0);struct fnv_d3d9_com *c=module();uint32_t result=0,refs;
     fnv_host_mutex_lock(&c->guard);if(c->config.factory && c->factory_refs && c->factory_refs<UINT32_MAX && version==32){c->factory_refs++;result=factory_address(c);}
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,4);
+    refs=c->factory_refs;fnv_host_mutex_unlock(&c->guard);
+    FACTORY_TRACE("Direct3DCreate9 version=%u result=%08x refs=%u\n",version,result,refs);fnv_cpu_return_u32(result,4);
 }
 static void api_adapter_count(void){struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);fnv_host_mutex_lock(&c->guard);factory_this(c,self);fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(1,4);}
 /* Enumeration ignores display alpha (EnumAdapterModes contract). The
@@ -82,50 +81,74 @@ static void api_depth_match(void){
     else if(args[2]==1 && factory_display_format(c,args[3]) && args[4]==21 && args[5]==75){
         hr=factory_surface_format(c,args[4],1);if(!hr)hr=factory_surface_format(c,args[5],2);
     }
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,24);
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CheckDepthStencilMatch adapter=%u type=%u adapter_format=%u render_format=%u depthstencil=%u hr=%08x\n",args[1],args[2],args[3],args[4],args[5],hr);fnv_cpu_return_u32(hr,24);
 }
 static void api_multisample(void){
     struct fnv_d3d9_com *c=module();uint32_t args[7];for(unsigned i=0;i<7;++i)args[i]=fnv_cpu_argument_u32(i);
     unsigned char *out=args[6]?range(c,args[6],4,1):NULL;
     fnv_host_mutex_lock(&c->guard);factory_this(c,args[0]);uint32_t hr=NOT_AVAILABLE;
     if(args[1] || args[5]>16 || (args[6] && !out))hr=FNV_D3D9_INVALIDCALL;
-    else if(args[2]==1 && !args[5] && (args[3]==21 || args[3]==75)){
-        hr=factory_surface_format(c,args[3],args[3]==75?2:1);if(!hr && out)write32(out,1);
+    /* D3DMULTISAMPLE_NONE is valid for every supported render format and has
+     * exactly one quality level. No multisampled target is implemented, so any
+     * nonzero sample count stays NOTAVAILABLE rather than inventing levels. */
+    else if(args[2]==1 && !args[5] && (args[3]==21 || args[3]==22 || args[3]==75)){
+        /* The configured presentation format is the real implicit target, so
+         * it needs no synthetic Vulkan render-target claim. Other formats go
+         * through the provider's actual usage/type/format query. */
+        hr=args[3]==c->factory.color_format?0:factory_surface_format(c,args[3],args[3]==75?2:1);
+        if(!hr && out)write32(out,1);
     }
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(hr,28);
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CheckDeviceMultiSampleType adapter=%u type=%u format=%u windowed=%u multisample=%u out=%08x levels=%u hr=%08x\n",args[1],args[2],args[3],args[4],args[5],(unsigned)args[6],out?read32(out):0,hr);fnv_cpu_return_u32(hr,28);
 }
 static void api_adapter_monitor(void){unavailable(2,1);}
 static void api_create_device(void){
     uint32_t self=fnv_cpu_argument_u32(0),adapter=fnv_cpu_argument_u32(1),type=fnv_cpu_argument_u32(2),focus=fnv_cpu_argument_u32(3),behavior=fnv_cpu_argument_u32(4),at=fnv_cpu_argument_u32(5),out_at=fnv_cpu_argument_u32(6);
     struct fnv_d3d9_com *c=module();unsigned char *params=range(c,at,56,1),*out=range(c,out_at,4,1);uint32_t values[14],result=FNV_D3D9_INVALIDCALL;
-    if(!params || !out || ((uint64_t)at<(uint64_t)out_at+4 && (uint64_t)out_at<(uint64_t)at+56)){fnv_cpu_return_u32(result,28);return;}
+    const char *why="ok";
+    if(!params || !out || ((uint64_t)at<(uint64_t)out_at+4 && (uint64_t)out_at<(uint64_t)at+56)){FACTORY_TRACE("CreateDevice self=%08x invalid pointers at=%08x out=%08x\n",self,at,out_at);fnv_cpu_return_u32(result,28);return;}
     for(unsigned i=0;i<14;++i)values[i]=read32(params+i*4);
-    FACTORY_TRACE("CreateDevice adapter=%u type=%u behavior=%08x size=%ux%u color=%u buffers=%u msaa=%u quality=%u swap=%u windowed=%u auto_depth=%u depth=%u flags=%08x refresh=%u interval=%u\n",adapter,type,behavior,values[0],values[1],values[2],values[3],values[4],values[5],values[6],values[8],values[9],values[10],values[11],values[12],values[13]);
-    fnv_host_mutex_lock(&c->guard);factory_this(c,self);write32(out,0);
-    if(adapter || c->factory_created || !c->device_references)goto done;
-    if(type!=1){result=NOT_AVAILABLE;goto done;}
+    FACTORY_TRACE("CreateDevice self=%08x adapter=%u type=%u focus=%08x behavior=%08x %ux%u color=%u buffers=%u msaa=%u quality=%u swap=%u window=%08x windowed=%u auto_depth=%u depth=%u flags=%08x refresh=%u interval=%u\n",self,adapter,type,focus,behavior,values[0],values[1],values[2],values[3],values[4],values[5],values[6],values[7],values[8],values[9],values[10],values[11],values[12],values[13]);
+    fnv_host_mutex_lock(&c->guard);factory_this(c,self);write32(out,0);c->create_attempts++;
+    if(adapter){why="adapter is nonzero";goto done;}
+    if(c->factory_created){why="factory already created a device";goto done;}
+    if(!c->device_references){why="device was released";goto done;}
+    if(type!=1){why="device type is not HAL";result=NOT_AVAILABLE;goto done;}
     values[8]=values[8]!=0;values[9]=values[9]!=0;
-    uint32_t processing=behavior&(64u|128u);
-    if((behavior&~(2u|4u|64u|128u)) || (processing!=64u && processing!=128u) || (!focus && !values[7]) || (!values[8] && !focus))goto done;
-    if(processing==128u){
-        /* The provider owns the processing contract. Do not accept HW creation
-         * merely because a Vulkan device exists or some programs are linked. */
-        unsigned char caps[304]={0};uint32_t query_args[2]={adapter,type};
-        result=c->factory.query?c->factory.query(c->factory.context,1,query_args,2,caps,sizeof(caps)):NOT_AVAILABLE;
-        if(result)goto done;
-        if(!(read32(caps+28)&0x00010000u)){result=NOT_AVAILABLE;goto done;}
-    }
+    /* Real D3D9 behaviour bits: FPU_PRESERVE(2), MULTITHREADED(4),
+     * PUREDEVICE(16), SOFTWARE_VERTEXPROCESSING(32), hardware(64) and
+     * mixed(128). PUREDEVICE is an application promise, so it is accepted only
+     * with hardware vertex processing. Software and mixed processing are real
+     * missing capabilities here (the provider only executes prepared GPU
+     * programs), so they fail explicitly instead of being mapped to HAL. */
+    uint32_t processing=behavior&(32u|64u|128u);
+    if((behavior&~(2u|4u|16u|32u|64u|128u)) || (processing && processing!=32u && processing!=64u && processing!=128u) ||
+       (!focus && !values[7]) || (!values[8] && !focus)){why="behavior/focus/window bits";goto done;}
+    if((behavior&16u) && processing!=64u){why="pure device requires hardware vertex processing";goto done;}
+    if(processing==32u){result=NOT_AVAILABLE;why="software vertex processing not implemented";goto done;}
+    if(processing==128u){result=NOT_AVAILABLE;why="mixed vertex processing not implemented";goto done;}
     if(values[8]){if(!values[0])values[0]=c->factory.width;if(!values[1])values[1]=c->factory.height;if(!values[2])values[2]=c->factory.color_format;}
     if(!values[3])values[3]=1;
     if(values[0]!=c->factory.width || values[1]!=c->factory.height || values[2]!=c->factory.color_format || values[3]!=1 || values[4] || values[5] || values[6]!=1 ||
-       (values[9]!=0)!=(c->factory.depth_format!=0) || (values[9] && values[10]!=c->factory.depth_format) || (values[11]&~2u) ||
-       (values[8] && values[12]) || (!values[8] && values[12] && values[12]!=c->factory.refresh_hz) || values[13]>1){result=NOT_AVAILABLE;goto done;}
+       (values[9]!=0)!=(c->factory.depth_format!=0) || (values[9] && values[10]!=c->factory.depth_format) || (values[11]&~3u) ||
+       (values[8] && values[12]) || (!values[8] && values[12] && values[12]!=c->factory.refresh_hz) || values[13]>1){why="present parameters differ from prepared factory";result=NOT_AVAILABLE;goto done;}
+    if(values[11]&1u){
+        /* LOCKABLE is a real capability. It is accepted only with an installed
+         * round-trip provider and a live implicit backbuffer identity; the
+         * actual pixels are transferred on every Lock/Unlock. */
+        if(!c->surface_io.read || !c->surface_io.write){result=NOT_AVAILABLE;why="lockable backbuffer transfer provider absent";goto done;}
+        uintptr_t handle=0;result=c->config.backend.get_target(c->config.backend.context,0,0,&handle);
+        if(result){why="lockable backbuffer target query";goto done;}
+        c->lockable_handle=handle;c->lockable_back=1;c->config.backend.release(c->config.backend.context,handle);
+        FACTORY_TRACE("CreateDevice lockable backbuffer handle=%08x\n",(unsigned)handle);
+    }
     c->factory_created=1;c->creation[0]=adapter;c->creation[1]=type;c->creation[2]=focus;c->creation[3]=behavior;
     c->config.presentation_window=values[7]?values[7]:focus;
     c->creator=(uintptr_t)&creator_marker;memcpy(c->present_params,values,sizeof(values));
     for(unsigned i=0;i<14;++i)write32(params+i*4,values[i]);
     write32(out,device_address(c));result=0;
-done:fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CreateDevice result=%08x behavior=%08x\n",result,behavior);fnv_cpu_return_u32(result,28);
+done:c->last_create_result=result;if(result)c->create_failures++;else c->create_successes++;
+    uint32_t created=c->factory_created,refs=c->factory_refs,devrefs=c->device_references;
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("CreateDevice result=%08x behavior=%08x why=%s created=%u refs=%u devrefs=%u\n",result,behavior,why,created,refs,devrefs);fnv_cpu_return_u32(result,28);
 }
 static void api_device_parent(void){
     struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);unsigned char *out=range(c,fnv_cpu_argument_u32(1),4,1);uint32_t result=FNV_D3D9_INVALIDCALL;
@@ -137,7 +160,7 @@ static void api_creation_parameters(void){
     struct fnv_d3d9_com *c=module();uint32_t self=fnv_cpu_argument_u32(0);unsigned char *out=range(c,fnv_cpu_argument_u32(1),16,1);uint32_t result=FNV_D3D9_INVALIDCALL;
     fnv_host_mutex_lock(&c->guard);(void)object(c,self,1);
     if(out && c->factory_created){for(unsigned i=0;i<4;++i)write32(out+i*4,c->creation[i]);result=0;}
-    fnv_host_mutex_unlock(&c->guard);fnv_cpu_return_u32(result,8);
+    fnv_host_mutex_unlock(&c->guard);FACTORY_TRACE("GetCreationParameters self=%08x created=%u hr=%08x adapter=%u type=%u focus=%08x behavior=%08x\n",self,c->factory_created,result,c->creation[0],c->creation[1],c->creation[2],c->creation[3]);fnv_cpu_return_u32(result,8);
 }
 #undef NOT_AVAILABLE
 
