@@ -1,0 +1,320 @@
+/* Private captured-PC engine experiment. Not a cold on-disk EXE boot.
+ * engine_profile.h / engine_programs.h are generated private build inputs.
+ * All backing survives until process exit; no partial teardown of live guest
+ * threads or GPU work is attempted after a fault. */
+#include <switch.h>
+#include <malloc.h>
+#include <stdatomic.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include "fnv_sdk_runtime.h"
+#include "engine_process_plan.h"
+#include "engine_movie_io.h"
+#include "windows_memory.h"
+#include "windows_modules.h"
+#include "windows_user32.h"
+#include "windows_user32_input.h"
+#include "windows_boot_ui.h"
+#include "windows_boot_horizon.h"
+#include "windows_debug.h"
+#include "windows_d3dx.h"
+#include "windows_com.h"
+#include "windows_multimedia.h"
+#include "windows_mmio.h"
+#include "windows_vorbis.h"
+#include "windows_display.h"
+#include "windows_display_resolution.h"
+#include "windows_strings.h"
+#include "windows_filetime.h"
+#include "windows_system.h"
+#include "windows_profiles.h"
+#include "windows_shell.h"
+#include "windows_registry.h"
+#include "steam_callbacks.h"
+#include "dinput8_hid.h"
+#include "media_horizon.h"
+#include "dsound8.h"
+#include "bink_sound.h"
+#include "bink_movie.h"
+#include "host_clock.h"
+#include "host_thread.h"
+#include "host_mutex.h"
+#include "d3d9_vk_horizon.h"
+#include "d3d9_vk_prepared.h"
+#include "d3d9_sdp.h"
+#include "engine_profile.h"
+#include "engine_programs.h"
+#define ROOT "sdmc:/switch/FNV-nx"
+#define REQUIRE(expr,label) do{if(!(expr)){report("FAIL %s\n",label);return 0;}}while(0)
+static FILE *log_file;
+static fnv_host_mutex log_guard;
+static struct fnv_engine_process_plan *plan;
+static struct fnv_windows_process *process;
+static struct fnv_guest_memory *vm;
+static struct fnv_native_image image;
+static struct fnv_windows_boot_ui *boot_ui;
+static struct fnv_windows_user32 *user32;
+static struct fnv_dinput8 *dinput;
+static struct fnv_horizon_pad *controller;
+static struct fnv_horizon_audio *audio;
+static struct fnv_dsound8 *sound;
+static struct fnv_vk_backend *graphics;
+static struct fnv_d3d9_com *graphics_com;
+static struct fnv_display_resolution resolution;
+static unsigned char adapter[1104];
+static struct fnv_boot_horizon window_binding;
+static struct fnv_vm_permissions permissions;
+static atomic_int done,stop_requested;
+static enum fnv_cpu_result execution_result;
+static struct fnv_cpu_fault execution_fault;
+static void report(const char *format,...) {
+    fnv_host_mutex_lock(&log_guard);va_list args;va_start(args,format);
+    vfprintf(log_file,format,args);va_end(args);fflush(log_file);fnv_host_mutex_unlock(&log_guard);
+}
+static void diagnostic(void *unused,const struct fnv_cpu_fault *f) {
+    (void)unused;report("CPU fault kind=%u entry=%08lX address=%08lX detail=%08lX %s\n",
+        (unsigned)f->kind,(unsigned long)f->entry,(unsigned long)f->address,(unsigned long)f->detail,f->text);
+    report("CPU GPR eax=%08lX ecx=%08lX edx=%08lX ebx=%08lX esp=%08lX ebp=%08lX esi=%08lX edi=%08lX\n",
+        (unsigned long)f->state.gpr[0],(unsigned long)f->state.gpr[1],(unsigned long)f->state.gpr[2],(unsigned long)f->state.gpr[3],
+        (unsigned long)f->state.gpr[4],(unsigned long)f->state.gpr[5],(unsigned long)f->state.gpr[6],(unsigned long)f->state.gpr[7]);
+}
+static int identify(const char *path,const char *expected) {
+    FILE *file=fopen(path,"rb");if(!file){report("Missing %s\n",path);return 0;}
+    unsigned char *block=malloc(65536),digest[32];if(!block){fclose(file);return 0;}
+    Sha256Context hash;sha256ContextCreate(&hash);size_t bytes;int ok=1;uint64_t total=0;
+    while((bytes=fread(block,1,65536,file))){total+=bytes;if(total>128u<<20){ok=0;break;}sha256ContextUpdate(&hash,block,bytes);}
+    if(ferror(file))ok=0;
+    if(fclose(file))ok=0;
+    free(block);if(!ok)return 0;
+    sha256ContextGetHash(&hash,digest);char hex[65];for(unsigned i=0;i<32;i++)snprintf(hex+i*2,3,"%02x",digest[i]);
+    report("SHA256 %s %s bytes=%llu\n",path,hex,(unsigned long long)total);return !strcmp(hex,expected);
+}
+static uint32_t load32(const unsigned char *p){return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
+static void store32(unsigned char *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(v>>(8*i));}
+static uint32_t graphics_query(void *context,uint32_t kind,const uint32_t *args,uint32_t count,void *out,uint32_t bytes) {
+    if(kind==0 && count==6)return fnv_vk_backend_check_format(context,args[3],args[4],args[5]);
+    if(kind==2 && count==2 && !args[0] && !(args[1]&~2u)) {
+        uint32_t hr=fnv_vk_backend_adapter_identifier(context,out,bytes);
+        /* NVK is the actual backend. Preserve real device/vendor identity;
+         * use a truthful NVK driver name for the engine's prefix-based branch. */
+        if(!hr && FNV_ENGINE_EXPERIMENTAL_CAPS && load32((unsigned char *)out+1064)==0x10de) {
+            memset(out,0,512);memcpy(out,"nvk (FNV-nx Vulkan)",20);
+        }
+        return hr;
+    }
+    if(kind==1 && count==2 && !args[0] && args[1]==1) {
+        uint32_t hr=fnv_vk_backend_device_caps(context,out,bytes);
+        if(!hr && FNV_ENGINE_EXPERIMENTAL_CAPS) {
+            unsigned char *p=out;store32(p+148,2);store32(p+152,2);p[30]|=1;
+            const uint32_t limits[]={0,24,32,4,0,24,32,4,512,0,65535,65535,512,512};
+            for(unsigned i=0;i<14;i++)store32(p+248+4*i,limits[i]);
+            store32(p+196,0xfffe0300);store32(p+200,256);store32(p+204,0xffff0300);
+        }
+        return hr;
+    }
+    return 0x8876086au;
+}
+static int enumerate_display(void *unused,const char *parent,uint32_t index,uint32_t flags,struct fnv_display_device *out) {
+    (void)unused;if(!out || flags>1)return -1;if(index)return 0;
+    struct fnv_display_device d={0};
+    if(!parent){strcpy(d.name,"\\\\.\\DISPLAY1");snprintf(d.description,sizeof(d.description),"%.127s",adapter+512);d.state_flags=5;}
+    else if(!strcmp(parent,"\\\\.\\DISPLAY1")){strcpy(d.name,"\\\\.\\DISPLAY1\\Monitor0");strcpy(d.description,"Nintendo Switch display");d.state_flags=3;}
+    else return 0;
+    *out=d;return 1;
+}
+static int valid_window(void *context,uint32_t hwnd) {
+    void *window=NULL;return fnv_windows_boot_ui_presentation(context,hwnd,&window)==FNV_CPU_OK && nwindowIsValid(window);
+}
+static int input_focus(void *context,uint32_t hwnd){return fnv_windows_boot_ui_input_focus(context,hwnd);}
+static int movie_now(void *unused,uint64_t *ns){(void)unused;return fnv_host_now_ns(ns);}
+static int movie_progress(void *unused){(void)unused;svcSleepThread(1000000);return audio && !fnv_horizon_audio_error(audio) && !atomic_load(&stop_requested);}
+static uint32_t pool(uint32_t bytes){struct fnv_vm_result r=fnv_vm_allocate(vm,0,bytes,FNV_VM_RESERVE|FNV_VM_COMMIT,FNV_VM_READWRITE);if(r.error)report("VM pool bytes=%lu error=%lu native=%08lX\n",(unsigned long)bytes,(unsigned long)r.error,(unsigned long)r.native_error);return r.error?0:r.value;}
+static fnv_cpu_function profile_string_original,profile_integer_original;
+static int guest_string(uint32_t address,const char *expected) {
+    size_t length=strlen(expected);if((uint64_t)address+length>UINT32_MAX)return 0;
+    for(size_t i=0;i<=length;i++){const unsigned char *p=fnv_cpu_try_memory(address+(uint32_t)i,1);if(!p || *p!=(unsigned char)expected[i])return 0;}return 1;
+}
+static void profile_string(void) {
+    /* Adapter selection is virtual machine configuration, not a write to the
+     * user's INI. All other profile requests retain their original provider. */
+    if(guest_string(fnv_cpu_argument_u32(0),"Display") && guest_string(fnv_cpu_argument_u32(1),"sD3DDevice")) {
+        uint32_t destination=fnv_cpu_argument_u32(3),capacity=fnv_cpu_argument_u32(4);
+        const char *name=(const char *)adapter+512;size_t length=strlen(name);
+        if(capacity){size_t copied=length<capacity-1?length:capacity-1;
+            uint64_t end=(uint64_t)destination+copied+1;uint32_t vm_begin=plan->vm.base,vm_bytes=plan->vm.bytes;
+            if((uint64_t)destination<(uint64_t)vm_begin+vm_bytes && end>vm_begin && !fnv_vm_access(vm,destination,(uint32_t)copied+1,1)){recomp_unimpl("Engine adapter preference output not writable",destination);return;}
+            unsigned char *p=fnv_cpu_memory(destination,copied+1);memcpy(p,name,copied);p[copied]=0;fnv_windows_set_last_error(copied<length?234:0);fnv_cpu_return_u32((uint32_t)copied,24);}
+        else fnv_cpu_return_u32(0,24);
+        return;
+    }
+    profile_string_original();
+}
+static void profile_integer(void) {
+    if(guest_string(fnv_cpu_argument_u32(0),"Display")) {
+        uint32_t key=fnv_cpu_argument_u32(1),value=0;int matched=1;
+        if(guest_string(key,"iSize W"))value=resolution.surface_width;
+        else if(guest_string(key,"iSize H"))value=resolution.surface_height;
+        else if(guest_string(key,"bFull Screen"))value=1;
+        else matched=0;
+        if(matched){fnv_cpu_return_u32(value,16);return;}
+    }
+    profile_integer_original();
+}
+struct exports {struct fnv_cpu_export *catalog,*extras;size_t count,extra;};
+static int add_exports(struct exports *all,const struct fnv_cpu_export *e,size_t count,int kernel) {
+    if(all->count+count>1024 || all->extra+(kernel?0:count)>FNV_NATIVE_MAX_IMPORTS)return 0;
+    for(size_t i=0;i<count;i++) {
+        struct fnv_cpu_export item=e[i];
+        if(item.name && !strcasecmp(item.dll,"kernel32.dll") && !strcmp(item.name,"GetPrivateProfileStringA")){profile_string_original=item.function;item.function=profile_string;}
+        if(item.name && !strcasecmp(item.dll,"kernel32.dll") && !strcmp(item.name,"GetPrivateProfileIntA")){profile_integer_original=item.function;item.function=profile_integer;}
+        all->catalog[all->count++]=item;if(!kernel)all->extras[all->extra++]=item;
+    }
+    return 1;
+}
+static int import_matches(const struct fnv_cpu_export *e,const struct fnv_native_import *i){return !strcasecmp(e->dll,i->dll) && e->by_ordinal==i->by_ordinal && (i->by_ordinal?e->ordinal==i->ordinal:!strcmp(e->name,i->name));}
+static int initialize(void) {
+    report("FNV PC engine hw01: captured-code experiment, cold_boot=0 experimental_caps=%d volume=0\n",FNV_ENGINE_EXPERIMENTAL_CAPS);
+    REQUIRE(appletGetAppletType()==AppletType_Application || appletGetAppletType()==AppletType_SystemApplication,"application memory mode (title takeover)");
+    REQUIRE(identify(ROOT "/FalloutNV.exe",FNV_ENGINE_EXE_SHA256),"original supported EXE identity");
+    REQUIRE(identify("romfs:/captured-text-data.bin",FNV_ENGINE_TEXT_SHA256),"captured text identity");
+    REQUIRE(identify("romfs:/catalog.sdp",FNV_ENGINE_SDP_SHA256),"private shader catalog identity");
+    plan=calloc(1,sizeof(*plan));REQUIRE(plan,"process blueprint allocation");
+    unsigned char *arena=memalign(4096,808u<<20);REQUIRE(arena,"808 MiB guest backing");
+    fnv_vm_horizon_permissions(&permissions);
+    REQUIRE(fnv_engine_process_plan_create(FNV_ENGINE_BASE,FNV_ENGINE_IMAGE_BYTES,arena,808u<<20,&permissions,plan),"nonoverlapping engine memory plan");
+    REQUIRE(fnv_native_load_image(ROOT "/FalloutNV.exe",arena,plan->layout.arena_bytes,&image)==FNV_NATIVE_OK && image.base==FNV_ENGINE_BASE && image.size==FNV_ENGINE_IMAGE_BYTES,"PE data load");
+    for(unsigned i=FNV_ENGINE_PEB;i<FNV_ENGINE_VM;i++)memset(arena+plan->layout.regions[i].offset,0,plan->layout.regions[i].bytes);
+    unsigned char *text=fnv_native_guest_range(&image,image.base+FNV_ENGINE_TEXT_RVA,FNV_ENGINE_TEXT_BYTES);REQUIRE(text,"capture destination");
+    FILE *blob=fopen("romfs:/captured-text-data.bin","rb");REQUIRE(blob,"capture open");
+    int copied=fread(text,1,FNV_ENGINE_TEXT_BYTES,blob)==FNV_ENGINE_TEXT_BYTES && fgetc(blob)==EOF && !ferror(blob);
+    int closed=fclose(blob);REQUIRE(copied && !closed,"captured code/data overlay");
+    struct fnv_vm_result vr=fnv_vm_create(&plan->vm,&vm);report("VM create error=%lu native=%08lX\n",(unsigned long)vr.error,(unsigned long)vr.native_error);REQUIRE(!vr.error,"Horizon VM permissions");
+    plan->process.memory=vm;plan->process.cpu.diagnostic=diagnostic;
+    REQUIRE(fnv_windows_create(&plan->process,&process)==FNV_CPU_OK,"Windows process");
+    REQUIRE(fnv_display_resolution_horizon(nwindowGetDefault(),&resolution),"Horizon display facts");
+    report("Display mode=%lu output=%lux%lu surface=%lux%lu\n",(unsigned long)resolution.mode,(unsigned long)resolution.output_width,(unsigned long)resolution.output_height,(unsigned long)resolution.surface_width,(unsigned long)resolution.surface_height);
+    struct fnv_vk_config gc={resolution.surface_width,resolution.surface_height,4096,2,128,256u<<20,0};VkResult failure=0;
+    uint32_t hr=fnv_vk_backend_create_horizon(vkGetInstanceProcAddr,&gc,nwindowGetDefault(),1,&graphics,&failure);
+    report("Vulkan create hr=%08lX native=%ld\n",(unsigned long)hr,(long)failure);REQUIRE(!hr,"NVK window/swapchain");
+    REQUIRE(!fnv_vk_backend_adapter_identifier(graphics,adapter,sizeof(adapter)),"actual Vulkan adapter");
+    report("Adapter %.511s / %.511s vendor=%04lX device=%04lX\n",adapter,adapter+512,(unsigned long)load32(adapter+1064),(unsigned long)load32(adapter+1068));
+    REQUIRE(!fnv_vk_backend_presentation_format(graphics,22) && !fnv_vk_backend_draw_wait(graphics,10000000000ull),"graphics presentation configuration");
+    struct fnv_display_backend db={NULL,enumerate_display};struct fnv_windows_display *display;
+    REQUIRE(fnv_windows_display_create(process,&db,&display)==FNV_CPU_OK,"display provider");
+    REQUIRE(fnv_windows_boot_ui_create(process,&image,&boot_ui)==FNV_CPU_OK,"window provider");
+    struct fnv_user32_metrics metrics={&resolution,fnv_display_resolution_metrics};
+    REQUIRE(fnv_windows_user32_create_with_metrics(process,&metrics,&user32)==FNV_CPU_OK,"USER32 metrics");
+    struct fnv_boot_window_backend wb;REQUIRE(fnv_boot_horizon_backend(&window_binding,nwindowGetDefault(),&wb) && fnv_windows_boot_ui_set_backend(boot_ui,user32,&wb)==FNV_CPU_OK,"NWindow lease");
+    uint32_t input_pool=pool(65536),mmio_pool=pool(0x11000),vorbis_pool=pool(0x11000*16),sound_pool=pool(16u<<20),movie_pool=pool(65536);
+    REQUIRE(input_pool && mmio_pool && vorbis_pool && sound_pool && movie_pool,"media/input pools");
+    struct fnv_dinput8_config di={0};di.instance=image.base;di.objects_address=input_pool;di.objects_bytes=65536;di.keyboard=di.mouse=1;di.memory=vm;di.context=boot_ui;di.valid_window=valid_window;di.has_input_focus=input_focus;
+    REQUIRE(fnv_dinput8_create(process,&di,&dinput)==FNV_CPU_OK,"DirectInput provider");
+    REQUIRE(fnv_horizon_pad_open(process,1,&controller)==FNV_CPU_OK,"Switch XInput controller");
+    struct fnv_mmio_config mc={mmio_pool,0x11000,vm};struct fnv_windows_mmio *mmio;
+    REQUIRE(fnv_windows_mmio_create(process,&mc,&mmio)==FNV_CPU_OK,"MMIO provider");
+    struct fnv_vorbis_config vc={vorbis_pool,0x11000*16,16,vm};struct fnv_windows_vorbis *vorbis;
+    REQUIRE(fnv_windows_vorbis_create(process,&vc,&vorbis)==FNV_CPU_OK,"Vorbis provider");
+    struct fnv_pcm_queue *queue;REQUIRE(fnv_pcm_create(2048,&queue)==FNV_PCM_OK,"PCM queue");
+    struct fnv_dsound8_config sc={sound_pool,16u<<20,1,vm,queue,boot_ui,valid_window};
+    REQUIRE(fnv_dsound8_create(process,&sc,&sound)==FNV_CPU_OK,"DirectSound mixer");
+    REQUIRE(!fnv_horizon_audio_open_source(queue,fnv_dsound8_produce,sound,&audio),"native audout worker");
+    REQUIRE(R_SUCCEEDED(audoutSetAudioOutVolume(0.0f)),"silent diagnostic output");
+    struct fnv_bink_movie_config bc={movie_pool,65536,sound,(void *)ROOT,fnv_engine_movie_open,fnv_engine_movie_close,movie_now,movie_progress};struct fnv_bink_movie *movie;
+    REQUIRE(fnv_bink_movie_create(process,&bc,&movie)==FNV_CPU_OK,"Bink decoder/controller");
+    struct fnv_bink_sound_config bs={movie,fnv_bink_movie_sound_factory};struct fnv_bink_sound *bink_sound;
+    REQUIRE(fnv_bink_sound_create(process,&bs,&bink_sound)==FNV_CPU_OK && fnv_bink_movie_bind_sound(movie,bink_sound)==FNV_CPU_OK,"Bink sound bridge");
+    struct fnv_steam_callbacks *steam;struct fnv_windows_system *system;
+    REQUIRE(fnv_steam_callbacks_create(process,&steam)==FNV_CPU_OK && fnv_windows_system_create(process,3,&system)==FNV_CPU_OK,"system providers");
+    struct fnv_d3d9_sdp *sdp;REQUIRE(fnv_sdp_load("romfs:/catalog.sdp",16u<<20,&sdp)==FNV_SDP_OK,"original shader catalog");
+    size_t catalog_count;const struct fnv_d3d9_shader_code *codes=fnv_sdp_entries(sdp,&catalog_count);REQUIRE(catalog_count==FNV_ENGINE_CATALOG_COUNT,"shader catalog inventory");
+    for(size_t i=0;i<catalog_count;i++){const struct fnv_d3d9_shader_code *code=codes+i;uint32_t version=load32(code->bytes);REQUIRE(!fnv_vk_backend_declare_shader(graphics,(version>>16)==0xffff?FNV_D3D9_PIXEL:FNV_D3D9_VERTEX,code->bytes,code->size),"shader declaration");}
+    configure_fixed_screen(graphics);size_t failed=SIZE_MAX;
+    hr=fnv_vk_prepare_programs(graphics,fnv_startup_programs,FNV_STARTUP_PROGRAM_COUNT,codes,catalog_count,&failed);
+    report("Shader programs count=%u hr=%08lX failed_index=%llu experimental_caps=%d generic_conformance=0\n",FNV_STARTUP_PROGRAM_COUNT,(unsigned long)hr,(unsigned long long)failed,FNV_ENGINE_EXPERIMENTAL_CAPS);REQUIRE(!hr,"prepared shader programs");
+    uint32_t graphics_objects=pool(65536),graphics_buffers=pool(128u<<20);REQUIRE(graphics_objects && graphics_buffers,"D3D9 COM pools");
+    struct fnv_d3d9_factory_profile factory={gc.width,gc.height,22,0,60,graphics,graphics_query};
+    struct fnv_d3d9_com_config cc={0};cc.objects_address=graphics_objects;cc.objects_bytes=65536;cc.resource_capacity=4096;cc.vertex_floats=256;cc.pixel_floats=224;cc.memory=vm;cc.buffer_address=graphics_buffers;cc.buffer_bytes=128u<<20;cc.factory=&factory;cc.catalog=codes;cc.catalog_count=catalog_count;cc.presentation_timeout_ns=10000000000ull;fnv_vk_backend_callbacks(graphics,&cc.backend);
+    REQUIRE(fnv_d3d9_com_create(fnv_windows_runtime(process),&cc,&graphics_com)==FNV_CPU_OK,"D3D9 COM factory");fnv_sdp_destroy(sdp);
+    struct exports all={calloc(1024,sizeof(struct fnv_cpu_export)),calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(struct fnv_cpu_export)),0,0};REQUIRE(all.catalog && all.extras,"import catalogs");
+    size_t n;const struct fnv_cpu_export *e=fnv_windows_exports(&n);REQUIRE(add_exports(&all,e,n,1),"kernel exports");
+#define ADD(fn) do{e=fn(&n);REQUIRE(add_exports(&all,e,n,0),#fn);}while(0)
+    ADD(fnv_windows_modules_exports);ADD(fnv_windows_memory_exports);ADD(fnv_dinput8_exports);ADD(fnv_xinput_exports);
+    ADD(fnv_windows_debug_exports);ADD(fnv_windows_d3dx_exports);ADD(fnv_windows_com_exports);ADD(fnv_windows_multimedia_exports);
+    ADD(fnv_windows_vorbis_exports);ADD(fnv_windows_mmio_exports);ADD(fnv_windows_display_exports);ADD(fnv_dsound8_exports);
+    ADD(fnv_bink_sound_exports);ADD(fnv_bink_movie_exports);ADD(fnv_windows_filetime_exports);ADD(fnv_windows_strings_exports);
+    ADD(fnv_windows_boot_ui_exports);ADD(fnv_windows_user32_exports);ADD(fnv_windows_system_exports);ADD(fnv_windows_profile_exports);
+    ADD(fnv_windows_shell_exports);ADD(fnv_steam_callbacks_exports);ADD(fnv_windows_registry_exports);
+#undef ADD
+    e=fnv_d3d9_com_exports(graphics_com,&n);REQUIRE(add_exports(&all,e,n,0),"D3D9 exports");
+    struct fnv_windows_modules *modules;REQUIRE(fnv_windows_modules_create(process,&image,"FalloutNV.exe",all.catalog,all.count,&modules)==FNV_CPU_OK,"native DLL catalog");
+    struct fnv_native_import *imports=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*imports)),*scratch=calloc(FNV_NATIVE_MAX_IMPORTS,sizeof(*scratch));size_t count,bound;
+    REQUIRE(imports && scratch && fnv_native_collect_imports(&image,imports,FNV_NATIVE_MAX_IMPORTS,&count)==FNV_NATIVE_OK && count==FNV_ENGINE_IMPORT_COUNT,"original IAT inventory");
+    size_t supported=0;for(size_t i=0;i<count;i++){int found=0;for(size_t j=0;j<all.count;j++)if(import_matches(all.catalog+j,imports+i))found=1;if(found){supported++;continue;}REQUIRE(all.extra<FNV_NATIVE_MAX_IMPORTS,"trap catalog capacity");all.extras[all.extra++]=(struct fnv_cpu_export){imports[i].dll,imports[i].by_ordinal?NULL:imports[i].name,imports[i].ordinal,imports[i].by_ordinal,fnv_engine_missing_imports[i]};}
+    REQUIRE(fnv_windows_bind_imports(process,&image,scratch,FNV_NATIVE_MAX_IMPORTS,all.extras,all.extra,&bound)==FNV_NATIVE_OK && bound==count,"IAT and static TLS binding");
+    report("Ready entry=%08lX imports=%u/%u trapped=%u programs=%u root=%s\n",(unsigned long)FNV_ENGINE_ENTRY,(unsigned)supported,(unsigned)count,(unsigned)(count-supported),FNV_STARTUP_PROGRAM_COUNT,ROOT);
+    free(imports);free(scratch);free(all.catalog);free(all.extras);return 1;
+}
+static void guest_main(void *unused) {
+    (void)unused;struct fnv_windows_thread_config *t=&plan->main_thread;
+    fnv_cpu_state_init(&t->state,t->stack_high-64,t->teb_address);
+    execution_result=fnv_windows_thread_attach(process,t);
+    if(execution_result==FNV_CPU_OK) {
+        store32(plan->process.cpu.memory+t->state.gpr[4]-image.base,0);
+        execution_result=fnv_cpu_execute(FNV_ENGINE_ENTRY,&execution_fault);
+        enum fnv_cpu_result detached=fnv_windows_thread_detach();report("Main guest return=%u detach=%u\n",execution_result,detached);
+    }else report("Main attach failed=%u\n",execution_result);
+    atomic_store(&done,1);
+}
+static int poll_input(struct fnv_di_horizon_poll *poll) {
+    HidKeyboardState keyboard={0};HidMouseState mouse[17];struct fnv_di_snapshot snap={0};
+    size_t nk=hidGetKeyboardStates(&keyboard,1),nm=hidGetMouseStates(mouse,17);
+    if(nk && fnv_di_usb_keyboard(keyboard.keys,keyboard.modifiers,&snap))return 0;
+    struct fnv_di_mouse_sample samples[17];for(size_t i=0;i<nm;i++)samples[i]=(struct fnv_di_mouse_sample){mouse[i].sampling_number,mouse[i].delta_x,mouse[i].delta_y,mouse[i].wheel_delta_y,mouse[i].buttons};
+    if(!fnv_di_collect_mouse(samples,(unsigned)nm,poll,&snap))return 0;
+    int focused=appletGetFocusState()==AppletFocusState_InFocus;
+    if(!focused)memset(&snap,0,sizeof(snap));
+    return fnv_dinput8_update(dinput,&snap)==FNV_CPU_OK && fnv_user32_update_di_snapshot(user32,&snap,focused)==FNV_CPU_OK && fnv_dsound8_set_focus(sound,focused)==FNV_CPU_OK && fnv_horizon_pad_poll(controller)==FNV_CPU_OK;
+}
+static void request_stop(const char *reason) {
+    if(atomic_exchange(&stop_requested,1))return;
+    struct fnv_cpu_fault fault={0};fault.kind=FNV_CPU_UNIMPLEMENTED;snprintf(fault.text,sizeof(fault.text),"Diagnostic stop: %.70s",reason);fnv_cpu_invalidate(fnv_windows_runtime(process),&fault);
+}
+int main(void) {
+    consoleInit(NULL);printf("FNV PC engine experiment\nPrivate captured-code startup; audio muted.\nHold L + R + Minus to stop.\nSee " ROOT "/fnv-pc-engine-hw01.log\n");consoleUpdate(NULL);
+    fnv_host_mutex_init(&log_guard);log_file=fopen(ROOT "/fnv-pc-engine-hw01.log","w");
+    if(!log_file){printf("Cannot open log in " ROOT "\n");consoleUpdate(NULL);svcSleepThread(3000000000ll);consoleExit(NULL);return 1;}
+    Result rom=romfsInit();if(R_FAILED(rom)){report("ROMFS error=%08lX\n",(unsigned long)rom);fclose(log_file);consoleExit(NULL);return 1;}
+    /* Release console framebuffer before any Vulkan swapchain ownership. */
+    consoleExit(NULL);hidInitializeKeyboard();hidInitializeMouse();
+    if(!initialize()){report("Initialization failed; no guest code executed\n");fflush(log_file);svcSleepThread(2000000000ll);svcExitProcess();}
+    PadState exit_pad;padInitializeDefault(&exit_pad);fnv_host_thread thread;
+    if(!fnv_host_thread_create(&thread,guest_main,NULL,4u<<20)){report("Cannot create engine host thread\n");svcExitProcess();}
+    struct fnv_di_horizon_poll poll={0};uint64_t start=armGetSystemTick(),last=start,stopping=0;unsigned exit_hold=0;
+    while(!atomic_load(&done)) {
+        if(!appletMainLoop())request_stop("applet exit");
+        padUpdate(&exit_pad);u64 buttons=padGetButtons(&exit_pad),combo=HidNpadButton_L|HidNpadButton_R|HidNpadButton_Minus;
+        if((buttons&combo)==combo){if(++exit_hold>=125)request_stop("user L+R+Minus");}else exit_hold=0;
+        if(!poll_input(&poll))request_stop("input backend failure");
+        uint32_t audio_error=fnv_horizon_audio_error(audio);if(audio_error){report("Audio error=%lu\n",(unsigned long)audio_error);request_stop("audout failure");}
+        struct fnv_display_resolution current;if(!fnv_display_resolution_horizon(nwindowGetDefault(),&current) || fnv_display_resolution_changed(&resolution,&current))request_stop("display changed; restart diagnostic");
+        uint64_t now=armGetSystemTick();
+        if(atomic_load(&stop_requested)) {
+            if(!stopping)stopping=now;
+            if(armTicksToNs(now-stopping)>=5000000000ull){report("Guest did not unwind within 5s; OS process exit, backing not freed\n");svcExitProcess();}
+        }
+        if(armTicksToNs(now-last)>=10000000000ull) {
+            struct fnv_vk_stats stats;struct fnv_windows_worker_stats workers;struct fnv_vm_counters memory;
+            if(!fnv_vk_backend_stats(graphics,&stats) && fnv_windows_worker_stats(process,&workers)==FNV_CPU_OK){fnv_vm_get_counters(vm,&memory);report("Progress elapsed_ms=%llu draws=%llu submissions=%llu presents=%llu workers=%lu/%lu failures=%llu vm_commit=%lu gpu_alloc=%llu\n",(unsigned long long)(armTicksToNs(now-start)/1000000),(unsigned long long)stats.draws,(unsigned long long)stats.submissions,(unsigned long long)stats.presentation_requests,(unsigned long)workers.active,(unsigned long)workers.capacity,(unsigned long long)workers.failures,(unsigned long)memory.committed_bytes,(unsigned long long)stats.allocated_bytes);}last=now;
+        }
+        svcSleepThread(8000000);
+    }
+    (void)fnv_host_thread_join(&thread);request_stop("main thread completed");
+    for(unsigned i=0;i<500;i++){struct fnv_windows_worker_stats workers;if(fnv_windows_worker_stats(process,&workers)!=FNV_CPU_OK || !workers.active)break;svcSleepThread(10000000);}
+    uint32_t audio_close=fnv_horizon_audio_close(audio);report("Session end result=%u audio_close=%lu backing retained until OS exit; graceful_game_shutdown=0\n",execution_result,(unsigned long)audio_close);
+    /* OS reclaims owned backing after terminating every thread. No freeing of
+     * provider/window/VM state still referenced by guests or pending GPU work. */
+    fflush(log_file);svcExitProcess();
+}

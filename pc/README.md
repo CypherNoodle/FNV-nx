@@ -1,5 +1,12 @@
 # FNV-nx: recompilacion estatica PC
 
+La [primera prueba privada del motor en Horizon](docs/switch-engine-probe.md)
+ya compila como NRO con el codigo PC traducido, Mesa/NVK, controles y audio.
+Todavia necesita validacion en consola: no demuestra menu ni partida jugable.
+Continua usando texto capturado verificado; el arranque en frio desde el EXE
+de Steam sigue sin estar demostrado. Los apartados siguientes conservan el
+contexto de las pruebas anteriores del CRT y del renderer.
+
 La [consulta nativa de memoria](docs/native-windows-memory-status.md) ya conecta
 `GlobalMemoryStatusEx` con datos del host y los limites reales del asignador
 guest. Sus contratos de ABI/error se contrastan con Windows; la ruta Horizon
@@ -211,8 +218,9 @@ sd:/switch/FNV-nx/Data/...
 sd:/switch/FNV-nx/fnv-pc.ini     # configuracion nativa futura, opcional
 ```
 
-EXE y datos junto al NRO, sin `pc/`. 
-El cargador actual no crea ni copia carpetas.
+EXE y datos junto al NRO, sin `pc/` ni `switch/wine/`. El cargador actual
+no crea ni copia carpetas. El INI `pc/fnv-pc.ini` conservado en este repo
+pertenece al experimento Wine y no configura la biblioteca nativa.
 Las rutas de guardados y cache nativos se definiran al integrar esos servicios.
 
 ## Proxima integracion
