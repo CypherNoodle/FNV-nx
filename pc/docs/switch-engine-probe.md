@@ -1,5 +1,15 @@
 # Private captured-PC engine NRO: hw01
 
+## hw04 copy correction
+
+The hw03 native capture identified a byte-shifted register restore in a CRT
+copy translation. The [bounded CFG correction](cfg-copy-correction.md) passed
+3,744 original-x86 vs compiled-ARM64 cases; the legacy control failed 1,905.
+One generated unit is replaced with pinned verification evidence. The hw04 NRO
+reports that correction in its normal log and keeps native crash capture active.
+Console verification is pending; return `fnv-pc-engine-hw04.log` and, on a
+native closure, `fnv-pc-engine-hw04-crash.log`.
+
 ## hw02 native fault and hw03 capture
 
 Atmosphere's hw02 report matches the exact ELF Build ID. Its stack reaches

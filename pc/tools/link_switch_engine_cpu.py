@@ -40,14 +40,37 @@ def build(a):
     expected={Path(r['source']).name for r in old['compiled'] if Path(r['source']).name not in ('cpu_runtime.c','pe_image.c')}
     actual=[Path(r['source']).name for r in generated['compiled']]
     if set(actual)!=expected or len(actual)!=len(expected):raise ValueError('Incomplete generated-object inventory')
-    objects=[]
+    corrections={}
+    correction_path=getattr(a,'corrections',None)
+    if correction_path:
+        for record in json.loads(correction_path.read_text()):
+            proof_path=Path(record['proof']).resolve()
+            if sha(proof_path)!=record['sha256']:raise ValueError('Changed CFG correction proof')
+            corrected=json.loads(proof_path.read_text());key=Path(corrected['original_unit']).resolve()
+            if key in corrections or corrected.get('status')!='CFG_CORRECTION_COMPILED' or corrected['compiler_flags']!=generated['compiler_flags'] or corrected['sdk_sha256']!=runtime['sdk_sha256']:
+                raise ValueError('Invalid CFG correction metadata')
+            if corrected.get('differential_cases',0)<1000 or not corrected.get('legacy_negative_failures'):raise ValueError('Unverified CFG correction')
+            for name,digest in corrected['source_sha256'].items():
+                if name in frozen and frozen[name]!=digest:raise ValueError('Conflicting correction evidence')
+                frozen[name]=digest
+            pin(proof_path);corrections[key]=corrected
+        pin(correction_path)
+    objects=[];applied=set()
     for row in generated['compiled']:
         source=Path(row['source']).resolve();obj=Path(row['object']).resolve()
         if source.parent!=gen or row['exit_code'] or sha(obj)!=row['sha256']:
             raise ValueError('Changed or invalid generated object')
         if old['source_sha256'].get(str(source))!=sha(source) or generated['source_sha256'].get(str(source))!=sha(source):
             raise ValueError('Generated source differs from its CPU proof')
-        pin(obj,row['sha256']);objects.append(obj)
+        pin(obj,row['sha256'])
+        if source in corrections:
+            correction=corrections[source]
+            if sha(source)!=correction['original_sha256']:raise ValueError('Changed correction baseline')
+            corrected_source=Path(correction['corrected_source']);corrected_object=Path(correction['object'])
+            if sha(corrected_source)!=correction['corrected_sha256'] or sha(corrected_object)!=correction['object_sha256']:raise ValueError('Changed corrected source/object')
+            pin(corrected_source);pin(corrected_object);obj=corrected_object;applied.add(source)
+        objects.append(obj)
+    if set(corrections)!=applied:raise ValueError('Correction does not belong to generated inventory')
     native=Path(runtime['runtime_object']).resolve()
     if sha(native)!=runtime['runtime_sha256']:raise ValueError('Changed native runtime object')
     pin(native,runtime['runtime_sha256']);objects.append(native)
@@ -137,11 +160,12 @@ def build(a):
     if any(sha(Path(p))!=digest for p,digest in frozen.items()):raise ValueError('Build inputs changed during link')
     result=dict(status='PARTIAL_LINKED' if not missing else 'SYMBOL_COVERAGE_FAILURE',
                 inputs={name:str(getattr(a,name).resolve()) for name in ('generated_validation','runtime_validation','cpu_validation','body_audit','entries','generation','sdk','libnx','cc','ld','nm','readelf')},
-                generated_units=len(generated['compiled']),supplementary_entries=len(selected),
+                generated_units=len(generated['compiled']),supplementary_entries=len(selected),cfg_corrected_units=len(applied),
                 runtime_object=str(linked),runtime_sha256=sha(linked),runtime_bytes=linked.stat().st_size,
                 undefined_symbols=sorted(undefined),missing_symbols=missing,source_sha256=frozen,
                 archive_symbol_coverage_only=True,final_executable_linked=False,nro_created=False,
                 game_started=False,switch_hardware_tested=False)
+    if correction_path:result['inputs']['corrections']=str(correction_path.resolve())
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     return result
 
@@ -150,6 +174,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('generated-validation','runtime-validation','cpu-validation','body-audit','entries','generation','sdk','libnx','cc','ld','nm','readelf','output'):
         p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--corrections',type=Path)
     r=build(p.parse_args())
     print(json.dumps({k:r[k] for k in ('status','generated_units','supplementary_entries','runtime_bytes','missing_symbols','nro_created')}))
     if r['status']!='PARTIAL_LINKED':raise SystemExit(1)

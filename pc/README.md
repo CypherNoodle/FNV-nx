@@ -2,7 +2,9 @@
 
 La [primera prueba privada del motor en Horizon](docs/switch-engine-probe.md)
 ya compila como NRO con el codigo PC traducido, Mesa/NVK, controles y audio.
-Todavia necesita validacion en consola: no demuestra menu ni partida jugable.
+La consola ya confirma la entrada en WinMain. La revision hw04 incorpora una
+[correccion de copia de memoria](docs/cfg-copy-correction.md) contrastada con x86;
+todavia no demuestra menu ni partida jugable y necesita una nueva prueba.
 Continua usando texto capturado verificado; el arranque en frio desde el EXE
 de Steam sigue sin estar demostrado. Los apartados siguientes conservan el
 contexto de las pruebas anteriores del CRT y del renderer.

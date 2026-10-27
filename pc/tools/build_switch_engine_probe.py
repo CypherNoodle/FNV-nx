@@ -56,6 +56,7 @@ def build(a):
         raise ValueError('Require complete final platform link')
     if platform.get('rooted_cpu_definitions',0)<89000:raise ValueError('Incomplete CPU/runtime closure')
     if cpu.get('status')!='PARTIAL_LINKED' or runtime.get('status')!='PASS':raise ValueError('Require accepted CPU/runtime inputs')
+    if a.require_cfg_corrections and not cpu.get('cfg_corrected_units'):raise ValueError('Required CFG corrections are absent from the linked CPU')
     if entry.get('status')!='AUDITED_DESKTOP_ENTRY_BOUNDARY' or not entry.get('translated_body_control_flow_checked'):
         raise ValueError('Require audited captured-PC entry')
     if entry.get('exe_sha256')!=profile.get('executable_sha256') or entry.get('capture_sha256')!=profile.get('text_sha256'):
@@ -103,6 +104,7 @@ def build(a):
     (out/'engine_programs.h').write_text('#include "fixed_screen.h"\n#include "prepared_programs.h"\n')
     header=f'#define FNV_ENGINE_BASE {profile["image_base"]}u\n#define FNV_ENGINE_IMAGE_BYTES {profile["image_bytes"]}u\n'
     header+=f'#define FNV_ENGINE_HW_TAG "{a.hardware_revision}"\n'
+    header+=f'#define FNV_ENGINE_CFG_CORRECTED_UNITS {cpu.get("cfg_corrected_units",0)}u\n'
     header+=f'#define FNV_ENGINE_TEXT_RVA {text["rva"]}u\n#define FNV_ENGINE_TEXT_BYTES {text["virtual_bytes"]}u\n'
     header+=f'#define FNV_ENGINE_ENTRY {entry["start"]}u\n#define FNV_ENGINE_IMPORT_COUNT {len(imports)}u\n'
     header+=f'#define FNV_ENGINE_EXPERIMENTAL_CAPS {int(a.experimental_caps)}\n#define FNV_ENGINE_CATALOG_COUNT {len(catalog_codes)}u\n'
@@ -161,6 +163,7 @@ def build(a):
     result=dict(status='BUILT',build='pc-engine-'+a.hardware_revision,nro=str(nro),nro_bytes=len(raw),nro_sha256=sha(nro),
         elf_sha256=sha(elf),source_sha256=frozen,commands=commands,experimental_caps=bool(a.experimental_caps),
         volume=0,entry=entry['start'],prepared_programs=54,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
+        cfg_corrected_units=cpu.get('cfg_corrected_units',0),
         captured_code_embedded=True,generated_game_code_embedded=True,private_output=True,
         native_crash_capture=True,native_exception_stack_bytes=65536,
         guest_engine_execution_enabled=True,cold_boot_supported=False,game_started=False,switch_hardware_tested=False)
@@ -171,5 +174,6 @@ if __name__=='__main__':
     for name in ('platform-validation','cpu-validation','runtime-validation','profile','entry-evidence','bundle-validation','exe','capture','catalog','fixed-screen','devkitpro','cc','nm','readelf','elf2nro','nacptool','icon','output'):
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--experimental-caps',action='store_true')
-    p.add_argument('--hardware-revision',default='hw03')
+    p.add_argument('--hardware-revision',default='hw04')
+    p.add_argument('--require-cfg-corrections',action='store_true')
     r=build(p.parse_args());print(json.dumps({k:r[k] for k in ('status','nro_bytes','guest_engine_execution_enabled','cold_boot_supported','switch_hardware_tested')}))
