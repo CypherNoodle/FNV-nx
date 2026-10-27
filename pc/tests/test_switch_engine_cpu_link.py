@@ -22,7 +22,7 @@ def run(a):
     dispatch=(original.generation/'recomp_dispatch.c').read_text()
     occupied=int(re.search(r'\{\s*0x([0-9A-Fa-f]{8})[uUlL]*\s*,',dispatch)[1],16)
     cases=[]
-    for name in ('missing-entry','changed-body','failed-object','existing-address'):
+    for name in ('missing-entry','changed-body','failed-object','existing-address','required-group-entry'):
         args=copy.copy(original);args.output=out/name
         if name=='missing-entry':
             data=copy.deepcopy(evidence);data['entries']=data['entries'][:-1];key='entries';expected='cover exactly'
@@ -30,6 +30,13 @@ def run(a):
             data=copy.deepcopy(audit);first=next(iter(data['candidate_only']));data['candidate_only'][first]['sha256']='0'*64;key='body_audit';expected='Supplementary body changed'
         elif name=='failed-object':
             data=json.loads(original.generated_validation.read_text());data['compiled'][0]['exit_code']=1;key='generated_validation';expected='invalid generated object'
+        elif name=='required-group-entry':
+            if not evidence.get('required_entry_groups'):raise ValueError('Require a build with mandatory dispatch groups')
+            required=json.loads(Path(evidence['required_entry_groups'][0]['evidence']).read_text())['recovered_cfg_entries'][0]['start']
+            data=copy.deepcopy(evidence);removed=next(e for e in data['entries'] if e['address']==required)
+            data['entries'].remove(removed);changed=copy.deepcopy(audit);del changed['candidate_only'][removed['function']]
+            path=out/'required-group-audit.json';path.write_text(json.dumps(changed)+'\n');args.body_audit=path
+            key='entries';expected='Missing required audited dispatch entries'
         else:
             data=copy.deepcopy(evidence);old=data['entries'][0]['function'];new=f'sub_{occupied:08X}'
             data['entries'][0].update(address=occupied,function=new)

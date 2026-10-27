@@ -5,6 +5,7 @@ Use a fresh directory; staging never modifies an installation or an existing SD.
 """
 import argparse
 import json
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -42,6 +43,7 @@ def stage(validation,default_ini,output):
     output=output.resolve()
     if output.exists():raise ValueError('Use a fresh delivery directory')
     proof=json.loads(validation.read_text())
+    if not re.fullmatch(r'pc-engine-hw\d{2}',proof.get('build','')):raise ValueError('Invalid diagnostic build name')
     if proof.get('status')!='BUILT' or not proof.get('guest_engine_execution_enabled') or not proof.get('private_output'):
         raise ValueError('Require an accepted private engine diagnostic')
     nro=Path(proof['nro'])
@@ -79,6 +81,7 @@ El paquete contiene código/datos privados del juego. No lo subas al repositorio
 Los ajustes de adaptador y tamaño se obtienen de la Switch. El perfil de caps
 es experimental, limitado a los programas gráficos preparados.
 '''
+    text=text.replace('hw01',proof['build'].removeprefix('pc-engine-'))
     (output/'LEEME.txt').write_text(text,encoding='utf-8')
     result=dict(status='STAGED',nro=str(root/'fnv-nx.nro'),nro_sha256=sha(root/'fnv-nx.nro'),
                 default_ini_sha256=sha(profile/'FALLOUT.INI'),private_output=True,

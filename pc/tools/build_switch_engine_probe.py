@@ -46,6 +46,7 @@ def bundle_membership(header,entries):
 def build(a):
     pc=Path(__file__).resolve().parents[1];out=a.output.resolve()
     if out.exists():raise ValueError('Use a fresh output directory')
+    if not re.fullmatch(r'hw\d{2}',a.hardware_revision):raise ValueError('Invalid hardware revision')
     platform=json.loads(a.platform_validation.read_text())
     cpu=json.loads(a.cpu_validation.read_text())
     runtime=json.loads(a.runtime_validation.read_text())
@@ -101,6 +102,7 @@ def build(a):
     shutil.copyfile(programs,out/'prepared_programs.h');shutil.copyfile(fixed,out/'fixed_screen.h')
     (out/'engine_programs.h').write_text('#include "fixed_screen.h"\n#include "prepared_programs.h"\n')
     header=f'#define FNV_ENGINE_BASE {profile["image_base"]}u\n#define FNV_ENGINE_IMAGE_BYTES {profile["image_bytes"]}u\n'
+    header+=f'#define FNV_ENGINE_HW_TAG "{a.hardware_revision}"\n'
     header+=f'#define FNV_ENGINE_TEXT_RVA {text["rva"]}u\n#define FNV_ENGINE_TEXT_BYTES {text["virtual_bytes"]}u\n'
     header+=f'#define FNV_ENGINE_ENTRY {entry["start"]}u\n#define FNV_ENGINE_IMPORT_COUNT {len(imports)}u\n'
     header+=f'#define FNV_ENGINE_EXPERIMENTAL_CAPS {int(a.experimental_caps)}\n#define FNV_ENGINE_CATALOG_COUNT {len(catalog_codes)}u\n'
@@ -141,7 +143,7 @@ def build(a):
     symbols=run([nm,'--defined-only','--extern-only','--format=posix',elf],'symbols')
     for name in ('sub_00ECC4DB','sub_00C0CD80','__wrap_recomp_lookup','fnv_horizon_audio_open_source'):
         if not any(line.split()[0]==name for line in symbols.splitlines() if line.strip()):raise ValueError('Missing engine link anchor: '+name)
-    run([nacptool,'--create','FNV PC Engine Experiment','FNV-nx','pc-engine-hw01',nacp],'nacp')
+    run([nacptool,'--create','FNV PC Engine Experiment','FNV-nx','pc-engine-'+a.hardware_revision,nacp],'nacp')
     run([elf2nro,elf,nro,'--nacp='+str(nacp),'--icon='+str(icon),'--romfsdir='+str(rom)],'nro')
     raw=nro.read_bytes();size=struct.unpack_from('<I',raw,24)[0]
     if raw[16:20]!=b'NRO0' or raw[size:size+4]!=b'ASET':raise ValueError('Invalid NRO/ASET')
@@ -152,7 +154,7 @@ def build(a):
     if not rom_bytes or size+rom_offset+rom_bytes>len(raw):raise ValueError('ROMFS extent outside NRO')
     for name,digest in frozen.items():
         if sha(name)!=digest:raise ValueError('Changed build input: '+name)
-    result=dict(status='BUILT',build='pc-engine-hw01',nro=str(nro),nro_bytes=len(raw),nro_sha256=sha(nro),
+    result=dict(status='BUILT',build='pc-engine-'+a.hardware_revision,nro=str(nro),nro_bytes=len(raw),nro_sha256=sha(nro),
         elf_sha256=sha(elf),source_sha256=frozen,commands=commands,experimental_caps=bool(a.experimental_caps),
         volume=0,entry=entry['start'],prepared_programs=54,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
         captured_code_embedded=True,generated_game_code_embedded=True,private_output=True,
@@ -164,4 +166,5 @@ if __name__=='__main__':
     for name in ('platform-validation','cpu-validation','runtime-validation','profile','entry-evidence','bundle-validation','exe','capture','catalog','fixed-screen','devkitpro','cc','nm','readelf','elf2nro','nacptool','icon','output'):
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--experimental-caps',action='store_true')
+    p.add_argument('--hardware-revision',default='hw02')
     r=build(p.parse_args());print(json.dumps({k:r[k] for k in ('status','nro_bytes','guest_engine_execution_enabled','cold_boot_supported','switch_hardware_tested')}))

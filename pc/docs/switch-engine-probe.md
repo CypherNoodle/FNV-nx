@@ -1,5 +1,35 @@
 # Private captured-PC engine NRO: hw01
 
+## Hardware observation and hw02 correction
+
+The first console log verifies the supported original EXE and both ROMFS
+identities, successful Horizon VM permissions, a 1280x720 native surface and
+NVK initialization on the Tegra X1. Preparation of all 54 shader programs
+succeeded. Guest execution then stopped at an unresolved indirect target in
+the captured CRT, before any engine frame was demonstrated.
+
+The target belongs to a previously audited CRT floating-point classification
+table. Five recovered entries lived in a supplemental desktop translation unit,
+outside the numbered generation modules. The first engine package's body audit
+did not include that auxiliary unit, so its lookup wrapper omitted the group.
+The hw02 body comparison includes it explicitly: 88,830 common bodies remain
+identical and the supplementary resolver now has seven entries, including the
+two existing startup/gap bindings. The complete generated CPU is not rebuilt.
+
+The CPU linker now accepts mandatory dispatch groups with pinned table/CFG
+evidence and rejects a missing recovered entry even if someone removes the
+same body from the candidate manifest. Supplemental units declare their peer
+entries before compiling shared tails. A negative contract test exercises that
+specific omission. These are existing audited translations, not success stubs
+or guessed addresses. The 42 previously rejected data entries remain excluded.
+
+The updated diagnostic identifies itself as hw02 and logs to
+`sd:/switch/FNV-nx/fnv-pc-engine-hw02.log`. A follow-on diagnostic stop no longer
+adds a second CPU fault after a real guest failure. The correction still needs
+console execution; it does not establish that the engine reaches its menu.
+
+## Original hw01 package
+
 The first engine diagnostic NRO now builds with the complete translated PC CPU,
 current native runtime and static Mesa/NVK. Unlike the older CRT stop probe and
 synthetic renderer NROs, it is configured to execute the audited captured CRT

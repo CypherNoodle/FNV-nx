@@ -56,6 +56,16 @@ def build(a):
     if (set(names)!=set(audit['candidate_only']) or len(set(names))!=len(names) or
         len(set(addresses))!=len(addresses) or not entries or len(entries)>64):
         raise ValueError('Supplementary manifest must cover exactly the additional audited bodies')
+    for group in manifest.get('required_entry_groups',[]):
+        evidence=Path(group['evidence']).resolve()
+        if sha(evidence)!=group['sha256']:raise ValueError('Changed required dispatch evidence')
+        report=json.loads(evidence.read_text())
+        recovered=report.get('recovered_cfg_entries',[])
+        required={row['start'] for row in recovered}
+        if (report.get('status')!='AUDIT_ONLY_NO_ENTRIES_REGISTERED' or not required or
+            len(required)!=len(recovered) or not required<=set(addresses)):
+            raise ValueError('Missing required audited dispatch entries')
+        pin(evidence)
     dispatch=gen/'recomp_dispatch.c';dispatch_text=dispatch.read_text();selected=[]
     table=re.search(r'\bg_recomp_table\s*\[\s*\]\s*=\s*\{(.*?)^\s*\};',dispatch_text,re.S|re.M)
     if not table:raise ValueError('Unsupported dispatcher table format')
@@ -93,7 +103,8 @@ def build(a):
 
     compiled=[]
     for address,name,body in selected:
-        source=out/(name+'.c');source.write_text('#include "recomp_funcs.h"\n'+body+'\n')
+        source=out/(name+'.c');source.write_text('#include "recomp_funcs.h"\n'+
+            ''.join('extern void '+other+'(void);\n' for _,other,_ in selected)+body+'\n')
         compiled.append(source)
     source=out/'supplementary_lookup.c'
     source.write_text('#include "recomp_funcs.h"\nextern recomp_func_t __real_recomp_lookup(uint32_t);\n'+

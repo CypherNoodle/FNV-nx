@@ -29,7 +29,7 @@ def build(a):
     mesa=json.loads(a.mesa_validation.read_text())
     if cpu.get('status')!='PARTIAL_LINKED' or cpu.get('missing_symbols'):
         raise ValueError('Require the complete accepted CPU/runtime partial link')
-    if cpu.get('generated_units')!=359 or cpu.get('supplementary_entries')!=2:
+    if cpu.get('generated_units')!=359 or not 2<=cpu.get('supplementary_entries',0)<=64:
         raise ValueError('Unexpected complete-generation inventory')
     if runtime.get('status')!='PASS' or runtime.get('native_units')!=51:
         raise ValueError('Require the accepted native runtime archive inventory')

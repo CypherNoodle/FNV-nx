@@ -176,7 +176,7 @@ static int add_exports(struct exports *all,const struct fnv_cpu_export *e,size_t
 }
 static int import_matches(const struct fnv_cpu_export *e,const struct fnv_native_import *i){return !strcasecmp(e->dll,i->dll) && e->by_ordinal==i->by_ordinal && (i->by_ordinal?e->ordinal==i->ordinal:!strcmp(e->name,i->name));}
 static int initialize(void) {
-    report("FNV PC engine hw01: captured-code experiment, cold_boot=0 experimental_caps=%d volume=0\n",FNV_ENGINE_EXPERIMENTAL_CAPS);
+    report("FNV PC engine %s: captured-code experiment, cold_boot=0 experimental_caps=%d volume=0\n",FNV_ENGINE_HW_TAG,FNV_ENGINE_EXPERIMENTAL_CAPS);
     REQUIRE(appletGetAppletType()==AppletType_Application || appletGetAppletType()==AppletType_SystemApplication,"application memory mode (title takeover)");
     REQUIRE(identify(ROOT "/FalloutNV.exe",FNV_ENGINE_EXE_SHA256),"original supported EXE identity");
     REQUIRE(identify("romfs:/captured-text-data.bin",FNV_ENGINE_TEXT_SHA256),"captured text identity");
@@ -280,11 +280,12 @@ static int poll_input(struct fnv_di_horizon_poll *poll) {
 }
 static void request_stop(const char *reason) {
     if(atomic_exchange(&stop_requested,1))return;
+    if(fnv_cpu_is_faulted(fnv_windows_runtime(process)))return;
     struct fnv_cpu_fault fault={0};fault.kind=FNV_CPU_UNIMPLEMENTED;snprintf(fault.text,sizeof(fault.text),"Diagnostic stop: %.70s",reason);fnv_cpu_invalidate(fnv_windows_runtime(process),&fault);
 }
 int main(void) {
-    consoleInit(NULL);printf("FNV PC engine experiment\nPrivate captured-code startup; audio muted.\nHold L + R + Minus to stop.\nSee " ROOT "/fnv-pc-engine-hw01.log\n");consoleUpdate(NULL);
-    fnv_host_mutex_init(&log_guard);log_file=fopen(ROOT "/fnv-pc-engine-hw01.log","w");
+    consoleInit(NULL);printf("FNV PC engine experiment\nPrivate captured-code startup; audio muted.\nHold L + R + Minus to stop.\nSee " ROOT "/fnv-pc-engine-" FNV_ENGINE_HW_TAG ".log\n");consoleUpdate(NULL);
+    fnv_host_mutex_init(&log_guard);log_file=fopen(ROOT "/fnv-pc-engine-" FNV_ENGINE_HW_TAG ".log","w");
     if(!log_file){printf("Cannot open log in " ROOT "\n");consoleUpdate(NULL);svcSleepThread(3000000000ll);consoleExit(NULL);return 1;}
     Result rom=romfsInit();if(R_FAILED(rom)){report("ROMFS error=%08lX\n",(unsigned long)rom);fclose(log_file);consoleExit(NULL);return 1;}
     /* Release console framebuffer before any Vulkan swapchain ownership. */
