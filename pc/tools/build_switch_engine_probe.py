@@ -105,6 +105,7 @@ def build(a):
     header=f'#define FNV_ENGINE_BASE {profile["image_base"]}u\n#define FNV_ENGINE_IMAGE_BYTES {profile["image_bytes"]}u\n'
     header+=f'#define FNV_ENGINE_HW_TAG "{a.hardware_revision}"\n'
     header+=f'#define FNV_ENGINE_CFG_CORRECTED_UNITS {cpu.get("cfg_corrected_units",0)}u\n'
+    header+=f'#define FNV_ENGINE_TAIL_OPTIMIZED_UNITS {cpu.get("tail_optimized_units",0)}u\n'
     header+=f'#define FNV_ENGINE_TEXT_RVA {text["rva"]}u\n#define FNV_ENGINE_TEXT_BYTES {text["virtual_bytes"]}u\n'
     header+=f'#define FNV_ENGINE_ENTRY {entry["start"]}u\n#define FNV_ENGINE_IMPORT_COUNT {len(imports)}u\n'
     header+=f'#define FNV_ENGINE_EXPERIMENTAL_CAPS {int(a.experimental_caps)}\n#define FNV_ENGINE_CATALOG_COUNT {len(catalog_codes)}u\n'
@@ -163,7 +164,7 @@ def build(a):
     result=dict(status='BUILT',build='pc-engine-'+a.hardware_revision,nro=str(nro),nro_bytes=len(raw),nro_sha256=sha(nro),
         elf_sha256=sha(elf),source_sha256=frozen,commands=commands,experimental_caps=bool(a.experimental_caps),
         volume=1,entry=entry['start'],prepared_programs=54,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
-        cfg_corrected_units=cpu.get('cfg_corrected_units',0),
+        cfg_corrected_units=cpu.get('cfg_corrected_units',0),tail_optimized_units=cpu.get('tail_optimized_units',0),
         captured_code_embedded=True,generated_game_code_embedded=True,private_output=True,
         native_crash_capture=True,native_exception_stack_bytes=65536,
         guest_engine_execution_enabled=True,cold_boot_supported=False,game_started=False,switch_hardware_tested=False)

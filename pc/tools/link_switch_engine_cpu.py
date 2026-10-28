@@ -47,9 +47,15 @@ def build(a):
             proof_path=Path(record['proof']).resolve()
             if sha(proof_path)!=record['sha256']:raise ValueError('Changed CFG correction proof')
             corrected=json.loads(proof_path.read_text());key=Path(corrected['original_unit']).resolve()
-            if key in corrections or corrected.get('status')!='CFG_CORRECTION_COMPILED' or corrected['compiler_flags']!=generated['compiler_flags'] or corrected['sdk_sha256']!=runtime['sdk_sha256']:
+            kind=corrected.get('status')
+            if key in corrections or kind not in ('CFG_CORRECTION_COMPILED','TAIL_OPTIMIZATION_COMPILED') or corrected['compiler_flags']!=generated['compiler_flags'] or corrected['sdk_sha256']!=runtime['sdk_sha256']:
                 raise ValueError('Invalid CFG correction metadata')
-            if corrected.get('differential_cases',0)<1000 or not corrected.get('legacy_negative_failures'):raise ValueError('Unverified CFG correction')
+            if kind=='CFG_CORRECTION_COMPILED':
+                if corrected.get('differential_cases',0)<1000 or not corrected.get('legacy_negative_failures'):raise ValueError('Unverified CFG correction')
+            elif (corrected.get('optimizer_flags')!=['-foptimize-sibling-calls'] or not corrected.get('source_unchanged') or
+                  corrected.get('original_sha256')!=corrected.get('corrected_sha256') or len(corrected.get('verified_edges',[]))<2 or
+                  corrected.get('legacy_edges')!='CALL26' or corrected.get('optimized_edges')!='JUMP26'):
+                raise ValueError('Unverified tail optimization')
             for name,digest in corrected['source_sha256'].items():
                 if name in frozen and frozen[name]!=digest:raise ValueError('Conflicting correction evidence')
                 frozen[name]=digest
@@ -160,7 +166,8 @@ def build(a):
     if any(sha(Path(p))!=digest for p,digest in frozen.items()):raise ValueError('Build inputs changed during link')
     result=dict(status='PARTIAL_LINKED' if not missing else 'SYMBOL_COVERAGE_FAILURE',
                 inputs={name:str(getattr(a,name).resolve()) for name in ('generated_validation','runtime_validation','cpu_validation','body_audit','entries','generation','sdk','libnx','cc','ld','nm','readelf')},
-                generated_units=len(generated['compiled']),supplementary_entries=len(selected),cfg_corrected_units=len(applied),
+                generated_units=len(generated['compiled']),supplementary_entries=len(selected),cfg_corrected_units=sum(c['status']=='CFG_CORRECTION_COMPILED' for c in corrections.values()),
+                tail_optimized_units=sum(c['status']=='TAIL_OPTIMIZATION_COMPILED' for c in corrections.values()),
                 runtime_object=str(linked),runtime_sha256=sha(linked),runtime_bytes=linked.stat().st_size,
                 undefined_symbols=sorted(undefined),missing_symbols=missing,source_sha256=frozen,
                 archive_symbol_coverage_only=True,final_executable_linked=False,nro_created=False,

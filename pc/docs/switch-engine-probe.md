@@ -1,5 +1,14 @@
 # Private captured-PC engine NRO: hw01
 
+## hw12 native-stack correction
+
+HW11 advances asset reads, then exhausts the main native stack in a translated
+markup-parser loop. HW12 uses [verified ARM64 tail jumps](xml-tail-stack.md) for
+that compilation unit and fixes the sampler's unnecessary frame reservation and
+empty stack observations. The game C source stays byte-identical. Return the
+hw12 normal/crash logs; menu readiness still needs console verification.
+
+
 ## hw11 loading diagnostics
 
 The user confirms Ranger artwork and music on hw10, but no menu options and no

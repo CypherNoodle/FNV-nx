@@ -117,17 +117,16 @@ static int identify(const char *path,const char *expected) {
 static uint32_t load32(const unsigned char *p){return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 /* Each guest owner samples its own stack. Never reads another thread's TLS or
  * mutates guest state. Native boundaries only: not a CPU utilization profiler. */
-static void sample_native(uint32_t entry){
-    static _Thread_local uint64_t last_tick;
-    uint64_t tick=armGetSystemTick();
-    if(last_tick && armTicksToNs(tick-last_tick)<10000000000ull)return;
-    last_tick=tick;struct fnv_cpu_state s;uint32_t low,high,id;
+static __attribute__((noinline)) void sample_native_record(uint32_t entry){
+    struct fnv_cpu_state s;uint32_t low,high,id;
     if(fnv_cpu_get_state(&s)!=FNV_CPU_OK)return;
     fnv_windows_current_stack_bounds(&low,&high,&id);
     char words[145]={0};size_t used=0;uint32_t sp=s.gpr[4];
-    if(sp>=low && sp<=high && high-sp>=64 && fnv_vm_access(vm,sp,64,0)){
-        const unsigned char *p=fnv_cpu_try_memory(sp,64);
-        if(p)for(unsigned i=0;i<16;i++)used+=(size_t)snprintf(words+used,sizeof(words)-used,"%08lX ",(unsigned long)load32(p+4*i));
+    if(sp>=low && sp<=high && high-sp>=64){
+        const unsigned char *p=fnv_cpu_try_memory(sp,64);MemoryInfo info;uint32_t page;
+        if(p && R_SUCCEEDED(svcQueryMemory(&info,&page,(uint64_t)(uintptr_t)p)) && (info.perm&Perm_R) &&
+           info.addr<=(uint64_t)(uintptr_t)p && info.size>=64 && (uint64_t)(uintptr_t)p-info.addr<=info.size-64)
+            for(unsigned i=0;i<16;i++)used+=(size_t)snprintf(words+used,sizeof(words)-used,"%08lX ",(unsigned long)load32(p+4*i));
     }
     const char *label="native-COM";
     if(entry>=0xfe000000u && entry<0xfe010000u){uint32_t index=(entry-0xfe000000u)/4;if(index<FNV_NATIVE_MAX_IMPORTS)label=import_labels[index];}
@@ -135,6 +134,12 @@ static void sample_native(uint32_t entry){
         (unsigned long)id,fnv_windows_current_debug_name(),(unsigned long)entry,label,(unsigned long)sp,(unsigned long)s.gpr[5],(unsigned long long)fnv_cpu_icall_count,words);
 }
 static void store32(unsigned char *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(v>>(8*i));}
+static __attribute__((noinline)) void sample_native(uint32_t entry){
+    static _Thread_local uint64_t last_tick;
+    uint64_t tick=armGetSystemTick();
+    if(last_tick && armTicksToNs(tick-last_tick)<10000000000ull)return;
+    last_tick=tick;sample_native_record(entry);
+}
 static uint32_t graphics_query(void *context,uint32_t kind,const uint32_t *args,uint32_t count,void *out,uint32_t bytes) {
     if(kind==0 && count==6)return fnv_vk_backend_check_format(context,args[3],args[4],args[5]);
     if(kind==2 && count==2 && !args[0] && !(args[1]&~2u)) {
@@ -248,7 +253,7 @@ static void message_box_a(void) {
     recomp_unimpl("MessageBoxA diagnostic trap",caller);
 }
 static int initialize(void) {
-    report("FNV PC engine %s: captured-code experiment, cold_boot=0 experimental_caps=%d volume=1 cfg_corrected_units=%u\n",FNV_ENGINE_HW_TAG,FNV_ENGINE_EXPERIMENTAL_CAPS,FNV_ENGINE_CFG_CORRECTED_UNITS);
+    report("FNV PC engine %s: captured-code experiment, cold_boot=0 experimental_caps=%d volume=1 cfg_corrected_units=%u tail_optimized_units=%u\n",FNV_ENGINE_HW_TAG,FNV_ENGINE_EXPERIMENTAL_CAPS,FNV_ENGINE_CFG_CORRECTED_UNITS,FNV_ENGINE_TAIL_OPTIMIZED_UNITS);
     REQUIRE(appletGetAppletType()==AppletType_Application || appletGetAppletType()==AppletType_SystemApplication,"application memory mode (title takeover)");
     REQUIRE(identify(ROOT "/FalloutNV.exe",FNV_ENGINE_EXE_SHA256),"original supported EXE identity");
     REQUIRE(identify("romfs:/captured-text-data.bin",FNV_ENGINE_TEXT_SHA256),"captured text identity");

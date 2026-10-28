@@ -28,7 +28,7 @@ retains all existing fault/peer-stop cases.
 
 The Horizon observer throttles independently on each guest thread to ten seconds.
 The owner copies its own GPR/stack snapshot after validating configured stack
-bounds and VM access. It logs guest thread ID/name, native token, static-import
+bounds and readable Horizon memory mapping. It logs guest thread ID/name, native token, static-import
 name when available, ESP/EBP, total indirect-call count and sixteen stack words.
 It never reads another thread's volatile TLS or calls guest code. Stack words
 are candidates for later call-site analysis, not a validated unwound call chain.
