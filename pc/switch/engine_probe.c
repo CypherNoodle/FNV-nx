@@ -47,6 +47,7 @@
 #include "host_thread.h"
 #include "host_mutex.h"
 #include "d3d9_vk_horizon.h"
+#include "d3d9_vk_metrics.h"
 #include "d3d9_vk_prepared.h"
 #include "d3d9_sdp.h"
 #include "d3d9_com_diag.h"
@@ -405,7 +406,10 @@ int main(void) {
         }
         if(armTicksToNs(now-last)>=10000000000ull) {
             struct fnv_vk_stats stats;struct fnv_windows_worker_stats workers;struct fnv_vm_counters memory;
-            if(!fnv_vk_backend_stats(graphics,&stats) && fnv_windows_worker_stats(process,&workers)==FNV_CPU_OK){fnv_vm_get_counters(vm,&memory);report("Progress elapsed_ms=%llu draws=%llu submissions=%llu presents=%llu workers=%lu/%lu failures=%llu vm_commit=%lu gpu_alloc=%llu\n",(unsigned long long)(armTicksToNs(now-start)/1000000),(unsigned long long)stats.draws,(unsigned long long)stats.submissions,(unsigned long long)stats.presentation_requests,(unsigned long)workers.active,(unsigned long)workers.capacity,(unsigned long long)workers.failures,(unsigned long)memory.committed_bytes,(unsigned long long)stats.allocated_bytes);}last=now;
+            if(!fnv_vk_backend_stats(graphics,&stats) && fnv_windows_worker_stats(process,&workers)==FNV_CPU_OK){fnv_vm_get_counters(vm,&memory);report("Progress elapsed_ms=%llu draws=%llu submissions=%llu presents=%llu workers=%lu/%lu failures=%llu vm_commit=%lu gpu_alloc=%llu\n",(unsigned long long)(armTicksToNs(now-start)/1000000),(unsigned long long)stats.draws,(unsigned long long)stats.submissions,(unsigned long long)stats.presentation_requests,(unsigned long)workers.active,(unsigned long)workers.capacity,(unsigned long long)workers.failures,(unsigned long)memory.committed_bytes,(unsigned long long)stats.allocated_bytes);}
+            struct fnv_vk_pipeline_metrics pipelines;
+            if(!fnv_vk_backend_pipeline_metrics(graphics,&pipelines))report("Pipelines calls=%llu host_ms=%llu max_host_ms=%llu cache=device\n",(unsigned long long)pipelines.calls,(unsigned long long)(pipelines.host_ns/1000000),(unsigned long long)(pipelines.max_host_ns/1000000));
+            last=now;
             struct fnv_windows_file_stats io;struct fnv_windows_heap_stats heaps;struct fnv_windows_handle_stats handles;struct fnv_windows_sync_stats sync;
             if(fnv_windows_file_stats(process,&io)==FNV_CPU_OK && fnv_windows_heap_stats(process,&heaps)==FNV_CPU_OK && fnv_windows_handle_stats(process,&handles)==FNV_CPU_OK && fnv_windows_sync_stats(process,&sync)==FNV_CPU_OK)
                 report("Loading IO_reads=%llu bytes=%llu read_ms=%llu io_wait_ms=%llu errors=%llu opens=%llu heap_blocks=%lu lookup_steps=%llu alloc_steps=%llu handle_waiters=%lu timeouts=%llu section_waiters=%lu pad_down_seen=%016llX\n",

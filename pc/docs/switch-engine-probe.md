@@ -1,5 +1,15 @@
 # Private captured-PC engine NRO: hw01
 
+## hw13 profile writes and pipeline compiler reuse
+
+HW12 reaches menu options on hardware, but a setting invokes an unimplemented
+`WritePrivateProfileStringA`. HW13 implements confined user-profile writes,
+shortens native-token dispatch, and shares a device Vulkan compilation cache.
+New host pipeline timings help distinguish compilation from rendering.
+See [the HW12 findings and verification limits](engine-hw12-findings.md).
+Gameplay after skipping the movie and any FPS gain still require a console test.
+
+
 ## hw12 native-stack correction
 
 HW11 advances asset reads, then exhausts the main native stack in a translated

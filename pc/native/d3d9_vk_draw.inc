@@ -1,5 +1,5 @@
 #include "d3d9_vk_sampler_shapes.inc"
-/* Initial native draws: immediate submissions, explicit backpressure, no cache. */
+/* Transient draws with explicit backpressure and a device compilation cache. */
 static void release_draw(struct fnv_vk_backend *d,struct draw_resources *r){
     if(!r)return;
     if(r->pipeline)d->v.DestroyPipeline(d->device,r->pipeline,NULL);
@@ -258,7 +258,12 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     VkPipelineColorBlendStateCreateInfo bs={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&blend_attachment};memcpy(bs.blendConstants,blend_constants,sizeof(blend_constants));
     VkGraphicsPipelineCreateInfo pci={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=stages,.pVertexInputState=&vi,.pInputAssemblyState=&ia,
         .pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pDepthStencilState=&depth_info,.pColorBlendState=&bs,.layout=r->layout,.renderPass=f->passes[0]};
-    VkPipeline pipeline=VK_NULL_HANDLE;VkResult built=d->v.CreateGraphicsPipelines(d->device,VK_NULL_HANDLE,1,&pci,NULL,&pipeline);
+    uint64_t pipeline_start=0,pipeline_end=0;int timed_pipeline=fnv_host_now_ns(&pipeline_start);
+    VkPipeline pipeline=VK_NULL_HANDLE;VkResult built=d->v.CreateGraphicsPipelines(d->device,d->pipeline_cache,1,&pci,NULL,&pipeline);
+    d->pipeline_calls++;
+    if(timed_pipeline && fnv_host_now_ns(&pipeline_end) && pipeline_end>=pipeline_start){
+        uint64_t ns=pipeline_end-pipeline_start;d->pipeline_ns+=ns;if(ns>d->pipeline_max_ns)d->pipeline_max_ns=ns;
+    }
     /* Pipelines can be returned on failure, unlike ordinary create calls. */
     if(pipeline)r->pipeline=pipeline;
     hr=result(d,built);if(hr)goto rollback;

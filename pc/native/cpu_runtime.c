@@ -249,7 +249,20 @@ enum fnv_cpu_result fnv_cpu_set_state(const struct fnv_cpu_state *s) {
     if(!valid_state(thread_runtime,s))return FNV_CPU_INVALID;
     restore_state(s);return FNV_CPU_OK;
 }
-recomp_func_t recomp_lookup_manual(uint32_t va) { (void)va;return NULL; /* No overrides are configured. */ }
+/* Reserved native tokens cannot name game code. Skip the generated game's
+ * binary search for valid tokens, retaining the kernel checks and observer.
+ * Invalid tokens take the existing slow/failure path exactly once. */
+recomp_func_t recomp_lookup_manual(uint32_t va) {
+    if(!thread_runtime || va<0xFE000000u || (va&3u))return NULL;
+    if(va>=FNV_CPU_NATIVE_METHOD_BASE){
+        uint32_t slot=(va-FNV_CPU_NATIVE_METHOD_BASE)/4;
+        if(slot>=thread_runtime->methods_count || !thread_runtime->methods[slot])return NULL;
+    }else {
+        uint32_t slot=(va-0xFE000000u)/4;
+        if(slot>=thread_runtime->imports_count || !thread_runtime->imports[slot])return NULL;
+    }
+    return recomp_lookup_kernel(va);
+}
 recomp_func_t recomp_lookup_kernel(uint32_t va) {
     if(!thread_runtime || va<0xFE000000u || ((va-0xFE000000u)&3u))return NULL;
     /* Dispatch is outside provider locks: stop polling guest threads before

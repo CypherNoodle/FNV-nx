@@ -1,5 +1,6 @@
 #include "d3d9_vk_backend.h"
 #include "d3d9_vk_prepared.h"
+#include "d3d9_vk_metrics.h"
 #include "d3d9_fvf.h"
 #include "host_mutex.h"
 #include "host_clock.h"
@@ -21,7 +22,7 @@
  X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdClearAttachments) X(CreateBuffer) X(DestroyBuffer) \
  X(GetBufferMemoryRequirements) X(BindBufferMemory) X(CmdCopyImageToBuffer) X(CmdCopyBufferToImage) X(CmdCopyBuffer) X(MapMemory) X(UnmapMemory) X(InvalidateMappedMemoryRanges) X(FlushMappedMemoryRanges) X(CreateShaderModule) X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout) X(DestroyPipelineLayout) \
  X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CreateSampler) X(DestroySampler) \
- X(CreateGraphicsPipelines) X(DestroyPipeline) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdDraw) X(CmdDrawIndexed)
+ X(CreatePipelineCache) X(DestroyPipelineCache) X(CreateGraphicsPipelines) X(DestroyPipeline) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdDraw) X(CmdDrawIndexed)
 #define FIELD(n) PFN_vk##n n;
 struct dispatch { GLOBALS(FIELD) INSTANCE(FIELD) DEVICE(FIELD) WSI_INSTANCE(FIELD) WSI_DEVICE(FIELD) };
 #undef FIELD
@@ -73,11 +74,11 @@ struct wsi_state {VkSurfaceKHR surface;VkSwapchainKHR chain;uint32_t count;struc
 struct resource_lookup {uintptr_t id;const uintptr_t *identity;void *resource;unsigned kind;};
 struct fnv_vk_backend {
     fnv_host_mutex guard;struct dispatch v;struct fnv_vk_config config;
-    VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;struct wsi_state wsi;
+    VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;VkPipelineCache pipeline_cache;struct wsi_state wsi;
     VkPhysicalDeviceProperties properties;VkPhysicalDeviceMemoryProperties memory;
     uint32_t bc;uint32_t family;struct surface *surfaces;struct frame frames[3];
     struct buffer_resource *buffer_resources;struct stream_binding streams[16];uintptr_t indices;
-    struct program_entry *programs;uint32_t program_count;uint64_t draws,resets;
+    struct program_entry *programs;uint32_t program_count;uint64_t draws,resets,pipeline_calls,pipeline_ns,pipeline_max_ns;
     struct fnv_d3d9_blend blend_state;struct fnv_d3d9_depth depth_state;struct fnv_d3d9_sampler sampler_state[16];uint32_t cull_mode;
     /* Internal sampled NULL: no public resource identity or device reference. */
     struct texture_resource null_texture,null_cube,mismatch_texture,mismatch_cube;
@@ -555,6 +556,12 @@ uint32_t fnv_vk_backend_device_caps(struct fnv_vk_backend *d,void *out,uint32_t 
     for(unsigned i=0;i<76;++i)for(unsigned j=0;j<4;++j)packed[i*4+j]=(unsigned char)(words[i]>>(8*j));
     memcpy(out,packed,sizeof(packed));return 0;
 }
+uint32_t fnv_vk_backend_pipeline_metrics(struct fnv_vk_backend *d,struct fnv_vk_pipeline_metrics *out){
+    if(!d || !out)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);
+    *out=(struct fnv_vk_pipeline_metrics){d->pipeline_calls,d->pipeline_ns,d->pipeline_max_ns};
+    fnv_host_mutex_unlock(&d->guard);return 0;
+}
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);
@@ -722,6 +729,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
         release_texture_version(d,d->mismatch_texture.version);release_texture_version(d,d->mismatch_cube.version);
         if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
         for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->variant_module)d->v.DestroyShaderModule(d->device,e->variant_module,NULL);
+        if(d->pipeline_cache)d->v.DestroyPipelineCache(d->device,d->pipeline_cache,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
     }
     if(d->wsi.surface && d->v.DestroySurfaceKHR)d->v.DestroySurfaceKHR(d->instance,d->wsi.surface,NULL);
@@ -794,6 +802,10 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     DEVICE(LOAD_DEVICE)
     if(window){WSI_DEVICE(LOAD_DEVICE)}
 #undef LOAD_DEVICE
+    /* Draws are serialized by guard, which also satisfies cache host access
+     * synchronization. Keep compiler results alive across transient pipelines. */
+    VkPipelineCacheCreateInfo cache_info={.sType=VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    if((hr=result(d,d->v.CreatePipelineCache(d->device,&cache_info,NULL,&d->pipeline_cache)))!=0){d->pipeline_cache=VK_NULL_HANDLE;goto fail;}
     d->v.GetDeviceQueue(d->device,d->family,0,&d->queue);
     uint32_t max_uniform=d->properties.limits.maxUniformBufferRange;if(max_uniform>65536)max_uniform=65536;max_uniform&=~15u;
     struct fnv_uniform_config uc={256,224,cfg->frames*cfg->commands>64?64:cfg->frames*cfg->commands,max_uniform};

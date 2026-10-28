@@ -16,7 +16,7 @@ static unsigned char *arena;
 static void write32(uint32_t at,uint32_t v){for(unsigned i=0;i<4;i++)arena[at-BASE+i]=(unsigned char)(v>>(8*i));}
 static void text(uint32_t at,const char *s,int wide){unsigned i=0;do{arena[at-BASE+i*(wide?2:1)]=(unsigned char)s[i];if(wide)arena[at-BASE+i*2+1]=0;}while(s[i++]);}
 static uint32_t call_args(unsigned api,const uint32_t *arguments,struct fnv_cpu_fault *fault){
-    const unsigned counts[]={4,4,0,1,6};struct fnv_cpu_state state,got;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1BF00;
+    const unsigned counts[]={4,4,0,1,6,4};struct fnv_cpu_state state,got;assert(fnv_cpu_get_state(&state)==FNV_CPU_OK);state.gpr[4]=BASE+0x1BF00;
     assert(fnv_cpu_set_state(&state)==FNV_CPU_OK);write32(state.gpr[4],0x401500);for(unsigned i=0;i<counts[api];i++)write32(state.gpr[4]+4*(i+1),arguments[i]);
     enum fnv_cpu_result r=fnv_cpu_execute(0x401500+api*48,fault);
     if(fault){assert(r==FNV_CPU_GUEST_FAULT);return 0;}
@@ -38,8 +38,8 @@ int main(int argc,char **argv){
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=BYTES;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;
     c.image_bytes=image.size;c.peb_address=BASE+0x8000;c.process_id=11;c.file_root=root;c.file_handle_capacity=8;
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
-    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count,n;const struct fnv_cpu_export *exports=fnv_windows_profile_exports(&n);assert(n==3);
-    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&count)==FNV_NATIVE_OK && count==5);
+    struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];size_t count,n;const struct fnv_cpu_export *exports=fnv_windows_profile_exports(&n);assert(n==4);
+    assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,exports,n,&count)==FNV_NATIVE_OK && count==6);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1C000;
     fnv_cpu_state_init(&t.state,t.stack_high-64,t.teb_address);assert(fnv_windows_thread_attach(process,&t)==FNV_CPU_OK);
     text(SECTION,"General",0);text(KEY,"Count",0);text(NAME,".\\profiles.ini",0);save(file,"[General]\nCount=17\n");
@@ -113,9 +113,56 @@ int main(int argc,char **argv){
         uint32_t args[]={SECTION,KEY,defaults[i]?BASE+0xa001:0,OUTPUT,sizeof(expected_string),NAME};
         assert(call_args(4,args,NULL)==n && !memcmp(arena+OUTPUT-BASE,expected_string,sizeof(expected_string)) && call(2,0,0,0,0,NULL)==err);string_comparisons++;
     }
+    /* Exercise the translated write ABI against Windows, then compare queries
+     * on independent files (not exact formatting, which Windows may normalize). */
+    char profile_dir[1100],user_dir[1100],ours[1200],oracle[1200];
+    snprintf(user_dir,sizeof(user_dir),"%s/UserData",root);CreateDirectoryA(user_dir,NULL);
+    snprintf(user_dir,sizeof(user_dir),"%s/UserData/FNV",root);CreateDirectoryA(user_dir,NULL);
+    snprintf(profile_dir,sizeof(profile_dir),"%s/UserData/FNV/profiles",root);CreateDirectoryA(profile_dir,NULL);
+    snprintf(ours,sizeof(ours),"%s/write.ini",profile_dir);snprintf(oracle,sizeof(oracle),"%s/oracle.ini",profile_dir);
+    const char *initial=";keep\r\n[General]\r\nName=old\r\nOther=keep\r\n[Next]\r\nValue=next\r\n";
+    save(ours,initial);save(oracle,initial);
+    text(NAME,"C:\\Users\\FNV\\profiles\\write.ini",0);
+    const char *sections[]={"General","General","General","Added","Added","General","Missing"};
+    const char *keys[]={"Name","Other","New","X",NULL,"Name",NULL};
+    const char *strings[]={"new","", "42","value",NULL,NULL,NULL};
+    unsigned writes=0;
+    for(unsigned i=0;i<7;i++){
+        text(SECTION,sections[i],0);if(keys[i])text(KEY,keys[i],0);if(strings[i])text(BASE+0xa001,strings[i],0);
+        uint32_t args[]={SECTION,keys[i]?KEY:0,strings[i]?BASE+0xa001:0,NAME};
+        BOOL expected_write=WritePrivateProfileStringA(sections[i],keys[i],strings[i],oracle);
+        assert(call_args(5,args,NULL)==(uint32_t)expected_write);writes++;
+        const char *check_sections[]={"General","Added","Next"},*check_keys[]={"Name","Other","New","X","Value"};
+        for(unsigned a=0;a<3;a++)for(unsigned b=0;b<5;b++){
+            char wanted[128];GetPrivateProfileStringA(check_sections[a],check_keys[b],"absent",wanted,sizeof(wanted),oracle);
+            text(SECTION,check_sections[a],0);text(KEY,check_keys[b],0);text(BASE+0xa001,"absent",0);
+            assert(call_string(128)==strlen(wanted) && !strcmp((char *)arena+OUTPUT-BASE,wanted));
+        }
+    }
+    uint32_t flush_args[]={0,0,0,NAME};
+    BOOL flushed=WritePrivateProfileStringA(NULL,NULL,NULL,oracle);
+    uint32_t actual_flushed=call_args(5,flush_args,NULL);
+    if(actual_flushed!=(uint32_t)flushed)fprintf(stderr,"flush expected=%u actual=%u\n",(unsigned)flushed,actual_flushed);
+    assert(actual_flushed==(uint32_t)flushed);
+    /* First creation, a final line without newline, and malformed encoding. */
+    DeleteFileA(ours);DeleteFileA(oracle);
+    text(SECTION,"Created",0);text(KEY,"Fresh",0);text(BASE+0xa001,"first",0);
+    assert(call(5,SECTION,KEY,BASE+0xa001,NAME,NULL));
+    assert(WritePrivateProfileStringA("Created","Fresh","first",oracle));
+    char fresh[32];GetPrivateProfileStringA("Created","Fresh","missing",fresh,sizeof(fresh),oracle);
+    text(BASE+0xa001,"missing",0);assert(call_string(32)==strlen(fresh) && !strcmp((char*)arena+OUTPUT-BASE,fresh));
+    save(ours,"[Created]\nFresh=first");text(KEY,"Second",0);text(BASE+0xa001,"second",0);
+    assert(call(5,SECTION,KEY,BASE+0xa001,NAME,NULL));assert(call_string(32)==6 && !strcmp((char*)arena+OUTPUT-BASE,"second"));
+    save(ours,"\xff\xfe[");assert(!call(5,SECTION,KEY,BASE+0xa001,NAME,NULL) && call(2,0,0,0,0,NULL)==50);
+    FILE *intact=fopen(ours,"rb");assert(intact && fgetc(intact)==255 && fgetc(intact)==254 && fgetc(intact)=='[' && fgetc(intact)==EOF && !fclose(intact));
+    /* Read-only game assets and traversal must not be writable. */
+    text(SECTION,"General",0);text(KEY,"Name",0);text(BASE+0xa001,"blocked",0);
+    text(NAME,"profiles.ini",0);assert(!call(5,SECTION,KEY,BASE+0xa001,NAME,NULL) && call(2,0,0,0,0,NULL)==5);
+    text(NAME,"C:\\Users\\FNV\\..\\outside.ini",0);assert(!call(5,SECTION,KEY,BASE+0xa001,NAME,NULL));
+    printf("profile write comparisons=%u, query comparisons=105, confined path negatives=2\n",writes);
     text(NAME,"absent.ini",0);char missing[1100];snprintf(missing,sizeof(missing),"%s/absent.ini",root);
     SetLastError(0x1234);uint32_t expected=GetPrivateProfileIntA("General","Count",-1,missing);DWORD error=GetLastError();
     assert(call(0,SECTION,KEY,UINT32_MAX,NAME,NULL)==expected && call(2,0,0,0,0,NULL)==error);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
-    printf("{\"status\":\"PASS\",\"windows_profile_comparisons\":%u,\"string_edge_comparisons\":%u,\"a_w_queries\":true,\"missing_file_checked\":true,\"native_engine_started\":false}\n",comparisons,string_comparisons);return 0;
+    printf("{\"status\":\"PASS\",\"windows_profile_comparisons\":%u,\"string_edge_comparisons\":%u,\"profile_write_comparisons\":7,\"profile_write_query_comparisons\":105,\"profile_write_edge_cases\":6,\"a_w_queries\":true,\"missing_file_checked\":true,\"native_engine_started\":false}\n",comparisons,string_comparisons);return 0;
 }

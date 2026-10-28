@@ -12,7 +12,7 @@ static PFN_vkCreateGraphicsPipelines original_pipelines;
 static PFN_vkDestroyPipeline original_destroy_pipeline;
 static PFN_vkAllocateDescriptorSets original_descriptor_sets;
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_pipelines(VkDevice d,VkPipelineCache cache,uint32_t n,const VkGraphicsPipelineCreateInfo *info,const VkAllocationCallbacks *a,VkPipeline *out){
-    assert(n==1);VkGraphicsPipelineCreateInfo next=*info;VkPipelineRasterizationStateCreateInfo raster=*info->pRasterizationState;
+    assert(n==1 && cache!=VK_NULL_HANDLE);VkGraphicsPipelineCreateInfo next=*info;VkPipelineRasterizationStateCreateInfo raster=*info->pRasterizationState;
     VkPipelineColorBlendStateCreateInfo blend=*info->pColorBlendState;VkPipelineColorBlendAttachmentState attachment=*blend.pAttachments;
     if(force_wrong_cull && raster.cullMode!=VK_CULL_MODE_NONE){raster.frontFace=raster.frontFace==VK_FRONT_FACE_CLOCKWISE?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;next.pRasterizationState=&raster;}
     if(force_wrong_blend && attachment.blendEnable){attachment.blendEnable=VK_FALSE;blend.pAttachments=&attachment;next.pColorBlendState=&blend;}
@@ -42,7 +42,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL proxy_end(VkCommandBuffer cmd){
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_reset(VkDevice d,uint32_t n,const VkFence *fences){
     if(fail_reset){fail_reset--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_reset(d,n,fences);
 }
-#define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence) X(ShaderModule) X(Sampler) X(DescriptorSetLayout) X(PipelineLayout) X(DescriptorPool)
+#define OBJECTS(X) X(Image) X(ImageView) X(Buffer) X(RenderPass) X(Framebuffer) X(CommandPool) X(Fence) X(ShaderModule) X(Sampler) X(DescriptorSetLayout) X(PipelineLayout) X(DescriptorPool) X(PipelineCache)
 #define OBJECT(n) \
 static PFN_vkCreate##n original_create_##n;static PFN_vkDestroy##n original_destroy_##n; \
 static unsigned live_##n,fail_##n; \
@@ -142,6 +142,8 @@ static void no_live_handles(void){
 }
 static unsigned exercise_faults(const struct fnv_vk_config *cfg){
     unsigned scenarios=0;VkResult reason;struct fnv_vk_backend *d;struct fnv_d3d9_shader_backend b;struct fnv_vk_stats s;
+    fail_PipelineCache=1;d=(void*)1;
+    assert(fnv_vk_backend_create(proxy_gpa,cfg,&d,&reason)==FNV_VK_OOM && !d);no_live_handles();
     for(unsigned i=0;i<3;++i){
         if(i==0)fail_memory=1;else if(i==1)fail_ImageView=1;else fail_Fence=1;
         d=(void*)1;assert(fnv_vk_backend_create(proxy_gpa,cfg,&d,&reason)==FNV_VK_OOM && !d);no_live_handles();scenarios++;

@@ -1,4 +1,4 @@
-/* Read-only INI integers using the existing game-root path validation.
+/* INI queries and profile-confined writes using existing path validation.
  * No IO while holding process/file/kernel locks, no host registry fallback. */
 static int profile_space(unsigned c){return c==' ' || (c>=9 && c<=13);}
 static void profile_trim(const char **first,const char **end){
@@ -153,9 +153,81 @@ static void api_profile_string_a(void){
     unsigned char *dest=file_pointer(p,output,(uint32_t)n+1,1);memcpy(dest,value,n);dest[n]=0;free(data);
     fnv_windows_set_last_error(found?(boundary?234u:0u):2u);fnv_cpu_return_u32((uint32_t)n,24);
 }
+/* Rewrite one bounded ANSI profile in memory before touching the file. Reserve
+ * its canonical path exclusively through the file provider so another guest
+ * open/write cannot race this read/modify/write operation. No table lock at IO. */
+static void api_profile_write_a(void){
+    uint32_t section=fnv_cpu_argument_u32(0),key=fnv_cpu_argument_u32(1),value=fnv_cpu_argument_u32(2),filename=fnv_cpu_argument_u32(3);
+    struct fnv_windows_process *p=file_process();uint32_t error=0;int profile=0;
+    char app[256]={0},entry[256]={0},text[4097]={0},path[512],canonical[512],full[1538];
+    if(!filename)sync_invalid("Windows profile default filename pending",0);
+    if(section)profile_guest_string(p,section,0,app,sizeof(app));
+    if(key)profile_guest_string(p,key,0,entry,sizeof(entry));
+    if(value)profile_guest_string(p,value,0,text,sizeof(text));
+    error=(uint32_t)file_path_with_profile(p,filename,0,path,canonical,&profile);
+    if(!error && !profile)error=5;
+    /* There is no deferred INI cache to flush. Windows uses all-NULL arguments
+     * as cache invalidation; it is not a section deletion request. */
+    if(!section && (key || value))error=87;
+    if(strpbrk(app,"\r\n[]") || strpbrk(entry,"\r\n=") || strpbrk(text,"\r\n"))error=87;
+    struct file_slot *reserved=NULL;FILE *stream=NULL;char *data=NULL,*rewritten=NULL;
+    size_t bytes=0,used=0,cut_first=0,cut_last=0;int selected=0,found_section=0,found_key=0;
+    if(!error && section)reserved=file_reserve_open(p,0xc0000000u,0,canonical,&error);
+    if(!error && section){
+        snprintf(full,sizeof(full),"%s/%s",p->file_root,path);errno=0;stream=fnv_host_file_open(full,4);
+        if(!stream)error=fnv_host_file_error(errno);
+    }
+    if(stream){uint64_t size=0;errno=0;
+        if(!fnv_host_file_size(stream,&size))error=fnv_host_file_error(errno);
+        else if(size>1048576)error=50;else bytes=(size_t)size;
+        if(!error){data=malloc(bytes+1);rewritten=malloc(bytes+strlen(app)+strlen(entry)+strlen(text)+16);
+            if(!data || !rewritten)error=8;}
+        if(!error){errno=0;if(fread(data,1,bytes,stream)!=bytes || ferror(stream))error=fnv_host_file_error(errno);}
+        if(!error){uint32_t ignored;
+            if(!profile_parse(data,bytes,app,entry,0,&ignored))error=50;
+        }
+        for(size_t at=0;!error && at<bytes;){
+            size_t begin=at,end=at;while(end<bytes && data[end]!='\r' && data[end]!='\n')end++;
+            at=end;if(at<bytes && data[at]=='\r')at++;if(at<bytes && data[at]=='\n')at++;
+            if(end-begin>4096){error=50;break;}
+            const char *first=data+begin,*last=data+end;profile_trim(&first,&last);
+            if(first<last && *first=='['){
+                if(selected){cut_last=begin;break;}
+                const char *close=memchr(first+1,']',(size_t)(last-first-1));
+                if(!found_section && close && profile_equal(first+1,close,app)){
+                    selected=found_section=1;cut_first=key?at:begin;cut_last=at;
+                }
+            }else if(selected){
+                cut_last=at;
+                if(key && !found_key && first<last && *first!=';'){
+                    const char *eq=memchr(first,'=',(size_t)(last-first));
+                    if(profile_equal(first,eq?eq:last,entry)){found_key=1;cut_first=begin;cut_last=at;break;}
+                }
+            }
+        }
+        if(!error){
+            if(!found_section){cut_first=cut_last=bytes;}
+            else if(key && !found_key)cut_first=cut_last;
+            memcpy(rewritten,data,cut_first);used=cut_first;
+            if(key && value){
+                if(used && rewritten[used-1]!='\n' && rewritten[used-1]!='\r')rewritten[used++]='\n';
+                if(!found_section)used+=(size_t)sprintf(rewritten+used,"[%s]\r\n",app);
+                used+=(size_t)sprintf(rewritten+used,"%s=%s\r\n",entry,text);
+            }
+            memcpy(rewritten+used,data+cut_last,bytes-cut_last);used+=bytes-cut_last;
+            errno=0;
+            if(!fnv_host_file_seek(stream,0) || fwrite(rewritten,1,used,stream)!=used ||
+               fflush(stream)!=0 || !fnv_host_file_truncate(stream,used))error=fnv_host_file_error(errno);
+        }
+    }
+    if(stream){errno=0;if(fclose(stream) && !error)error=fnv_host_file_error(errno);}
+    free(data);free(rewritten);file_cancel_open(p,reserved);
+    fnv_windows_set_last_error(error);fnv_cpu_return_u32(!error && section!=0,16);
+}
 static const struct fnv_cpu_export profile_exports[]={
     {"kernel32.dll","GetPrivateProfileIntA",0,0,api_profile_integer_a},
     {"kernel32.dll","GetPrivateProfileIntW",0,0,api_profile_integer_w},
-    {"kernel32.dll","GetPrivateProfileStringA",0,0,api_profile_string_a}
+    {"kernel32.dll","GetPrivateProfileStringA",0,0,api_profile_string_a},
+    {"kernel32.dll","WritePrivateProfileStringA",0,0,api_profile_write_a}
 };
-const struct fnv_cpu_export *fnv_windows_profile_exports(size_t *count){if(count)*count=3;return profile_exports;}
+const struct fnv_cpu_export *fnv_windows_profile_exports(size_t *count){if(count)*count=4;return profile_exports;}

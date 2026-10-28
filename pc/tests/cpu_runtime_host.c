@@ -166,6 +166,8 @@ static void binding_checks(void) {
     assert(fnv_cpu_bind_imports(runtime,&image,imports,FNV_NATIVE_MAX_IMPORTS,duplicate,2,&count)==FNV_NATIVE_FORMAT);
     assert(!memcmp(before,image.data,image.size));bind_all();
     assert(fnv_cpu_attach(runtime,&s)==FNV_CPU_OK);assert(recomp_lookup_kernel(0xFE000000u)==native_sum);
+    assert(recomp_lookup_manual(0xFE000000u)==native_sum);
+    assert(!recomp_lookup_manual(0xFE000001u) && !recomp_lookup_manual(0xFE001000u) && !recomp_lookup_manual(0x00401000u));
     assert(fnv_cpu_import_token(native_sum)==0xFE000000u && fnv_cpu_import_token(native_ordinal)==0xFE000004u);
     assert(!fnv_cpu_import_token(NULL));
     assert(!recomp_lookup_kernel(0xFE000001u) && !recomp_lookup_kernel(0xFE001000u));
