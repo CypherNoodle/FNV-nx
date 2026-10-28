@@ -87,7 +87,7 @@ done:fnv_host_mutex_unlock(&d->guard);return hr;
 /* Build and upload one immutable GPU version from the CPU shadow. Caller holds the
  * backend lock. Called lazily, so many Lock/Unlock calls on a texture cost a single
  * upload at its first use (draw or readback). A failure leaves the texture dirty. */
-static uint32_t texture_flush(struct fnv_vk_backend *d,struct texture_resource *t){
+static uint32_t texture_flush_body(struct fnv_vk_backend *d,struct texture_resource *t){
     uint32_t hr=0;struct texture_version *v=NULL;struct frame *f=NULL;
     if(d->lost || !d->device_refs)return FNV_VK_LOST;
     if(!t->dirty)return 0;
@@ -119,6 +119,9 @@ static uint32_t texture_flush(struct fnv_vk_backend *d,struct texture_resource *
     hr=submit_frame(d,f);if(hr){d->lost=1;goto flushed;}
     v->initialized=1;struct texture_version *old=t->version;t->version=v;v=NULL;release_texture_version(d,old);t->dirty=0;
 flushed:release_texture_version(d,v);return hr;
+}
+static uint32_t texture_flush(struct fnv_vk_backend *d,struct texture_resource *t){
+    unsigned previous=gpu_phase(d,FNV_VK_PHASE_TEXTURE);uint32_t hr=texture_flush_body(d,t);(void)gpu_phase(d,previous);return hr;
 }
 static uint32_t upload_texture_face(void *ctx,uintptr_t id,uint32_t face,uint32_t level,uint32_t left,uint32_t top,uint32_t width,uint32_t height,uint32_t flags,uint32_t pitch,const void *data,int cube){
     struct fnv_vk_backend *d=ctx;

@@ -63,7 +63,7 @@ static uint32_t program_module(struct fnv_vk_backend *d,struct shader_catalog *e
     if(entry==shader->entry){*out=shader->module;return 0;}
     if(!entry->variant_module){
         VkShaderModuleCreateInfo ci={.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,.codeSize=entry->spirv_bytes,.pCode=entry->spirv};
-        VkShaderModule module=VK_NULL_HANDLE;uint32_t hr=result(d,d->v.CreateShaderModule(d->device,&ci,NULL,&module));if(hr)return hr;entry->variant_module=module;
+        VkShaderModule module=VK_NULL_HANDLE;uint32_t hr=result(d,tracked_shader(d,&ci,&module));if(hr)return hr;entry->variant_module=module;
     }
     *out=entry->variant_module;return 0;
 }
@@ -148,7 +148,7 @@ static struct texture_resource *default_sampled_texture(struct fnv_vk_backend *d
     }
     return t;
 }
-static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
+static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
     if(d->lost || !d->device_refs)return FNV_VK_LOST;
     uint32_t hr=FNV_VK_INVALID;struct frame *f=NULL;struct draw_watch watch={0};struct stream_binding streams[16];memcpy(streams,d->streams,sizeof(streams));
     if(up_vertex){memset(streams,0,sizeof(streams));streams[0].stride=up_stride;}
@@ -185,7 +185,8 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
         geometry.streams[i]=(struct fnv_geometry_stream){b?b->bytes:0,streams[i].offset,streams[i].stride,1};}
     struct buffer_resource *ib=up_vertex?up_index:find_buffer(d,d->indices);
     if(indexed){if(!ib)goto done;geometry.indices=ib->shadow;geometry.index_bytes=ib->bytes;geometry.index_size=ib->format==101?2:4;}
-    struct fnv_geometry_access access;hr=fnv_d3d9_geometry_validate(&geometry,&access);if(hr)goto done;
+    unsigned geometry_phase=gpu_phase(d,FNV_VK_PHASE_GEOMETRY);
+    struct fnv_geometry_access access;hr=fnv_d3d9_geometry_validate(&geometry,&access);(void)gpu_phase(d,geometry_phase);if(hr)goto done;
     VkVertexInputAttributeDescription attributes[32];VkVertexInputBindingDescription bindings[16];uint32_t binding_count=0,stream_mask=0;
     for(uint32_t i=0;i<program->count;++i){uint32_t found=decl->count;
         for(uint32_t j=0;j<decl->count-1;++j)if(decl->elements[j*8+6]==program->inputs[i].usage && decl->elements[j*8+7]==program->inputs[i].index){found=j;break;}
@@ -259,8 +260,9 @@ static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primit
     VkGraphicsPipelineCreateInfo pci={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=stages,.pVertexInputState=&vi,.pInputAssemblyState=&ia,
         .pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pDepthStencilState=&depth_info,.pColorBlendState=&bs,.layout=r->layout,.renderPass=f->passes[0]};
     uint64_t pipeline_start=0,pipeline_end=0;int timed_pipeline=fnv_host_now_ns(&pipeline_start);
+    unsigned pipeline_phase=gpu_phase(d,FNV_VK_PHASE_PIPELINE);
     VkPipeline pipeline=VK_NULL_HANDLE;VkResult built=d->v.CreateGraphicsPipelines(d->device,d->pipeline_cache,1,&pci,NULL,&pipeline);
-    d->pipeline_calls++;
+    (void)gpu_phase(d,pipeline_phase);d->pipeline_calls++;
     if(timed_pipeline && fnv_host_now_ns(&pipeline_end) && pipeline_end>=pipeline_start){
         uint64_t ns=pipeline_end-pipeline_start;d->pipeline_ns+=ns;if(ns>d->pipeline_max_ns)d->pipeline_max_ns=ns;
     }
@@ -285,6 +287,11 @@ rollback:
 done:return hr;
 }
 
+static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
+    unsigned previous=gpu_phase(d,FNV_VK_PHASE_DRAW);
+    uint32_t hr=draw_locked_body(d,indexed,primitive,base,min_vertex,vertices,start,primitives,up_vertex,up_index,up_stride,fixed,fixed_bytes);
+    (void)gpu_phase(d,previous);return hr;
+}
 static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives){
     struct fnv_vk_backend *d=ctx;fnv_host_mutex_lock(&d->guard);
     uint32_t hr=draw_locked(d,indexed,primitive,base,min_vertex,vertices,start,primitives,NULL,NULL,0,NULL,0);

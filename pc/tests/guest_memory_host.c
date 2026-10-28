@@ -4,6 +4,7 @@
 #endif
 #include <windows.h>
 #include "guest_memory.h"
+#include "guest_memory_diagnostics.h"
 #include "memory_horizon.h"
 #ifdef NDEBUG
 #undef NDEBUG
@@ -19,9 +20,10 @@ struct permissions { unsigned calls,fail_at,fail_again; };
 static struct permissions permissions;
 static unsigned char *backing;
 static struct fnv_guest_memory *vm;
-static unsigned queries,operations;
+static unsigned queries,operations,snapshot_checks;static int check_snapshot;
 static uint32_t native_set(void *opaque,void *address,uint32_t bytes,uint32_t permission) {
     struct permissions *p=opaque;p->calls++;
+    if(check_snapshot){struct fnv_vm_counters out,saved;memset(&out,0xa5,sizeof(out));saved=out;assert(!fnv_vm_try_counters(vm,&out) && !memcmp(&out,&saved,sizeof(out)));snapshot_checks++;}
     if(p->calls==p->fail_at || p->calls==p->fail_again)return 0xCE01;
     DWORD previous;DWORD protect=permission==3?PAGE_READWRITE:permission==1?PAGE_READONLY:PAGE_NOACCESS;
     if(!VirtualProtect(address,bytes,protect,&previous))return GetLastError();
@@ -203,7 +205,8 @@ int main(int argc,char **argv) {
         else {volatile unsigned char value=*(volatile unsigned char*)backing;(void)value;}
         return 9;
     }
-    original_sizes();boundaries();randomized();concurrent();failures();
+    check_snapshot=1;original_sizes();boundaries();randomized();concurrent();failures();check_snapshot=0;assert(snapshot_checks);
+    struct fnv_vm_counters counters;assert(fnv_vm_try_counters(vm,&counters));
     permissions.fail_at=permissions.fail_again=0;assert(!fnv_vm_destroy(vm).error);
     assert(VirtualFree(backing,0,MEM_RELEASE));
     printf("{\"status\":\"PASS\",\"randomized_operations\":%u,\"native_query_comparisons\":%u,\"concurrent_rounds\":500,\"original_reserve_mb\":200,\"original_commit_mb\":85,\"rollback_failure_poisoned\":true}\n",operations,queries);return 0;

@@ -1,8 +1,11 @@
 #include "d3d9_vk_backend.h"
 #include "d3d9_vk_prepared.h"
 #include "d3d9_vk_metrics.h"
+#include "d3d9_vk_progress.h"
+#include <stdatomic.h>
 #include "d3d9_fvf.h"
 #include "host_mutex.h"
+#include "host_mutex_try.h"
 #include "host_clock.h"
 #include "d3d9_texture_upload.h"
 #include "d3d9_geometry.h"
@@ -91,8 +94,30 @@ struct fnv_vk_backend {
     uintptr_t next_id,back,auto_depth,color,depth;uint32_t presentation_format;
     uint32_t viewport[6],scissor[4];uint64_t device_refs,allocated,submissions,completions,draw_timeout_ns,draw_waits;
     VkResult last;int lost,in_scene,queue_touched;uint32_t scissor_enabled;
+    atomic_uint phase;atomic_uint_fast64_t phase_ns,wait_calls,wait_ns,submit_calls,submit_ns;
     struct resource_lookup lookups[128];
 };
+static unsigned gpu_phase(struct fnv_vk_backend *d,unsigned phase){
+    unsigned previous=atomic_load_explicit(&d->phase,memory_order_relaxed);uint64_t now=0;(void)fnv_host_now_ns(&now);
+    atomic_store_explicit(&d->phase_ns,now,memory_order_relaxed);atomic_store_explicit(&d->phase,phase,memory_order_relaxed);return previous;
+}
+static VkResult tracked_wait(struct fnv_vk_backend *d,uint32_t count,const VkFence *fences,VkBool32 all,uint64_t timeout){
+    unsigned previous=gpu_phase(d,FNV_VK_PHASE_FENCE);uint64_t start=0,end=0;int timed=fnv_host_now_ns(&start);
+    atomic_fetch_add_explicit(&d->wait_calls,1,memory_order_relaxed);
+    VkResult r=d->v.WaitForFences(d->device,count,fences,all,timeout);
+    if(timed && fnv_host_now_ns(&end) && end>=start)atomic_fetch_add_explicit(&d->wait_ns,end-start,memory_order_relaxed);
+    (void)gpu_phase(d,previous);return r;
+}
+static VkResult tracked_submit(struct fnv_vk_backend *d,const VkSubmitInfo *submit,VkFence fence){
+    unsigned previous=gpu_phase(d,FNV_VK_PHASE_SUBMIT);uint64_t start=0,end=0;int timed=fnv_host_now_ns(&start);
+    atomic_fetch_add_explicit(&d->submit_calls,1,memory_order_relaxed);
+    VkResult r=d->v.QueueSubmit(d->queue,1,submit,fence);
+    if(timed && fnv_host_now_ns(&end) && end>=start)atomic_fetch_add_explicit(&d->submit_ns,end-start,memory_order_relaxed);
+    (void)gpu_phase(d,previous);return r;
+}
+static VkResult tracked_shader(struct fnv_vk_backend *d,const VkShaderModuleCreateInfo *info,VkShaderModule *module){
+    unsigned previous=gpu_phase(d,FNV_VK_PHASE_SHADER);VkResult r=d->v.CreateShaderModule(d->device,info,NULL,module);(void)gpu_phase(d,previous);return r;
+}
 static uint32_t result(struct fnv_vk_backend *d,VkResult r){
     d->last=r;
     if(r==VK_SUCCESS)return 0;
@@ -187,7 +212,8 @@ static uint32_t allocate(struct fnv_vk_backend *d,VkMemoryRequirements req,VkMem
     }
     if(chosen==UINT32_MAX)return FNV_VK_OOM;
     VkMemoryAllocateInfo info={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=req.size,.memoryTypeIndex=chosen};
-    VkDeviceMemory memory=VK_NULL_HANDLE;uint32_t hr=result(d,d->v.AllocateMemory(d->device,&info,NULL,&memory));
+    unsigned previous=gpu_phase(d,FNV_VK_PHASE_ALLOCATE);
+    VkDeviceMemory memory=VK_NULL_HANDLE;uint32_t hr=result(d,d->v.AllocateMemory(d->device,&info,NULL,&memory));(void)gpu_phase(d,previous);
     if(!hr){*out=memory;d->allocated+=req.size;if(coherent)*coherent=(d->memory.memoryTypes[chosen].propertyFlags&VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)!=0;}
     return hr;
 }
@@ -315,14 +341,14 @@ static uint32_t wait_locked(struct fnv_vk_backend *d,uint64_t timeout){
     if(d->lost)return FNV_VK_LOST;
     VkFence fences[3];uint32_t n=0;for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)fences[n++]=d->frames[i].fence;
     if(!n)return 0;
-    uint32_t hr=result(d,d->v.WaitForFences(d->device,n,fences,VK_TRUE,timeout));if(hr)return hr;
+    uint32_t hr=result(d,tracked_wait(d,n,fences,VK_TRUE,timeout));if(hr)return hr;
     for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)retire_frame(d,d->frames+i);
     return d->lost?FNV_VK_LOST:0;
 }
 static uint32_t wait_for_frame_locked(struct fnv_vk_backend *d,uint64_t timeout){
     VkFence fences[3];uint32_t count=0;
     for(uint32_t i=0;i<d->config.frames;++i){if(!d->frames[i].pending)return 0;fences[count++]=d->frames[i].fence;}
-    uint32_t hr=result(d,d->v.WaitForFences(d->device,count,fences,VK_FALSE,timeout));if(hr)return hr;
+    uint32_t hr=result(d,tracked_wait(d,count,fences,VK_FALSE,timeout));if(hr)return hr;
     int retired=0;
     for(uint32_t i=0;i<d->config.frames;++i){VkResult r=d->v.GetFenceStatus(d->device,d->frames[i].fence);
         if(r==VK_SUCCESS){retire_frame(d,d->frames+i);retired=1;}else if(r!=VK_NOT_READY)return result(d,r);}
@@ -378,7 +404,7 @@ static uint32_t submit_frame(struct fnv_vk_backend *d,struct frame *f){
     uint32_t hr=result(d,d->v.EndCommandBuffer(f->cmd));if(hr)return hr;
     hr=result(d,d->v.ResetFences(d->device,1,&f->fence));if(hr)return hr;
     VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.commandBufferCount=1,.pCommandBuffers=&f->cmd};
-    d->queue_touched=1;hr=result(d,d->v.QueueSubmit(d->queue,1,&si,f->fence));
+    d->queue_touched=1;hr=result(d,tracked_submit(d,&si,f->fence));
     if(!hr){f->pending=1;d->submissions++;}else d->lost=1;
     return hr;
 }
@@ -562,9 +588,8 @@ uint32_t fnv_vk_backend_pipeline_metrics(struct fnv_vk_backend *d,struct fnv_vk_
     *out=(struct fnv_vk_pipeline_metrics){d->pipeline_calls,d->pipeline_ns,d->pipeline_max_ns};
     fnv_host_mutex_unlock(&d->guard);return 0;
 }
-uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
+static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;
-    fnv_host_mutex_lock(&d->guard);
     struct fnv_vk_stats s={.allocated_bytes=d->allocated,.submissions=d->submissions,.completions=d->completions,.device_references=d->device_refs,.queued_commands=d->count,.last_result=d->last};
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
@@ -574,7 +599,21 @@ uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out)
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->textures[i].id)s.live_textures++;
     for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)s.pending_frames++;
-    *out=s;fnv_host_mutex_unlock(&d->guard);return 0;
+    *out=s;return 0;
+}
+uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
+    if(!d || !out)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=stats_locked(d,out);fnv_host_mutex_unlock(&d->guard);return hr;
+}
+uint32_t fnv_vk_backend_try_snapshot(struct fnv_vk_backend *d,struct fnv_vk_stats *out,struct fnv_vk_pipeline_metrics *pipelines){
+    if(!d || !out || !pipelines)return FNV_VK_INVALID;
+    if(!fnv_host_mutex_trylock(&d->guard))return FNV_VK_BUSY;
+    (void)stats_locked(d,out);*pipelines=(struct fnv_vk_pipeline_metrics){d->pipeline_calls,d->pipeline_ns,d->pipeline_max_ns};
+    fnv_host_mutex_unlock(&d->guard);return 0;
+}
+uint32_t fnv_vk_backend_progress(struct fnv_vk_backend *d,struct fnv_vk_progress *out){
+    if(!d || !out)return FNV_VK_INVALID;
+    *out=(struct fnv_vk_progress){atomic_load_explicit(&d->phase,memory_order_relaxed),atomic_load_explicit(&d->phase_ns,memory_order_relaxed),atomic_load_explicit(&d->wait_calls,memory_order_relaxed),atomic_load_explicit(&d->wait_ns,memory_order_relaxed),atomic_load_explicit(&d->submit_calls,memory_order_relaxed),atomic_load_explicit(&d->submit_ns,memory_order_relaxed)};return 0;
 }
 uint32_t fnv_vk_backend_draw_wait(struct fnv_vk_backend *d,uint64_t timeout){
     if(!d || timeout==UINT64_MAX)return FNV_VK_INVALID;
@@ -637,7 +676,7 @@ static uint32_t read_resource(struct fnv_vk_backend *d,uintptr_t id,uint32_t off
     VkMemoryBarrier host={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT,.dstAccessMask=VK_ACCESS_HOST_READ_BIT};
     d->v.CmdPipelineBarrier(f->cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,1,&host,0,NULL,0,NULL);
     if((hr=submit_frame(d,f))!=0){d->lost=1;goto done;}
-    if((hr=result(d,d->v.WaitForFences(d->device,1,&f->fence,VK_TRUE,timeout)))!=0)goto done;
+    if((hr=result(d,tracked_wait(d,1,&f->fence,VK_TRUE,timeout)))!=0)goto done;
     void *mapped=NULL;hr=result(d,d->v.MapMemory(d->device,f->read_memory,0,VK_WHOLE_SIZE,0,&mapped));
     if(!hr){
         if(!f->read_coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=f->read_memory,.offset=0,.size=VK_WHOLE_SIZE};
@@ -693,7 +732,7 @@ uint32_t fnv_vk_backend_write_color(struct fnv_vk_backend *d,uintptr_t id,const 
     d->v.CmdCopyBufferToImage(f->cmd,f->read_buffer,s->image,VK_IMAGE_LAYOUT_GENERAL,1,&region);
     barrier(d,f->cmd,s);
     if((hr=submit_frame(d,f))!=0){d->lost=1;goto done;}
-    if((hr=result(d,d->v.WaitForFences(d->device,1,&f->fence,VK_TRUE,timeout)))!=0)goto done;
+    if((hr=result(d,tracked_wait(d,1,&f->fence,VK_TRUE,timeout)))!=0)goto done;
     retire_frame(d,f);if(d->lost)hr=FNV_VK_LOST;
 done:
     fnv_host_mutex_unlock(&d->guard);return hr;
@@ -756,6 +795,7 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
        cfg->resource_capacity<2 || cfg->resource_capacity>8192 || !cfg->memory_budget || cfg->auto_depth>1)return FNV_VK_INVALID;
     if(window && (!window->extension || !window->create_surface || window->vsync>1))return FNV_VK_INVALID;
     struct fnv_vk_backend *d=calloc(1,sizeof(*d));if(!d)return FNV_VK_OOM;
+    atomic_init(&d->phase,0);atomic_init(&d->phase_ns,0);atomic_init(&d->wait_calls,0);atomic_init(&d->wait_ns,0);atomic_init(&d->submit_calls,0);atomic_init(&d->submit_ns,0);
     if(!fnv_host_mutex_init(&d->guard)){free(d);return FNV_VK_OOM;}
     d->config=*cfg;d->device_refs=1;uint32_t hr=FNV_VK_LOST;
     d->v.CreateInstance=(PFN_vkCreateInstance)gp(VK_NULL_HANDLE,"vkCreateInstance");if(!d->v.CreateInstance)goto fail;

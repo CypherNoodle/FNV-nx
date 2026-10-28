@@ -1,5 +1,6 @@
 #include "guest_memory.h"
 #include "host_mutex.h"
+#include "host_mutex_try.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -163,4 +164,9 @@ int fnv_vm_access(struct fnv_guest_memory *v,uint32_t at,uint32_t bytes,int writ
 }
 void fnv_vm_get_counters(struct fnv_guest_memory *v,struct fnv_vm_counters *out) {
     if(v && out){lock(v);*out=(struct fnv_vm_counters){v->reserved*4096,v->committed*4096,v->config.commit_limit,v->poisoned};unlock(v);}
+}
+
+int fnv_vm_try_counters(struct fnv_guest_memory *v,struct fnv_vm_counters *out){
+    if(!v || !out || !fnv_host_mutex_trylock(&v->guard))return 0;
+    *out=(struct fnv_vm_counters){v->reserved*4096,v->committed*4096,v->config.commit_limit,v->poisoned};unlock(v);return 1;
 }

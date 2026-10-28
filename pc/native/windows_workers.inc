@@ -45,15 +45,16 @@ static void workers_dispose(struct fnv_windows_process *p){
     for(uint32_t i=0;i<p->config.worker_capacity;++i)fnv_host_condition_destroy(&p->workers[i].condition);
     free(p->workers);fnv_host_mutex_destroy(&p->worker_guard);
 }
-enum fnv_cpu_result fnv_windows_worker_stats(struct fnv_windows_process *p,struct fnv_windows_worker_stats *out){
+static enum fnv_cpu_result fnv_windows_worker_stats_snapshot(struct fnv_windows_process *p,struct fnv_windows_worker_stats *out,int nonblocking){
     if(!p || !out)return FNV_CPU_INVALID;
     struct fnv_windows_worker_stats s={0};s.capacity=p->config.worker_capacity;
-    if(p->workers){fnv_host_mutex_lock(&p->worker_guard);
+    if(p->workers){if(nonblocking){if(!fnv_host_mutex_trylock(&p->worker_guard))return FNV_CPU_BUSY;}else fnv_host_mutex_lock(&p->worker_guard);
         for(uint32_t i=0;i<s.capacity;++i){uint32_t phase=p->workers[i].phase;s.active+=phase==1 || phase==2;s.finished+=phase==3;}
         s.created=p->worker_created;s.reaped=p->worker_reaped;s.failures=p->worker_failures;s.peer_stops=p->worker_peer_stops;s.capacity_denials=p->worker_capacity_denials;fnv_host_mutex_unlock(&p->worker_guard);
     }
     *out=s;return FNV_CPU_OK;
 }
+enum fnv_cpu_result fnv_windows_worker_stats(struct fnv_windows_process *p,struct fnv_windows_worker_stats *out){return fnv_windows_worker_stats_snapshot(p,out,0);}
 static void worker_poison(struct managed_worker *w,const char *text){
     struct fnv_cpu_fault fault={0};fault.kind=FNV_CPU_UNIMPLEMENTED;fault.entry=w->entry;
     snprintf(fault.text,sizeof(fault.text),"%s",text);fnv_cpu_invalidate(w->process->cpu,&fault);

@@ -12,7 +12,7 @@ def test(a):
     if out.exists():raise ValueError('Use a fresh private directory')
     out.mkdir(parents=True)
     inputs=[Path(__file__).resolve(),pc/'tests/guest_memory_host.c',
-        *[pc/'native'/name for name in ('guest_memory.c','guest_memory.h','host_mutex.h','memory_horizon.c','memory_horizon.h')]]
+        *[pc/'native'/name for name in ('guest_memory.c','guest_memory.h','guest_memory_diagnostics.h','host_mutex.h','host_mutex_try.h','memory_horizon.c','memory_horizon.h')]]
     frozen={p:sha(p) for p in inputs}
     command=[*a.cc,'-std=c11','-O1','-Wall','-Wextra','-Werror','-I'+str(pc/'native'),
         str(pc/'native/guest_memory.c'),str(pc/'native/memory_horizon.c'),str(pc/'tests/guest_memory_host.c'),'-o',str(out/'vm-test.exe')]

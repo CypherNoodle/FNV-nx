@@ -1,6 +1,7 @@
 #include <windows.h>
 #include "windows_thread.h"
 #include "windows_profiles.h"
+#include "windows_diagnostics.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -160,6 +161,8 @@ int main(int argc,char **argv){
     text(NAME,"profiles.ini",0);assert(!call(5,SECTION,KEY,BASE+0xa001,NAME,NULL) && call(2,0,0,0,0,NULL)==5);
     text(NAME,"C:\\Users\\FNV\\..\\outside.ini",0);assert(!call(5,SECTION,KEY,BASE+0xa001,NAME,NULL));
     printf("profile write comparisons=%u, query comparisons=105, confined path negatives=2\n",writes);
+    char debug_name[128];assert(fnv_windows_try_debug_name(debug_name) && !strcmp(debug_name,fnv_windows_current_debug_name()));
+    struct fnv_windows_diagnostics diagnostics;assert(fnv_windows_try_diagnostics(process,&diagnostics)==FNV_CPU_OK && diagnostics.available==31 && diagnostics.files.live_handles==0);
     text(NAME,"absent.ini",0);char missing[1100];snprintf(missing,sizeof(missing),"%s/absent.ini",root);
     SetLastError(0x1234);uint32_t expected=GetPrivateProfileIntA("General","Count",-1,missing);DWORD error=GetLastError();
     assert(call(0,SECTION,KEY,UINT32_MAX,NAME,NULL)==expected && call(2,0,0,0,0,NULL)==error);

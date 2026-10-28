@@ -53,10 +53,10 @@ static struct heap_store *heap_lookup(struct fnv_windows_process *p,uint32_t han
     for(struct heap_store *h=p->private_heaps;h;h=h->next)if(h->address==handle)return h;
     return NULL;
 }
-enum fnv_cpu_result fnv_windows_heap_stats(struct fnv_windows_process *p,struct fnv_windows_heap_stats *out){
+static enum fnv_cpu_result fnv_windows_heap_stats_snapshot(struct fnv_windows_process *p,struct fnv_windows_heap_stats *out,int nonblocking){
     if(!p || !out)return FNV_CPU_INVALID;
     struct fnv_windows_heap_stats s={0};
-    if(p->heap.blocks){fnv_host_mutex_lock(&p->heap_guard);
+    if(p->heap.blocks){if(nonblocking){if(!fnv_host_mutex_trylock(&p->heap_guard))return FNV_CPU_BUSY;}else fnv_host_mutex_lock(&p->heap_guard);
         for(struct heap_store *h=&p->heap;h;h=h==&p->heap?p->private_heaps:h->next){
             s.live_heaps++;s.live_blocks+=h->count;s.metadata_bytes+=(uint64_t)h->capacity*sizeof(*h->blocks);
             s.lookup_steps+=h->find_steps;s.allocation_steps+=h->allocation_steps;s.gap_steps+=h->gap_steps;
@@ -64,6 +64,7 @@ enum fnv_cpu_result fnv_windows_heap_stats(struct fnv_windows_process *p,struct 
         fnv_host_mutex_unlock(&p->heap_guard);}
     *out=s;return FNV_CPU_OK;
 }
+enum fnv_cpu_result fnv_windows_heap_stats(struct fnv_windows_process *p,struct fnv_windows_heap_stats *out){return fnv_windows_heap_stats_snapshot(p,out,0);}
 static int heap_metadata_grow(struct fnv_windows_process *p,struct heap_store *h){
     if(h->count<h->capacity)return 1;
     uint32_t next=h->capacity?h->capacity*2:32;

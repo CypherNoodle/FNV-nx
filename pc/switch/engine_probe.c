@@ -48,6 +48,9 @@
 #include "host_mutex.h"
 #include "d3d9_vk_horizon.h"
 #include "d3d9_vk_metrics.h"
+#include "d3d9_vk_progress.h"
+#include "windows_diagnostics.h"
+#include "guest_memory_diagnostics.h"
 #include "d3d9_vk_prepared.h"
 #include "d3d9_sdp.h"
 #include "d3d9_com_diag.h"
@@ -131,8 +134,9 @@ static __attribute__((noinline)) void sample_native_record(uint32_t entry){
     }
     const char *label="native-COM";
     if(entry>=0xfe000000u && entry<0xfe010000u){uint32_t index=(entry-0xfe000000u)/4;if(index<FNV_NATIVE_MAX_IMPORTS)label=import_labels[index];}
+    char debug_name[128]="<busy>";(void)fnv_windows_try_debug_name(debug_name);
     report("NativeSample thread=%08lX name=%.80s entry=%08lX api=%.95s esp=%08lX ebp=%08lX calls=%llu stack=%s\n",
-        (unsigned long)id,fnv_windows_current_debug_name(),(unsigned long)entry,label,(unsigned long)sp,(unsigned long)s.gpr[5],(unsigned long long)fnv_cpu_icall_count,words);
+        (unsigned long)id,debug_name,(unsigned long)entry,label,(unsigned long)sp,(unsigned long)s.gpr[5],(unsigned long long)fnv_cpu_icall_count,words);
 }
 static void store32(unsigned char *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(v>>(8*i));}
 static __attribute__((noinline)) void sample_native(uint32_t entry){
@@ -405,15 +409,25 @@ int main(void) {
             if(armTicksToNs(now-stopping)>=5000000000ull){report("Guest did not unwind within 5s; OS process exit, backing not freed\n");svcExitProcess();}
         }
         if(armTicksToNs(now-last)>=10000000000ull) {
-            struct fnv_vk_stats stats;struct fnv_windows_worker_stats workers;struct fnv_vm_counters memory;
-            if(!fnv_vk_backend_stats(graphics,&stats) && fnv_windows_worker_stats(process,&workers)==FNV_CPU_OK){fnv_vm_get_counters(vm,&memory);report("Progress elapsed_ms=%llu draws=%llu submissions=%llu presents=%llu workers=%lu/%lu failures=%llu vm_commit=%lu gpu_alloc=%llu\n",(unsigned long long)(armTicksToNs(now-start)/1000000),(unsigned long long)stats.draws,(unsigned long long)stats.submissions,(unsigned long long)stats.presentation_requests,(unsigned long)workers.active,(unsigned long)workers.capacity,(unsigned long long)workers.failures,(unsigned long)memory.committed_bytes,(unsigned long long)stats.allocated_bytes);}
-            struct fnv_vk_pipeline_metrics pipelines;
-            if(!fnv_vk_backend_pipeline_metrics(graphics,&pipelines))report("Pipelines calls=%llu host_ms=%llu max_host_ms=%llu cache=device\n",(unsigned long long)pipelines.calls,(unsigned long long)(pipelines.host_ns/1000000),(unsigned long long)(pipelines.max_host_ns/1000000));
-            last=now;
-            struct fnv_windows_file_stats io;struct fnv_windows_heap_stats heaps;struct fnv_windows_handle_stats handles;struct fnv_windows_sync_stats sync;
-            if(fnv_windows_file_stats(process,&io)==FNV_CPU_OK && fnv_windows_heap_stats(process,&heaps)==FNV_CPU_OK && fnv_windows_handle_stats(process,&handles)==FNV_CPU_OK && fnv_windows_sync_stats(process,&sync)==FNV_CPU_OK)
-                report("Loading IO_reads=%llu bytes=%llu read_ms=%llu io_wait_ms=%llu errors=%llu opens=%llu heap_blocks=%lu lookup_steps=%llu alloc_steps=%llu handle_waiters=%lu timeouts=%llu section_waiters=%lu pad_down_seen=%016llX\n",
-                    (unsigned long long)io.reads,(unsigned long long)io.read_bytes,(unsigned long long)(io.read_ns/1000000),(unsigned long long)(io.io_wait_ns/1000000),(unsigned long long)io.read_errors,(unsigned long long)io.opens,(unsigned long)heaps.live_blocks,(unsigned long long)heaps.lookup_steps,(unsigned long long)heaps.allocation_steps,(unsigned long)handles.waiting_threads,(unsigned long long)handles.timeouts,(unsigned long)sync.waiting_threads,(unsigned long long)seen_buttons);
+            uint64_t elapsed=armTicksToNs(now-start)/1000000;
+            struct fnv_vk_progress progress;fnv_vk_backend_progress(graphics,&progress);
+            const char *phases[]={"idle","draw","geometry","texture","allocate","shader","pipeline","fence","submit","acquire","present"};
+            uint64_t ns=armTicksToNs(now),age=progress.since_ns && ns>=progress.since_ns?(ns-progress.since_ns)/1000000:0;
+            report("Heartbeat elapsed_ms=%llu render_phase=%s phase_age_ms=%llu fence_calls=%llu fence_ms=%llu submit_calls=%llu submit_ms=%llu\n",(unsigned long long)elapsed,progress.phase<sizeof(phases)/sizeof(*phases)?phases[progress.phase]:"invalid",(unsigned long long)age,(unsigned long long)progress.wait_calls,(unsigned long long)(progress.wait_ns/1000000),(unsigned long long)progress.submit_calls,(unsigned long long)(progress.submit_ns/1000000));
+            struct fnv_vk_stats stats;struct fnv_vk_pipeline_metrics pipelines;
+            uint32_t snapshot=fnv_vk_backend_try_snapshot(graphics,&stats,&pipelines);
+            if(!snapshot){
+                report("Progress elapsed_ms=%llu draws=%llu submissions=%llu presents=%llu gpu_alloc=%llu\n",(unsigned long long)elapsed,(unsigned long long)stats.draws,(unsigned long long)stats.submissions,(unsigned long long)stats.presentation_requests,(unsigned long long)stats.allocated_bytes);
+                report("Pipelines calls=%llu host_ms=%llu max_host_ms=%llu cache=device\n",(unsigned long long)pipelines.calls,(unsigned long long)(pipelines.host_ns/1000000),(unsigned long long)(pipelines.max_host_ns/1000000));
+            }else report("Renderer snapshot busy hr=%08lX\n",(unsigned long)snapshot);
+            struct fnv_windows_diagnostics diagnostics;fnv_windows_try_diagnostics(process,&diagnostics);
+            struct fnv_vm_counters memory={0};int vm_ready=fnv_vm_try_counters(vm,&memory);
+            report("Providers available_mask=%02X vm_ready=%d vm_commit=%lu workers=%lu/%lu failures=%llu\n",diagnostics.available,vm_ready,(unsigned long)memory.committed_bytes,(unsigned long)diagnostics.workers.active,(unsigned long)diagnostics.workers.capacity,(unsigned long long)diagnostics.workers.failures);
+            if(diagnostics.available&FNV_DIAG_FILES)report("IO reads=%llu bytes=%llu read_ms=%llu wait_ms=%llu errors=%llu opens=%llu\n",(unsigned long long)diagnostics.files.reads,(unsigned long long)diagnostics.files.read_bytes,(unsigned long long)(diagnostics.files.read_ns/1000000),(unsigned long long)(diagnostics.files.io_wait_ns/1000000),(unsigned long long)diagnostics.files.read_errors,(unsigned long long)diagnostics.files.opens);
+            if(diagnostics.available&FNV_DIAG_HEAPS)report("Heap blocks=%lu lookup_steps=%llu alloc_steps=%llu\n",(unsigned long)diagnostics.heaps.live_blocks,(unsigned long long)diagnostics.heaps.lookup_steps,(unsigned long long)diagnostics.heaps.allocation_steps);
+            if(diagnostics.available&FNV_DIAG_HANDLES)report("Wait handles=%lu timeouts=%llu\n",(unsigned long)diagnostics.handles.waiting_threads,(unsigned long long)diagnostics.handles.timeouts);
+            if(diagnostics.available&FNV_DIAG_SYNC)report("Wait sections=%lu\n",(unsigned long)diagnostics.sync.waiting_threads);
+            report("Input pad_down_seen=%016llX\n",(unsigned long long)seen_buttons);last=now;
         }
         svcSleepThread(8000000);
     }

@@ -104,10 +104,10 @@ static void kernel_thread_exit(struct fnv_windows_process *p,uint32_t owner){
     }
     kernel_dispatch(p);fnv_host_mutex_unlock(&p->kernel_guard);
 }
-enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *p,struct fnv_windows_handle_stats *out){
+static enum fnv_cpu_result fnv_windows_handle_stats_snapshot(struct fnv_windows_process *p,struct fnv_windows_handle_stats *out,int nonblocking){
     if(!p || !out)return FNV_CPU_INVALID;
     struct fnv_windows_handle_stats s={0};
-    if(p->handles){fnv_host_mutex_lock(&p->kernel_guard);
+    if(p->handles){if(nonblocking){if(!fnv_host_mutex_trylock(&p->kernel_guard))return FNV_CPU_BUSY;}else fnv_host_mutex_lock(&p->kernel_guard);
         for(uint32_t i=0;i<p->config.kernel_handle_capacity;++i){s.live_handles+=p->handles[i].live!=0;
             s.remaining_creations+=p->kernel_generation_max-p->handles[i].generation;}
         s.total_creations=p->kernel_creations;s.retired_slots=p->kernel_retired;s.generation_limit=p->kernel_generation_max;
@@ -116,6 +116,7 @@ enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *p,struc
         fnv_host_mutex_unlock(&p->kernel_guard);}
     *out=s;return FNV_CPU_OK;
 }
+enum fnv_cpu_result fnv_windows_handle_stats(struct fnv_windows_process *p,struct fnv_windows_handle_stats *out){return fnv_windows_handle_stats_snapshot(p,out,0);}
 /* Names are isolated to this guest process, never the host OS namespace.
  * A/W ASCII names compare byte-for-byte; Local maps to the default session.
  * Other code pages/private namespaces are explicit unsupported boundaries. */

@@ -7,9 +7,11 @@
 #include "windows_thread.h"
 #include "windows_system.h"
 #include "windows_profiles.h"
+#include "windows_diagnostics.h"
 #include "pe_tls.h"
 #include "guest_memory.h"
 #include "host_mutex.h"
+#include "host_mutex_try.h"
 #include "host_condition.h"
 #include "host_clock.h"
 #include "host_thread.h"
@@ -565,4 +567,27 @@ enum fnv_cpu_result fnv_windows_thread_detach(void) {
         *link=current.next;memset(&current,0,sizeof(current));
     }
     unlock(p);return result;
+}
+
+enum fnv_cpu_result fnv_windows_try_diagnostics(struct fnv_windows_process *p,struct fnv_windows_diagnostics *out){
+    if(!p || !out)return FNV_CPU_INVALID;
+    struct fnv_windows_diagnostics s={0};
+    if(fnv_windows_file_stats_snapshot(p,&s.files,1)==FNV_CPU_OK)s.available|=FNV_DIAG_FILES;
+    if(fnv_windows_heap_stats_snapshot(p,&s.heaps,1)==FNV_CPU_OK)s.available|=FNV_DIAG_HEAPS;
+    if(fnv_windows_handle_stats_snapshot(p,&s.handles,1)==FNV_CPU_OK)s.available|=FNV_DIAG_HANDLES;
+    if(fnv_windows_sync_stats_snapshot(p,&s.sync,1)==FNV_CPU_OK)s.available|=FNV_DIAG_SYNC;
+    if(fnv_windows_worker_stats_snapshot(p,&s.workers,1)==FNV_CPU_OK)s.available|=FNV_DIAG_WORKERS;
+    *out=s;return FNV_CPU_OK;
+}
+
+int fnv_windows_try_debug_name(char out[128]){
+    struct fnv_windows_process *p=current.process;if(!p || !out)return 0;
+    if(managed_current){
+        if(!fnv_host_mutex_trylock(&p->worker_guard))return 0;
+        memcpy(out,managed_current->debug_name,128);fnv_host_mutex_unlock(&p->worker_guard);
+    }else {
+        if(atomic_flag_test_and_set_explicit(&p->guard,memory_order_acquire))return 0;
+        memcpy(out,current.debug_name,128);unlock(p);
+    }
+    return 1;
 }

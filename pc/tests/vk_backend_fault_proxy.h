@@ -1,3 +1,5 @@
+#include "d3d9_vk_progress.h"
+static struct fnv_vk_backend *snapshot_watch;static unsigned snapshot_busy_checks;
 /* Test-only dispatch proxy. Real Vulkan handles/work; deterministic injected
  * API failures verify rollback and lifetime without requiring driver faults. */
 static PFN_vkGetInstanceProcAddr original_gpa;
@@ -82,6 +84,14 @@ static VKAPI_ATTR VkResult VKAPI_CALL proxy_map(VkDevice d,VkDeviceMemory h,VkDe
     if(fail_map){fail_map--;return VK_ERROR_OUT_OF_HOST_MEMORY;}return original_map(d,h,offset,size,flags,out);
 }
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_wait(VkDevice d,uint32_t count,const VkFence *fences,VkBool32 all,uint64_t timeout){
+    if(snapshot_watch){
+        struct fnv_vk_stats stats,saved;struct fnv_vk_pipeline_metrics metrics,kept;
+        memset(&stats,0xa5,sizeof(stats));saved=stats;memset(&metrics,0x5a,sizeof(metrics));kept=metrics;
+        assert(fnv_vk_backend_try_snapshot(snapshot_watch,&stats,&metrics)==FNV_VK_BUSY);
+        assert(!memcmp(&stats,&saved,sizeof(stats)) && !memcmp(&metrics,&kept,sizeof(metrics)));
+        struct fnv_vk_progress progress;assert(!fnv_vk_backend_progress(snapshot_watch,&progress));
+        assert(progress.phase==FNV_VK_PHASE_FENCE && progress.wait_calls);snapshot_busy_checks++;
+    }
     if(timeout_fence){timeout_fence--;return VK_TIMEOUT;}return original_wait(d,count,fences,all,timeout);
 }
 static VKAPI_ATTR VkResult VKAPI_CALL proxy_submit(VkQueue q,uint32_t count,const VkSubmitInfo *info,VkFence fence){

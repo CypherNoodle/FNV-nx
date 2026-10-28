@@ -68,17 +68,18 @@ static uint32_t present_impl(struct fnv_vk_backend *d,uint64_t timeout,int block
     if(f->acquire_pending){
         /* A render fence proves consumption of the semaphore, not the host
          * acquisition fence signal. Observe that fence before resetting it. */
-        hr=result(d,d->v.WaitForFences(d->device,1,&f->acquire_fence,VK_TRUE,timeout));if(hr)goto done;
+        hr=result(d,tracked_wait(d,1,&f->acquire_fence,VK_TRUE,timeout));if(hr)goto done;
         hr=result(d,d->v.ResetFences(d->device,1,&f->acquire_fence));if(hr){d->lost=1;goto done;}f->acquire_pending=0;
     }
-    uint32_t index=UINT32_MAX;VkResult r=d->v.AcquireNextImageKHR(d->device,d->wsi.chain,timeout,f->acquired,f->acquire_fence,&index);
+    unsigned acquire_phase=gpu_phase(d,FNV_VK_PHASE_ACQUIRE);
+    uint32_t index=UINT32_MAX;VkResult r=d->v.AcquireNextImageKHR(d->device,d->wsi.chain,timeout,f->acquired,f->acquire_fence,&index);(void)gpu_phase(d,acquire_phase);
     if(r!=VK_SUCCESS && r!=VK_SUBOPTIMAL_KHR){if(r==VK_TIMEOUT || r==VK_NOT_READY)d->wsi.timeouts++;hr=result(d,r);goto done;}
     f->acquire_pending=1;
     if(index>=d->wsi.count){d->lost=1;hr=FNV_VK_LOST;goto done;}
     struct wsi_image *image=d->wsi.images+index;
     /* Acquisition permits reuse of the image semaphore only after its wait.
      * Wait for the maintenance fence separately before reusing that fence. */
-    if(image->pending){r=d->v.WaitForFences(d->device,1,&image->presented,VK_TRUE,timeout);
+    if(image->pending){r=tracked_wait(d,1,&image->presented,VK_TRUE,timeout);
         if(r){d->lost=1;(void)result(d,r);hr=FNV_VK_LOST;goto done;}
         r=d->v.ResetFences(d->device,1,&image->presented);if(r){d->lost=1;hr=result(d,r);goto done;}image->pending=0;}
     hr=begin_frame(d,&f);if(hr){d->lost=1;goto done;}
@@ -96,12 +97,13 @@ static uint32_t present_impl(struct fnv_vk_backend *d,uint64_t timeout,int block
     VkPipelineStageFlags stage=VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo submit={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&f->acquired,.pWaitDstStageMask=&stage,
         .commandBufferCount=1,.pCommandBuffers=&f->cmd,.signalSemaphoreCount=1,.pSignalSemaphores=&image->ready};
-    d->queue_touched=1;hr=result(d,d->v.QueueSubmit(d->queue,1,&submit,f->fence));if(hr){d->lost=1;goto done;}
+    d->queue_touched=1;hr=result(d,tracked_submit(d,&submit,f->fence));if(hr){d->lost=1;goto done;}
     f->pending=1;d->submissions++;
     VkSwapchainPresentFenceInfoEXT fence={.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT,.swapchainCount=1,.pFences=&image->presented};
     VkPresentInfoKHR present={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.pNext=&fence,.waitSemaphoreCount=1,.pWaitSemaphores=&image->ready,
         .swapchainCount=1,.pSwapchains=&d->wsi.chain,.pImageIndices=&index};
-    r=d->v.QueuePresentKHR(d->queue,&present);
+    unsigned present_phase=gpu_phase(d,FNV_VK_PHASE_PRESENT);
+    r=d->v.QueuePresentKHR(d->queue,&present);(void)gpu_phase(d,present_phase);
     /* Error may have enqueued the wait. Keep the present fence/context even
      * for uncertain completion; teardown may return BUSY until signaled. */
     image->pending=1;

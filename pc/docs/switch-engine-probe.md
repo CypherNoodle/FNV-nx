@@ -1,5 +1,15 @@
 # Private captured-PC engine NRO: hw01
 
+## hw14 nonblocking loading diagnostics
+
+HW13 fixes the menu setting stop on hardware, but new-game loading remains
+stopped after skipping the movie. Pipeline creation was only 3.1 seconds of the
+450-second observed session. HW14 keeps statistics reads from blocking on the
+renderer or Windows providers and records active render phases, fence waits and
+submit host times. See [the hardware findings and test procedure](engine-hw13-loading.md).
+This is a diagnostic update, not a claimed loading or FPS fix.
+
+
 ## hw13 profile writes and pipeline compiler reuse
 
 HW12 reaches menu options on hardware, but a setting invokes an unimplemented

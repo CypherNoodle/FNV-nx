@@ -24,16 +24,17 @@ static int sync_thread_idle(struct fnv_windows_process *p,uint32_t id){
     for(uint32_t i=0;i<p->config.critical_section_capacity;++i)if(p->sections[i].owner==id){idle=0;break;}
     fnv_host_mutex_unlock(&p->sync_guard);return idle;
 }
-enum fnv_cpu_result fnv_windows_sync_stats(struct fnv_windows_process *p,struct fnv_windows_sync_stats *out){
+static enum fnv_cpu_result fnv_windows_sync_stats_snapshot(struct fnv_windows_process *p,struct fnv_windows_sync_stats *out,int nonblocking){
     if(!p || !out)return FNV_CPU_INVALID;
     struct fnv_windows_sync_stats s={0};
-    if(p->sections){fnv_host_mutex_lock(&p->sync_guard);
+    if(p->sections){if(nonblocking){if(!fnv_host_mutex_trylock(&p->sync_guard))return FNV_CPU_BUSY;}else fnv_host_mutex_lock(&p->sync_guard);
         for(uint32_t i=0;i<p->config.critical_section_capacity;++i){struct critical_section *c=p->sections+i;
             s.live_sections+=c->address!=0;s.owned_sections+=c->owner!=0;s.waiting_threads+=c->waiters;}
         s.blocking_waits=p->sync_waits;s.wakeups=p->sync_wakes;s.try_failures=p->sync_try_failures;
         fnv_host_mutex_unlock(&p->sync_guard);}
     *out=s;return FNV_CPU_OK;
 }
+enum fnv_cpu_result fnv_windows_sync_stats(struct fnv_windows_process *p,struct fnv_windows_sync_stats *out){return fnv_windows_sync_stats_snapshot(p,out,0);}
 static void sync_invalid(const char *text,uint32_t address){recomp_unimpl(text,address);abort();}
 static unsigned char *sync_pointer(struct fnv_windows_process *p,uint32_t address,uint32_t bytes){
     if(!address || (address&3) || !inside(&p->config,address,bytes))sync_invalid("Windows sync pointer unavailable",address);

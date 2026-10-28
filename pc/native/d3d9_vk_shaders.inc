@@ -79,7 +79,7 @@ static uint32_t create_shader(void *ctx,enum fnv_d3d9_stage stage,const void *co
     if(resource_count(d)>=d->config.resource_capacity){hr=FNV_VK_OOM;goto done;}
     struct shader_resource *s=NULL;for(uint32_t i=0;i<d->config.resource_capacity;++i)if(!d->shaders[i].id){s=d->shaders+i;break;}
     VkShaderModuleCreateInfo ci={.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,.codeSize=entry->spirv_bytes,.pCode=entry->spirv};
-    VkShaderModule module=VK_NULL_HANDLE;hr=entry->spirv_bytes?result(d,d->v.CreateShaderModule(d->device,&ci,NULL,&module)):0;if(hr)goto done;
+    VkShaderModule module=VK_NULL_HANDLE;hr=entry->spirv_bytes?result(d,tracked_shader(d,&ci,&module)):0;if(hr)goto done;
     *s=(struct shader_resource){.id=++d->next_id,.refs=1,.entry=entry,.module=module};d->device_refs++;*out=s->id;
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }

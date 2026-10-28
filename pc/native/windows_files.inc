@@ -224,11 +224,12 @@ static void file_cancel_open(struct fnv_windows_process *p,struct file_slot *f){
     uint32_t i=(uint32_t)(f-p->files);if(p->file_tail!=UINT32_MAX)p->files[p->file_tail].next=i;else p->file_free=i;
     p->file_tail=i;fnv_host_mutex_unlock(&p->files_guard);
 }
-enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *p,struct fnv_windows_file_stats *out){
+static enum fnv_cpu_result fnv_windows_file_stats_snapshot(struct fnv_windows_process *p,struct fnv_windows_file_stats *out,int nonblocking){
     if(!p || !out)return FNV_CPU_INVALID;
-    struct fnv_windows_file_stats s={0};if(p->files){fnv_host_mutex_lock(&p->files_guard);s=p->file_stats;fnv_host_mutex_unlock(&p->files_guard);}
+    struct fnv_windows_file_stats s={0};if(p->files){if(nonblocking){if(!fnv_host_mutex_trylock(&p->files_guard))return FNV_CPU_BUSY;}else fnv_host_mutex_lock(&p->files_guard);s=p->file_stats;fnv_host_mutex_unlock(&p->files_guard);}
     *out=s;return FNV_CPU_OK;
 }
+enum fnv_cpu_result fnv_windows_file_stats(struct fnv_windows_process *p,struct fnv_windows_file_stats *out){return fnv_windows_file_stats_snapshot(p,out,0);}
 static void file_create(int wide){
     uint32_t at=fnv_cpu_argument_u32(0),access=fnv_cpu_argument_u32(1),share=fnv_cpu_argument_u32(2),security=fnv_cpu_argument_u32(3);
     uint32_t disposition=fnv_cpu_argument_u32(4),flags=fnv_cpu_argument_u32(5),template=fnv_cpu_argument_u32(6);

@@ -10,6 +10,6 @@ if __name__=='__main__':
     shared.NAMES=['GetPrivateProfileIntA','GetPrivateProfileIntW','GetLastError','SetLastError','GetPrivateProfileStringA','WritePrivateProfileStringA']
     shared.ARGS=[4,4,0,1,6,4]
     shared.test(p.parse_args(),host_source='windows_profiles_host.c',
-                extra_inputs=(Path(__file__).resolve(),*[Path(__file__).resolve().parents[1]/'native'/n for n in ('windows_profiles.h','windows_profiles.inc','windows_system.h')]),
+                extra_inputs=(Path(__file__).resolve(),*[Path(__file__).resolve().parents[1]/'native'/n for n in ('windows_profiles.h','windows_profiles.inc','windows_system.h','windows_diagnostics.h','host_mutex_try.h')]),
                 strict_modes=('--strict-traversal','--strict-absolute','--strict-encoding','--strict-pointer','--strict-long-line'),
                 wrapper_stride=48,linker_options=('-Wl,--stack,67108864',))
