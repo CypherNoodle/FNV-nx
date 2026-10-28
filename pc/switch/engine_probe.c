@@ -439,7 +439,7 @@ int main(void) {
             if(diagnostics.available&FNV_DIAG_FILES)report("IO reads=%llu bytes=%llu read_ms=%llu wait_ms=%llu errors=%llu opens=%llu\n",(unsigned long long)diagnostics.files.reads,(unsigned long long)diagnostics.files.read_bytes,(unsigned long long)(diagnostics.files.read_ns/1000000),(unsigned long long)(diagnostics.files.io_wait_ns/1000000),(unsigned long long)diagnostics.files.read_errors,(unsigned long long)diagnostics.files.opens);
             if(diagnostics.available&FNV_DIAG_HEAPS)report("Heap blocks=%lu lookup_steps=%llu alloc_steps=%llu\n",(unsigned long)diagnostics.heaps.live_blocks,(unsigned long long)diagnostics.heaps.lookup_steps,(unsigned long long)diagnostics.heaps.allocation_steps);
             if(diagnostics.available&FNV_DIAG_HANDLES)report("Wait handles=%lu timeouts=%llu\n",(unsigned long)diagnostics.handles.waiting_threads,(unsigned long long)diagnostics.handles.timeouts);
-            if(diagnostics.available&FNV_DIAG_SYNC)report("Wait sections=%lu\n",(unsigned long)diagnostics.sync.waiting_threads);
+            if(diagnostics.available&FNV_DIAG_SYNC)report("Wait sections=%lu live=%lu capacity=%lu\n",(unsigned long)diagnostics.sync.waiting_threads,(unsigned long)diagnostics.sync.live_sections,(unsigned long)plan->process.critical_section_capacity);
             report("Input pad_down_seen=%016llX\n",(unsigned long long)seen_buttons);last=now;
         }
         fnv_engine_watchdog_stage(FNV_MON_SLEEP);svcSleepThread(8000000);

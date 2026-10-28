@@ -19,7 +19,7 @@ int fnv_engine_process_plan_create(uint32_t base,uint32_t image_bytes,
     c->heap_capacity=65536;c->private_heap_reserve=16u<<20;c->private_heap_limit=8;
     c->parameters_address=base+r[FNV_ENGINE_PARAMETERS].offset;c->parameters_bytes=r[FNV_ENGINE_PARAMETERS].bytes;
     c->command_line="FalloutNV.exe";c->image_path="FalloutNV.exe";
-    c->kernel_handle_capacity=1024;c->critical_section_capacity=256;
+    c->kernel_handle_capacity=1024;c->critical_section_capacity=4096;
     c->file_root="sdmc:/switch/FNV-nx";c->file_handle_capacity=128;
     c->worker_address=base+r[FNV_ENGINE_WORKERS].offset;c->worker_bytes=r[FNV_ENGINE_WORKERS].bytes;
     c->worker_capacity=p.layout.worker_capacity;c->worker_stack_bytes=p.layout.worker_stack_bytes;

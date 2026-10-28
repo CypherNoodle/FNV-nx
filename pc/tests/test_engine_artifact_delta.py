@@ -15,9 +15,9 @@ def run(a):
     # No rejected recipe may reach compilation or packaging.
     def forbidden(*args,**kwargs):raise AssertionError('Rejected recipe reached packaging')
     tool.package=forbidden
-    def reject(name,modified,expected):
+    def reject(name,modified,expected,**extra):
         p=out/(name+'.json');p.write_text(json.dumps(modified))
-        try:tool.run(SimpleNamespace(recipe=p,output=out/name))
+        try:tool.run(SimpleNamespace(recipe=p,output=out/name,**extra))
         except ValueError as e:
             if expected not in str(e):raise
         else:raise AssertionError('Invalid recipe accepted: '+name)
@@ -32,8 +32,10 @@ def run(a):
     reject('unexpected-object',{**recipe,'x87_core':str(core)},'Only own x87_extended.o may differ')
     old['objects'][0]['sha256']='0'*64;core2=out/'bad-core-proof.json';core2.write_text(json.dumps(old))
     reject('bad-object-digest',{**recipe,'x87_core':str(core2)},'Changed artifact')
-    (out/'validation.json').write_text(json.dumps(dict(status='PASS',cases=3,compilation_reached=False))+'\n')
-    print('PASS: changed baseline, unexpected replacement and bad object digest rejected before packaging')
+    reject('unsupported-entry',recipe,'Unsupported entry source delta',entry_source_delta=['../engine_probe.c'])
+    reject('duplicate-entry',recipe,'Duplicate entry source delta',entry_source_delta=['engine_probe.c','engine_probe.c'])
+    (out/'validation.json').write_text(json.dumps(dict(status='PASS',cases=5,compilation_reached=False))+'\n')
+    print('PASS: changed baseline, unexpected replacement, bad digest and unsupported/duplicate entry deltas rejected before packaging')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)

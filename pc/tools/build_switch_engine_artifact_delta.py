@@ -86,6 +86,11 @@ def run(a):
         exe=exe,capture=capture,catalog=catalog,programs=programs,fixed=fixed,nx=nx,port=port,cc=cc,nm=nm,
         readelf=readelf,elf2nro=elf2nro,nacptool=nacptool,icon=icon,archives=archives,mesa=mesa,
         frozen=frozen,original_stages=original_stages,catalog_codes=catalog_codes,pin=pin)
+    declared=getattr(a,'entry_source_delta',None) or []
+    if len(declared)!=len(set(declared)):raise ValueError('Duplicate entry source delta')
+    allowed={'engine_process_plan.c','engine_probe.c'}
+    if any(name not in allowed for name in declared):raise ValueError('Unsupported entry source delta')
+    declared_paths={str((pc/'switch'/name).resolve()) for name in declared};entry_deltas={}
     # Recreate the delivered binary before admitting any diagnostic change.
     if getattr(a,'reuse_baseline',False):
         baseline_proof=pin(cfg.baseline_output/'validation.json')
@@ -96,7 +101,12 @@ def run(a):
         # Python tooling may evolve; retained compiled inputs and all sources
         # read by the compiler/linker must still match the recovered baseline.
         for name,digest in baseline['source_sha256'].items():
-            if Path(name).suffix in ('.c','.h','.inc','.a','.o','.specs','.ld'):pin(name,digest)
+            if name in declared_paths:
+                current_digest=sha(pin(name))
+                if current_digest==digest:raise ValueError('Declared entry source did not change')
+                entry_deltas[name]={'baseline_sha256':digest,'compiled_sha256':current_digest}
+            elif Path(name).suffix in ('.c','.h','.inc','.a','.o','.specs','.ld'):pin(name,digest)
+        if set(entry_deltas)!=declared_paths:raise ValueError('Entry delta lacks baseline provenance')
     else:
         if cfg.baseline_output.exists():raise ValueError('Baseline recovery requires its original, absent build directory')
         baseline_cfg=SimpleNamespace(**vars(cfg),output=cfg.baseline_output,hardware_revision='hw15',experimental_caps=True)
@@ -147,12 +157,13 @@ def run(a):
         context['cpu']={**cpu,'tail_optimized_units':cpu.get('tail_optimized_units',0)+1}
     partial=relink(cpu_rsp,cpu['runtime_object'],None,'cpu-delta',replacements)
     revision=getattr(a,'hardware_revision','hw16')
-    if revision not in ('hw16','hw17'):raise ValueError('Invalid artifact diagnostic revision')
+    if revision not in ('hw16','hw17','hw18'):raise ValueError('Invalid artifact diagnostic revision')
     delta_cfg=SimpleNamespace(**vars(cfg),output=out/'delta',hardware_revision=revision,experimental_caps=True)
     result=package(delta_cfg,partial=partial,**context)
     result.update(admission='exact-nro-baseline-artifact-delta-v1',fresh_historical_source_audit=False,
         baseline_nro_sha256=sha(base),baseline_elf_sha256=baseline['elf_sha256'],changed_native_objects=changed,
         replacement_core_sha256=sha(cfg.x87_core),tail_optimization_proof_sha256=sha(tail) if tail else None,
+        own_entry_source_deltas=entry_deltas,
         gameplay_fix_hardware_verified=False)
     (out/'delta/validation.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:result[k] for k in ('status','build','nro_sha256','elf_sha256','admission')}))
@@ -162,5 +173,6 @@ if __name__=='__main__':
     p.add_argument('--recipe',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--reuse-baseline',action='store_true')
     p.add_argument('--tail-proof',type=Path)
-    p.add_argument('--hardware-revision',choices=('hw16','hw17'),default='hw16')
+    p.add_argument('--hardware-revision',choices=('hw16','hw17','hw18'),default='hw16')
+    p.add_argument('--entry-source-delta',action='append',choices=('engine_process_plan.c','engine_probe.c'))
     run(p.parse_args())
