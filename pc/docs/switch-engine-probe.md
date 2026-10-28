@@ -1,5 +1,14 @@
 # Private captured-PC engine NRO: hw01
 
+## hw15 independent stall observer
+
+HW14's normal monitor stops around 240 seconds while other threads still log.
+HW15 marks remaining host polling stages, removes repeated NWindow/VI queries,
+updates audio focus on transitions, and adds a separate observer/log with bounded
+native context capture. See [watchdog behavior and limits](engine-hw14-watchdog.md).
+Return normal, crash and watchdog logs. Loading and FPS are not claimed fixed.
+
+
 ## hw14 nonblocking loading diagnostics
 
 HW13 fixes the menu setting stop on hardware, but new-game loading remains

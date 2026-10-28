@@ -15,6 +15,7 @@
 #include "engine_process_plan.h"
 #include "engine_movie_io.h"
 #include "engine_crash.h"
+#include "engine_watchdog.h"
 #include "windows_memory.h"
 #include "windows_modules.h"
 #include "windows_user32.h"
@@ -72,6 +73,7 @@ static struct fnv_horizon_pad *controller;
 static struct fnv_horizon_audio *audio;
 static struct fnv_dsound8 *sound;
 static struct fnv_vk_backend *graphics;
+struct fnv_vk_backend *fnv_engine_watchdog_renderer(void){return graphics;}
 static struct fnv_d3d9_com *graphics_com;
 static struct fnv_display_resolution resolution;
 static unsigned char adapter[1104];
@@ -369,13 +371,18 @@ static void guest_main(void *unused) {
 }
 static int poll_input(struct fnv_di_horizon_poll *poll) {
     HidKeyboardState keyboard={0};HidMouseState mouse[17];struct fnv_di_snapshot snap={0};
-    size_t nk=hidGetKeyboardStates(&keyboard,1),nm=hidGetMouseStates(mouse,17);
+    fnv_engine_watchdog_stage(FNV_MON_KEYBOARD);
+    size_t nk=hidGetKeyboardStates(&keyboard,1);fnv_engine_watchdog_stage(FNV_MON_MOUSE);size_t nm=hidGetMouseStates(mouse,17);
     if(nk && fnv_di_usb_keyboard(keyboard.keys,keyboard.modifiers,&snap))return 0;
     struct fnv_di_mouse_sample samples[17];for(size_t i=0;i<nm;i++)samples[i]=(struct fnv_di_mouse_sample){mouse[i].sampling_number,mouse[i].delta_x,mouse[i].delta_y,mouse[i].wheel_delta_y,mouse[i].buttons};
     if(!fnv_di_collect_mouse(samples,(unsigned)nm,poll,&snap))return 0;
     int focused=appletGetFocusState()==AppletFocusState_InFocus;
     if(!focused)memset(&snap,0,sizeof(snap));
-    return fnv_dinput8_update(dinput,&snap)==FNV_CPU_OK && fnv_user32_update_di_snapshot(user32,&snap,focused)==FNV_CPU_OK && fnv_dsound8_set_focus(sound,focused)==FNV_CPU_OK && fnv_horizon_pad_poll(controller)==FNV_CPU_OK;
+    fnv_engine_watchdog_stage(FNV_MON_DINPUT);if(fnv_dinput8_update(dinput,&snap)!=FNV_CPU_OK)return 0;
+    fnv_engine_watchdog_stage(FNV_MON_USER32);if(fnv_user32_update_di_snapshot(user32,&snap,focused)!=FNV_CPU_OK)return 0;
+    static int last_focus=-1;
+    if(last_focus!=focused){fnv_engine_watchdog_stage(FNV_MON_SOUND);if(fnv_dsound8_set_focus(sound,focused)!=FNV_CPU_OK)return 0;last_focus=focused;}
+    fnv_engine_watchdog_stage(FNV_MON_CONTROLLER);return fnv_horizon_pad_poll(controller)==FNV_CPU_OK;
 }
 static void request_stop(const char *reason) {
     if(atomic_exchange(&stop_requested,1))return;
@@ -394,21 +401,27 @@ int main(void) {
     if(!initialize()){report("Initialization failed; no guest code executed\n");fflush(log_file);svcSleepThread(2000000000ll);svcExitProcess();}
     PadState exit_pad;padInitializeDefault(&exit_pad);fnv_host_thread thread;
     if(!fnv_host_thread_create(&thread,guest_main,NULL,4u<<20)){report("Cannot create engine host thread\n");svcExitProcess();}
+    if(!fnv_engine_watchdog_start(threadGetCurHandle(),thread.thread.handle)){report("Cannot start independent watchdog\n");svcExitProcess();}
     struct fnv_di_horizon_poll poll={0};uint64_t start=armGetSystemTick(),last=start,stopping=0,seen_buttons=0;unsigned exit_hold=0;
     while(!atomic_load(&done)) {
-        if(!appletMainLoop())request_stop("applet exit");
-        padUpdate(&exit_pad);u64 buttons=padGetButtons(&exit_pad),combo=HidNpadButton_L|HidNpadButton_R|HidNpadButton_Minus;
+        fnv_engine_watchdog_stage(FNV_MON_APPLET);if(!appletMainLoop())request_stop("applet exit");
+        fnv_engine_watchdog_stage(FNV_MON_PAD);padUpdate(&exit_pad);u64 buttons=padGetButtons(&exit_pad),combo=HidNpadButton_L|HidNpadButton_R|HidNpadButton_Minus;
         seen_buttons|=padGetButtonsDown(&exit_pad);
         if((buttons&combo)==combo){if(++exit_hold>=125)request_stop("user L+R+Minus");}else exit_hold=0;
         if(!poll_input(&poll))request_stop("input backend failure");
         uint32_t audio_error=fnv_horizon_audio_error(audio);if(audio_error){report("Audio error=%lu\n",(unsigned long)audio_error);request_stop("audout failure");}
-        struct fnv_display_resolution current;if(!fnv_display_resolution_horizon(nwindowGetDefault(),&current) || fnv_display_resolution_changed(&resolution,&current))request_stop("display changed; restart diagnostic");
+        /* Prepared NWindow geometry is immutable during this diagnostic.
+         * Avoid VI IPC/NWindow locking every 8 ms; restart on dock-mode change. */
+        fnv_engine_watchdog_stage(FNV_MON_DISPLAY);
+        if((uint32_t)appletGetOperationMode()!=resolution.mode)request_stop("display mode changed; restart diagnostic");
         uint64_t now=armGetSystemTick();
+        fnv_engine_watchdog_stage(FNV_MON_STOP);
         if(atomic_load(&stop_requested)) {
             if(!stopping)stopping=now;
             if(armTicksToNs(now-stopping)>=5000000000ull){report("Guest did not unwind within 5s; OS process exit, backing not freed\n");svcExitProcess();}
         }
         if(armTicksToNs(now-last)>=10000000000ull) {
+            fnv_engine_watchdog_stage(FNV_MON_STATS);
             uint64_t elapsed=armTicksToNs(now-start)/1000000;
             struct fnv_vk_progress progress;fnv_vk_backend_progress(graphics,&progress);
             const char *phases[]={"idle","draw","geometry","texture","allocate","shader","pipeline","fence","submit","acquire","present"};
@@ -429,7 +442,7 @@ int main(void) {
             if(diagnostics.available&FNV_DIAG_SYNC)report("Wait sections=%lu\n",(unsigned long)diagnostics.sync.waiting_threads);
             report("Input pad_down_seen=%016llX\n",(unsigned long long)seen_buttons);last=now;
         }
-        svcSleepThread(8000000);
+        fnv_engine_watchdog_stage(FNV_MON_SLEEP);svcSleepThread(8000000);
     }
     (void)fnv_host_thread_join(&thread);request_stop("main thread completed");
     for(unsigned i=0;i<500;i++){struct fnv_windows_worker_stats workers;if(fnv_windows_worker_stats(process,&workers)!=FNV_CPU_OK || !workers.active)break;svcSleepThread(10000000);}

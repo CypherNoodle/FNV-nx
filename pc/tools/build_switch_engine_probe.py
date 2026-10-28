@@ -96,7 +96,7 @@ def build(a):
     mesa=[Path(name) for name in platform['source_sha256'] if Path(name).name=='libvulkan.a']
     if len(mesa)!=1:raise ValueError('Ambiguous static Mesa archive')
     archives=[pin(r['path'],r['sha256']) for r in runtime['archives'] if Path(r['path']).name not in ('libc.a','libm.a','libgcc.a','libsysbase.a')]
-    sources=[pc/'switch'/name for name in ('engine_probe.c','engine_layout.c','engine_process_plan.c','engine_movie_io.c','engine_crash.c')]
+    sources=[pc/'switch'/name for name in ('engine_probe.c','engine_layout.c','engine_process_plan.c','engine_movie_io.c','engine_crash.c','engine_watchdog.c')]
     for path in (*sources,*sorted((pc/'switch').glob('engine_*.h')),Path(__file__),a.profile,a.platform_validation,a.bundle_validation):pin(path)
     out.mkdir(parents=True);rom=out/'romfs';rom.mkdir()
     shutil.copyfile(capture,rom/'captured-text-data.bin');shutil.copyfile(catalog,rom/'catalog.sdp')
