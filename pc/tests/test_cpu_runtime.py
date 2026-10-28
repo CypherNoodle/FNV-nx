@@ -21,7 +21,7 @@ def test(sdk,deps,cc,output,game=None):
     from run_aot_analysis import sdk_identity
     if output.exists():raise ValueError('Use a fresh private validation directory')
     output.mkdir(parents=True);sdk_hash=sdk_identity(sdk)
-    own=[pc/'native/cpu_runtime.c',pc/'native/cpu_runtime.h',pc/'native/fnv_sdk_runtime.h',pc/'native/pe_image.c',pc/'native/pe_image.h',pc/'tests/cpu_runtime_host.c',Path(__file__).resolve(),pc/'tests/pe_fixture.py']
+    own=[pc/'native/cpu_runtime.c',pc/'native/cpu_runtime.h',pc/'native/cpu_native_observer.h',pc/'native/fnv_sdk_runtime.h',pc/'native/pe_image.c',pc/'native/pe_image.h',pc/'tests/cpu_runtime_host.c',Path(__file__).resolve(),pc/'tests/pe_fixture.py']
     identities={p.name:sha(p) for p in own}
     sdk_headers={p:sha(p) for directory in (sdk/'templates/runtime',sdk/'src/kernel') for p in directory.rglob('*.h')}
     game_exe=game/'FalloutNV.exe' if game else None

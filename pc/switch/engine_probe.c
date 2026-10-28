@@ -11,6 +11,7 @@
 #include <string.h>
 #include <strings.h>
 #include "fnv_sdk_runtime.h"
+#include "cpu_native_observer.h"
 #include "engine_process_plan.h"
 #include "engine_movie_io.h"
 #include "engine_crash.h"
@@ -54,6 +55,7 @@
 #define ROOT "sdmc:/switch/FNV-nx"
 #define REQUIRE(expr,label) do{if(!(expr)){report("FAIL %s\n",label);return 0;}}while(0)
 static FILE *log_file;
+static char import_labels[FNV_NATIVE_MAX_IMPORTS][96];
 static fnv_host_mutex log_guard;
 static struct fnv_engine_process_plan *plan;
 static struct fnv_windows_process *process;
@@ -113,6 +115,25 @@ static int identify(const char *path,const char *expected) {
     report("SHA256 %s %s bytes=%llu\n",path,hex,(unsigned long long)total);return !strcmp(hex,expected);
 }
 static uint32_t load32(const unsigned char *p){return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
+/* Each guest owner samples its own stack. Never reads another thread's TLS or
+ * mutates guest state. Native boundaries only: not a CPU utilization profiler. */
+static void sample_native(uint32_t entry){
+    static _Thread_local uint64_t last_tick;
+    uint64_t tick=armGetSystemTick();
+    if(last_tick && armTicksToNs(tick-last_tick)<10000000000ull)return;
+    last_tick=tick;struct fnv_cpu_state s;uint32_t low,high,id;
+    if(fnv_cpu_get_state(&s)!=FNV_CPU_OK)return;
+    fnv_windows_current_stack_bounds(&low,&high,&id);
+    char words[145]={0};size_t used=0;uint32_t sp=s.gpr[4];
+    if(sp>=low && sp<=high && high-sp>=64 && fnv_vm_access(vm,sp,64,0)){
+        const unsigned char *p=fnv_cpu_try_memory(sp,64);
+        if(p)for(unsigned i=0;i<16;i++)used+=(size_t)snprintf(words+used,sizeof(words)-used,"%08lX ",(unsigned long)load32(p+4*i));
+    }
+    const char *label="native-COM";
+    if(entry>=0xfe000000u && entry<0xfe010000u){uint32_t index=(entry-0xfe000000u)/4;if(index<FNV_NATIVE_MAX_IMPORTS)label=import_labels[index];}
+    report("NativeSample thread=%08lX name=%.80s entry=%08lX api=%.95s esp=%08lX ebp=%08lX calls=%llu stack=%s\n",
+        (unsigned long)id,fnv_windows_current_debug_name(),(unsigned long)entry,label,(unsigned long)sp,(unsigned long)s.gpr[5],(unsigned long long)fnv_cpu_icall_count,words);
+}
 static void store32(unsigned char *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(v>>(8*i));}
 static uint32_t graphics_query(void *context,uint32_t kind,const uint32_t *args,uint32_t count,void *out,uint32_t bytes) {
     if(kind==0 && count==6)return fnv_vk_backend_check_format(context,args[3],args[4],args[5]);
@@ -314,6 +335,11 @@ static int initialize(void) {
     REQUIRE(imports && scratch && fnv_native_collect_imports(&image,imports,FNV_NATIVE_MAX_IMPORTS,&count)==FNV_NATIVE_OK && count==FNV_ENGINE_IMPORT_COUNT,"original IAT inventory");
     size_t supported=0;for(size_t i=0;i<count;i++){int found=0;for(size_t j=0;j<all.count;j++)if(import_matches(all.catalog+j,imports+i))found=1;if(found){supported++;continue;}REQUIRE(all.extra<FNV_NATIVE_MAX_IMPORTS,"trap catalog capacity");struct fnv_cpu_export trap={imports[i].dll,imports[i].by_ordinal?NULL:imports[i].name,imports[i].ordinal,imports[i].by_ordinal,fnv_engine_missing_imports[i]};if(!imports[i].by_ordinal && !strcasecmp(imports[i].dll,"user32.dll") && !strcmp(imports[i].name,"MessageBoxA"))trap.function=message_box_a;all.extras[all.extra++]=trap;}
     REQUIRE(fnv_windows_bind_imports(process,&image,scratch,FNV_NATIVE_MAX_IMPORTS,all.extras,all.extra,&bound)==FNV_NATIVE_OK && bound==count,"IAT and static TLS binding");
+    for(size_t i=0;i<count;i++){
+        if(imports[i].by_ordinal)snprintf(import_labels[i],sizeof(import_labels[i]),"%.64s!#%u",imports[i].dll,imports[i].ordinal);
+        else snprintf(import_labels[i],sizeof(import_labels[i]),"%.40s!%.53s",imports[i].dll,imports[i].name);
+    }
+    fnv_cpu_set_native_observer(sample_native);report("Loading diagnostics: native boundary samples and IO/wait counters enabled\n");
     report("Ready entry=%08lX imports=%u/%u trapped=%u programs=%u root=%s\n",(unsigned long)FNV_ENGINE_ENTRY,(unsigned)supported,(unsigned)count,(unsigned)(count-supported),FNV_STARTUP_PROGRAM_COUNT,ROOT);
     free(imports);free(scratch);free(all.catalog);free(all.extras);return 1;
 }
@@ -347,7 +373,7 @@ static void request_stop(const char *reason) {
     struct fnv_cpu_fault fault={0};fault.kind=FNV_CPU_UNIMPLEMENTED;snprintf(fault.text,sizeof(fault.text),"Diagnostic stop: %.70s",reason);fnv_cpu_invalidate(fnv_windows_runtime(process),&fault);
 }
 int main(void) {
-    consoleInit(NULL);printf("FNV PC engine experiment\nPrivate captured-code startup; audio muted.\nHold L + R + Minus to stop.\nSee " ROOT "/fnv-pc-engine-" FNV_ENGINE_HW_TAG ".log\n");consoleUpdate(NULL);
+    consoleInit(NULL);printf("FNV PC engine experiment\nPrivate captured-code startup; audio enabled.\nHold L + R + Minus to stop.\nSee " ROOT "/fnv-pc-engine-" FNV_ENGINE_HW_TAG ".log\n");consoleUpdate(NULL);
     fnv_host_mutex_init(&log_guard);log_file=fopen(ROOT "/fnv-pc-engine-" FNV_ENGINE_HW_TAG ".log","w");
     if(!log_file){printf("Cannot open log in " ROOT "\n");consoleUpdate(NULL);svcSleepThread(3000000000ll);consoleExit(NULL);return 1;}
     uint32_t crash_sink=fnv_engine_crash_prepare(FNV_ENGINE_HW_TAG);report("Native crash sink=%08lX\n",(unsigned long)crash_sink);fnv_engine_crash_phase(1);
@@ -358,10 +384,11 @@ int main(void) {
     if(!initialize()){report("Initialization failed; no guest code executed\n");fflush(log_file);svcSleepThread(2000000000ll);svcExitProcess();}
     PadState exit_pad;padInitializeDefault(&exit_pad);fnv_host_thread thread;
     if(!fnv_host_thread_create(&thread,guest_main,NULL,4u<<20)){report("Cannot create engine host thread\n");svcExitProcess();}
-    struct fnv_di_horizon_poll poll={0};uint64_t start=armGetSystemTick(),last=start,stopping=0;unsigned exit_hold=0;
+    struct fnv_di_horizon_poll poll={0};uint64_t start=armGetSystemTick(),last=start,stopping=0,seen_buttons=0;unsigned exit_hold=0;
     while(!atomic_load(&done)) {
         if(!appletMainLoop())request_stop("applet exit");
         padUpdate(&exit_pad);u64 buttons=padGetButtons(&exit_pad),combo=HidNpadButton_L|HidNpadButton_R|HidNpadButton_Minus;
+        seen_buttons|=padGetButtonsDown(&exit_pad);
         if((buttons&combo)==combo){if(++exit_hold>=125)request_stop("user L+R+Minus");}else exit_hold=0;
         if(!poll_input(&poll))request_stop("input backend failure");
         uint32_t audio_error=fnv_horizon_audio_error(audio);if(audio_error){report("Audio error=%lu\n",(unsigned long)audio_error);request_stop("audout failure");}
@@ -374,6 +401,10 @@ int main(void) {
         if(armTicksToNs(now-last)>=10000000000ull) {
             struct fnv_vk_stats stats;struct fnv_windows_worker_stats workers;struct fnv_vm_counters memory;
             if(!fnv_vk_backend_stats(graphics,&stats) && fnv_windows_worker_stats(process,&workers)==FNV_CPU_OK){fnv_vm_get_counters(vm,&memory);report("Progress elapsed_ms=%llu draws=%llu submissions=%llu presents=%llu workers=%lu/%lu failures=%llu vm_commit=%lu gpu_alloc=%llu\n",(unsigned long long)(armTicksToNs(now-start)/1000000),(unsigned long long)stats.draws,(unsigned long long)stats.submissions,(unsigned long long)stats.presentation_requests,(unsigned long)workers.active,(unsigned long)workers.capacity,(unsigned long long)workers.failures,(unsigned long)memory.committed_bytes,(unsigned long long)stats.allocated_bytes);}last=now;
+            struct fnv_windows_file_stats io;struct fnv_windows_heap_stats heaps;struct fnv_windows_handle_stats handles;struct fnv_windows_sync_stats sync;
+            if(fnv_windows_file_stats(process,&io)==FNV_CPU_OK && fnv_windows_heap_stats(process,&heaps)==FNV_CPU_OK && fnv_windows_handle_stats(process,&handles)==FNV_CPU_OK && fnv_windows_sync_stats(process,&sync)==FNV_CPU_OK)
+                report("Loading IO_reads=%llu bytes=%llu read_ms=%llu io_wait_ms=%llu errors=%llu opens=%llu heap_blocks=%lu lookup_steps=%llu alloc_steps=%llu handle_waiters=%lu timeouts=%llu section_waiters=%lu pad_down_seen=%016llX\n",
+                    (unsigned long long)io.reads,(unsigned long long)io.read_bytes,(unsigned long long)(io.read_ns/1000000),(unsigned long long)(io.io_wait_ns/1000000),(unsigned long long)io.read_errors,(unsigned long long)io.opens,(unsigned long)heaps.live_blocks,(unsigned long long)heaps.lookup_steps,(unsigned long long)heaps.allocation_steps,(unsigned long)handles.waiting_threads,(unsigned long long)handles.timeouts,(unsigned long)sync.waiting_threads,(unsigned long long)seen_buttons);
         }
         svcSleepThread(8000000);
     }

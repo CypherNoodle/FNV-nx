@@ -6,6 +6,7 @@
 #include <sched.h>
 #endif
 #include "cpu_runtime.h"
+#include "cpu_native_observer.h"
 #include "fnv_sdk_runtime.h"
 #ifdef NDEBUG
 #undef NDEBUG
@@ -233,10 +234,17 @@ static void peer_fault(unsigned polling) {
     assert(fnv_cpu_destroy(runtime)==FNV_CPU_OK);ordinal_mode=0;
 }
 static void fatal_signal(int signal_value) { (void)signal_value;_Exit(77); }
+static atomic_uint native_observations;
+static void observe_native(uint32_t entry){
+    struct fnv_cpu_state before,after;assert(entry>=0xfe000000u && !(entry&3));
+    assert(fnv_cpu_get_state(&before)==FNV_CPU_OK && fnv_cpu_get_state(&after)==FNV_CPU_OK);
+    assert(!memcmp(&before,&after,sizeof(before)));atomic_fetch_add(&native_observations,1);
+}
 int main(int argc,char **argv) {
     if(argc==2 && !strcmp(argv[1],"--fatal")){signal(SIGABRT,fatal_signal);recomp_icall_fail_log(0x401888);return 9;}
     assert(argc==2 || argc==3);fixture=argv[1];arena=calloc(1,ARENA);assert(arena);
-    assert(fnv_cpu_execute(SUM,NULL)==FNV_CPU_NOT_ATTACHED);binding_checks();concurrent();
+    fnv_cpu_set_native_observer(observe_native);assert(fnv_cpu_execute(SUM,NULL)==FNV_CPU_NOT_ATTACHED);binding_checks();concurrent();
+    unsigned observed_before_disable=atomic_load(&native_observations);fnv_cpu_set_native_observer(NULL);binding_checks();assert(atomic_load(&native_observations)==observed_before_disable);fnv_cpu_set_native_observer(observe_native);
     fault_case(HALT,0,0,FNV_CPU_UNIMPLEMENTED);
     fault_case(ICALL,0x4019F0,0,FNV_CPU_UNKNOWN_TARGET);fault_case(ICALL,0x1337,0,FNV_CPU_NOT_CODE);
     fault_case(ICALL,0xFE000100u,0,FNV_CPU_UNKNOWN_TARGET);fault_case(ITAIL,0x4019F0,0,FNV_CPU_UNKNOWN_TARGET);
@@ -252,5 +260,6 @@ int main(int argc,char **argv) {
         assert(fnv_cpu_bind_imports(runtime,&image,imports,FNV_NATIVE_MAX_IMPORTS,NULL,0,&real_imports)==FNV_NATIVE_UNRESOLVED);
         assert(!memcmp(before,image.data,image.size));assert(fnv_cpu_destroy(runtime)==FNV_CPU_OK);free(before);
     }
+    assert(atomic_load(&native_observations)>=1000);fnv_cpu_set_native_observer(NULL);
     free(arena);printf("{\"status\":\"PASS\",\"concurrent_calls\":1000,\"guest_fault_cases\":12,\"peer_fault_invalidates_session\":true,\"polling_peer_fault_stops_dispatch\":true,\"diagnostics\":%u,\"real_imports_rejected_atomically\":%zu}\n",diagnostics,real_imports);return 0;
 }

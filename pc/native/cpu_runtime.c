@@ -1,5 +1,6 @@
 #include "fnv_sdk_runtime.h"
 #include "cpu_runtime.h"
+#include "cpu_native_observer.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +37,8 @@ struct fnv_cpu_runtime {
 };
 static struct fnv_cpu_runtime *active;
 static atomic_flag lifecycle=ATOMIC_FLAG_INIT;
+static fnv_cpu_native_observer native_observer;
+void fnv_cpu_set_native_observer(fnv_cpu_native_observer observer){native_observer=observer;}
 int fnv_cpu_is_faulted(const struct fnv_cpu_runtime *r){return !r || atomic_load_explicit(&r->faulted,memory_order_acquire)!=0;}
 void fnv_cpu_invalidate(struct fnv_cpu_runtime *r,const struct fnv_cpu_fault *fault){
     if(!r)return;
@@ -253,6 +256,7 @@ recomp_func_t recomp_lookup_kernel(uint32_t va) {
      * another native call after a peer has failed. Keep the first diagnostic. */
     if(fault_boundary && fnv_cpu_is_faulted(thread_runtime))
         fail(FNV_CPU_PEER_FAULT,va,0,"guest native dispatch stopped after peer fault");
+    if(native_observer)native_observer(va);
     if(va>=FNV_CPU_NATIVE_METHOD_BASE){uint32_t slot=(va-FNV_CPU_NATIVE_METHOD_BASE)/4;
         return slot<thread_runtime->methods_count?thread_runtime->methods[slot]:NULL;}
     uint32_t index=(va-0xFE000000u)/4u;

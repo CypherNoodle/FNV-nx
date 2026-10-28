@@ -1,5 +1,14 @@
 # Private captured-PC engine NRO: hw01
 
+## hw11 loading diagnostics
+
+The user confirms Ranger artwork and music on hw10, but no menu options and no
+response to A/+. The session presents steadily without a native fault. HW11
+adds [loading, wait, heap, input and native-call observations](switch-loading-diagnostics.md)
+to locate the unfinished work. It does not force menu visibility or claim a UI fix.
+Keep the same data and return fnv-pc-engine-hw11.log after up to five minutes.
+
+
 ## hw10 pull-MP3 graph
 
 HW09's actual FilterGraph request cannot be rejected safely: the original game
