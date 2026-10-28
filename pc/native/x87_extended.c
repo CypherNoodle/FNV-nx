@@ -1,5 +1,5 @@
 #include "x87_extended.h"
-#ifdef __SWITCH__
+#if defined(__SWITCH__) && !defined(FNV_X87_THREAD_LOCAL_STATE)
 #include <sys/lock.h>
 #else
 #include <stdatomic.h>
@@ -7,12 +7,18 @@
 #include "platform.h"
 #include "softfloat.h"
 
-/* SoftFloat is built with process-global state for this standalone core.
- * Every access goes through this lock and explicit guest control input.
+/* The default build serializes process-global SoftFloat state. The opt-in
+ * private-state build requires EVERY SoftFloat object to use THREAD_LOCAL.
  * On Horizon use the newlib/libnx mutex: busy waiting can starve a lower
  * priority owner when guest workers fill the application's CPU cores.
  * Do not expose the underlying SoftFloat entry points to guest workers. */
-#ifdef __SWITCH__
+#ifdef FNV_X87_THREAD_LOCAL_STATE
+#ifndef THREAD_LOCAL
+#error "Private SoftFloat state requires THREAD_LOCAL on all core objects"
+#endif
+static void acquire(void) {}
+static void release(void) {}
+#elif defined(__SWITCH__)
 static _LOCK_T guard = __LOCK_INITIALIZER;
 static void acquire(void) { __libc_lock_acquire(&guard); }
 static void release(void) { __libc_lock_release(&guard); }

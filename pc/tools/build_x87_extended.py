@@ -64,6 +64,8 @@ def build(a):
            '-DSOFTFLOAT_FAST_INT64','-DINLINE_LEVEL=5','-DSOFTFLOAT_FAST_DIV64TO32','-DSOFTFLOAT_FAST_DIV32TO16',
            '-Werror=implicit-function-declaration','-I'+str(out),'-I'+str(root/'source/8086'),
            '-I'+str(root/'source/include'),'-I'+str(pc/'native')]
+    private_state=bool(getattr(a,'thread_local_state',False))
+    if private_state:flags.extend(('-DTHREAD_LOCAL=_Thread_local','-DFNV_X87_THREAD_LOCAL_STATE=1'))
     def compile_one(source):
         obj=out/(source.stem+'.o')
         r=subprocess.run([*a.cc,*flags,'-c',str(source),'-o',str(obj)],capture_output=True,text=True)
@@ -74,7 +76,8 @@ def build(a):
         compiled=list(pool.map(compile_one,sources))
     assert all(sha(Path(p))==h for p,h in frozen.items())
     result=dict(status='COMPILED',objects=compiled,source_sha256=frozen,flags=flags,compiler=a.cc,
-                switch_abi=a.switch_abi,transcendental_model=model,runtime_integrated=False,switch_hardware_tested=False)
+                switch_abi=a.switch_abi,transcendental_model=model,thread_local_state=private_state,
+                runtime_integrated=False,switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     (out/'objects.rsp').write_text('\n'.join('"'+i['object'].replace('\\','/')+'"' for i in compiled)+'\n')
     print('COMPILED',len(compiled),'extended-core objects; not linked into game runtime')
@@ -85,5 +88,6 @@ if __name__=='__main__':
     for name in ('softfloat','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True)
     p.add_argument('--switch-abi',action='store_true')
+    p.add_argument('--thread-local-state',action='store_true',help='Compile the whole core with private native-thread SoftFloat state')
     p.add_argument('--transcendental-model',choices=MODELS)
     build(p.parse_args())

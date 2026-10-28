@@ -34,10 +34,22 @@ def run(a):
     reject('bad-object-digest',{**recipe,'x87_core':str(core2)},'Changed artifact')
     reject('unsupported-entry',recipe,'Unsupported entry source delta',entry_source_delta=['../engine_probe.c'])
     reject('duplicate-entry',recipe,'Duplicate entry source delta',entry_source_delta=['engine_probe.c','engine_probe.c'])
-    (out/'validation.json').write_text(json.dumps(dict(status='PASS',cases=5,compilation_reached=False))+'\n')
+    sentinel=out/'unsafe-output/keep.txt';sentinel.parent.mkdir();sentinel.write_text('keep')
+    reject('unsafe-output',recipe,'Fresh output required',replace_output=True)
+    assert sentinel.read_text()=='keep'
+    count=6
+    if getattr(a,'private_core',None):
+        private_recipe={**recipe,'x87_core':str(a.private_core.resolve())}
+        reject('private-unverified',private_recipe,'Private state requires concurrency/TLS validation')
+        bad=json.loads(a.private_proof.read_text());bad['horizon_state_symbols_tls']=0
+        bad_path=out/'bad-private-proof.json';bad_path.write_text(json.dumps(bad))
+        reject('private-bad-proof',private_recipe,'Unverified private-state core',private_state_proof=bad_path)
+        count+=2
+    (out/'validation.json').write_text(json.dumps(dict(status='PASS',cases=count,compilation_reached=False))+'\n')
     print('PASS: changed baseline, unexpected replacement, bad digest and unsupported/duplicate entry deltas rejected before packaging')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--recipe',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--private-core',type=Path);p.add_argument('--private-proof',type=Path)
     run(p.parse_args())

@@ -7,8 +7,10 @@ tail-optimization proof permits replacing one generated unit as well.
 """
 import argparse
 import json
+import re
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 from types import SimpleNamespace
 
@@ -18,11 +20,17 @@ from link_switch_engine_platform import sha
 
 
 def run(a):
-    if a.output.exists():raise ValueError('Fresh output required')
-    out=a.output.resolve();out.mkdir(parents=True)
+    out=a.output.resolve();pc=Path(__file__).resolve().parents[1]
+    if out.exists():
+        expected=pc.parent/'local/pc-engine-current-build';active=pc.parent/'local/pc-engine-active'
+        if not getattr(a,'replace_output',False) or out!=expected.resolve() or a.output.is_symlink():raise ValueError('Fresh output required')
+        preserved=json.loads((active/'validation.json').read_text())
+        if sha(active/'fnv-nx.nro')!=preserved['nro_sha256'] or sha(active/'fnv-nx.elf')!=preserved['elf_sha256']:
+            raise ValueError('Preserve the active NRO and exact ELF before replacing build workspace')
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
     recipe=json.loads(a.recipe.read_text())
     cfg=SimpleNamespace(**{k:Path(v).resolve() for k,v in recipe.items()})
-    pc=Path(__file__).resolve().parents[1]
     frozen={}
     def pin(path,digest=None):
         path=Path(path).resolve();value=sha(path)
@@ -60,7 +68,29 @@ def run(a):
         p=pin(row['object'],row['sha256']);old=old_core.get(p.name)
         if old is None:raise ValueError('Unexpected replacement object')
         if row['sha256']!=old[1]:changed.append(p.name)
-    if changed!=['x87_extended.o']:raise ValueError('Only own x87_extended.o may differ: '+str(changed))
+    private_state=bool(core.get('thread_local_state'))
+    if private_state:
+        private_proof=getattr(a,'private_state_proof',None)
+        if not private_proof:raise ValueError('Private state requires concurrency/TLS validation')
+        private_validation=json.loads(pin(private_proof).read_text())
+        if (private_validation.get('status')!='PASS' or private_validation.get('cases',0)<200000 or
+            private_validation.get('horizon_state_symbols_tls')!=4 or
+            not private_validation.get('global_lock_removed') or not private_validation.get('mixed_global_tls_rejected') or
+            private_validation.get('input_sha256',{}).get(str(cfg.x87_core))!=sha(cfg.x87_core)):
+            raise ValueError('Unverified private-state core')
+        for name,digest in private_validation['input_sha256'].items():pin(name,digest)
+        old_receipts=[Path(n) for n in runtime['source_sha256'] if n.endswith('validation.json') and Path(n).parent==old_core['x87_extended.o'][0].parent]
+        if len(old_receipts)!=1:raise ValueError('Ambiguous baseline SoftFloat receipt')
+        old_receipt=pin(old_receipts[0],runtime['source_sha256'][str(old_receipts[0])]);original_core=json.loads(old_receipt.read_text())
+        old_out=str(old_receipt.parent);new_out=str(cfg.x87_core.parent)
+        normalize=lambda flags,base:[f.replace(base,'<CORE>') for f in flags]
+        if normalize(core['flags'],new_out)!=normalize(original_core['flags'],old_out)+['-DTHREAD_LOCAL=_Thread_local','-DFNV_X87_THREAD_LOCAL_STATE=1']:
+            raise ValueError('Unexpected private-state compiler flags')
+        for name,digest in core['source_sha256'].items():
+            path=Path(name)
+            if path.suffix=='.c' and path!=pc/'native/x87_extended.c' and original_core['source_sha256'].get(name)!=digest:
+                raise ValueError('Private mode changed arithmetic source: '+name)
+    elif changed!=['x87_extended.o']:raise ValueError('Only own x87_extended.o may differ: '+str(changed))
     own_source=pc/'native/x87_extended.c'
     if str(own_source.resolve()) not in core['source_sha256']:raise ValueError('Replacement source not pinned')
     cc=pin(cfg.cc,runtime['source_sha256'][str(cfg.cc)])
@@ -105,6 +135,8 @@ def run(a):
                 current_digest=sha(pin(name))
                 if current_digest==digest:raise ValueError('Declared entry source did not change')
                 entry_deltas[name]={'baseline_sha256':digest,'compiled_sha256':current_digest}
+            elif private_state and Path(name)==own_source:
+                pin(name,core['source_sha256'][name])
             elif Path(name).suffix in ('.c','.h','.inc','.a','.o','.specs','.ld'):pin(name,digest)
         if set(entry_deltas)!=declared_paths:raise ValueError('Entry delta lacks baseline provenance')
     else:
@@ -112,8 +144,9 @@ def run(a):
         baseline_cfg=SimpleNamespace(**vars(cfg),output=cfg.baseline_output,hardware_revision='hw15',experimental_caps=True)
         baseline=package(baseline_cfg,partial=Path(cpu['runtime_object']),**context)
     if baseline['nro_sha256']!=sha(base):raise ValueError('Baseline NRO did not reproduce exactly; no delta admitted')
-    baseline['admission']='exact-nro-artifact-recovery-v1';baseline['fresh_historical_source_audit']=False
-    (cfg.baseline_output/'validation.json').write_text(json.dumps(baseline,indent=2)+'\n')
+    if not getattr(a,'reuse_baseline',False):
+        baseline['admission']='exact-nro-artifact-recovery-v1';baseline['fresh_historical_source_audit']=False
+        (cfg.baseline_output/'validation.json').write_text(json.dumps(baseline,indent=2)+'\n')
     def relink(response,original,expected,name,replacements=None):
         response=pin(response);args=shlex.split(response.read_text())
         prefix=['-r','--wrap=recomp_lookup'] if name.startswith('cpu') else ['-r']
@@ -134,8 +167,9 @@ def run(a):
     native_rsp=cfg.runtime_validation.parent/'runtime-link.rsp';cpu_rsp=cfg.cpu_validation.parent/'link.rsp'
     relink(native_rsp,runtime['runtime_object'],runtime['runtime_sha256'],'native-baseline')
     relink(cpu_rsp,cpu['runtime_object'],cpu['runtime_sha256'],'cpu-baseline')
-    replacement=next(Path(r['object']) for r in core['objects'] if Path(r['object']).name=='x87_extended.o')
-    native=relink(native_rsp,runtime['runtime_object'],None,'native-delta',{str(old_core['x87_extended.o'][0].resolve()):replacement})
+    core_replacements={str(old_core[Path(r['object']).name][0].resolve()):Path(r['object']) for r in core['objects']
+        if Path(r['object']).name in changed}
+    native=relink(native_rsp,runtime['runtime_object'],None,'native-delta',core_replacements)
     replacements={str(Path(runtime['runtime_object']).resolve()):native}
     tail=getattr(a,'tail_proof',None)
     if tail:
@@ -156,14 +190,16 @@ def run(a):
         replacements[str(old)]=pin(proof['object'],proof['object_sha256'])
         context['cpu']={**cpu,'tail_optimized_units':cpu.get('tail_optimized_units',0)+1}
     partial=relink(cpu_rsp,cpu['runtime_object'],None,'cpu-delta',replacements)
-    revision=getattr(a,'hardware_revision','hw16')
-    if revision not in ('hw16','hw17','hw18'):raise ValueError('Invalid artifact diagnostic revision')
+    revision=getattr(a,'hardware_revision','hw18')
+    if not re.fullmatch(r'hw[0-9]{2}',revision):raise ValueError('Invalid artifact diagnostic label')
     delta_cfg=SimpleNamespace(**vars(cfg),output=out/'delta',hardware_revision=revision,experimental_caps=True)
+    context['cpu']={**context['cpu'],'softfloat_thread_local_state':private_state}
     result=package(delta_cfg,partial=partial,**context)
     result.update(admission='exact-nro-baseline-artifact-delta-v1',fresh_historical_source_audit=False,
         baseline_nro_sha256=sha(base),baseline_elf_sha256=baseline['elf_sha256'],changed_native_objects=changed,
         replacement_core_sha256=sha(cfg.x87_core),tail_optimization_proof_sha256=sha(tail) if tail else None,
         own_entry_source_deltas=entry_deltas,
+        softfloat_thread_local_state=private_state,
         gameplay_fix_hardware_verified=False)
     (out/'delta/validation.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:result[k] for k in ('status','build','nro_sha256','elf_sha256','admission')}))
@@ -173,6 +209,8 @@ if __name__=='__main__':
     p.add_argument('--recipe',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--reuse-baseline',action='store_true')
     p.add_argument('--tail-proof',type=Path)
-    p.add_argument('--hardware-revision',choices=('hw16','hw17','hw18'),default='hw16')
+    p.add_argument('--hardware-revision',default='hw18',help='Stable log label; exact builds are identified by hashes')
+    p.add_argument('--private-state-proof',type=Path)
+    p.add_argument('--replace-output',action='store_true',help='Reuse only local/pc-engine-current-build after verifying the preserved active NRO/ELF')
     p.add_argument('--entry-source-delta',action='append',choices=('engine_process_plan.c','engine_probe.c'))
     run(p.parse_args())

@@ -261,6 +261,7 @@ static void message_box_a(void) {
 }
 static int initialize(void) {
     report("FNV PC engine %s: captured-code experiment, cold_boot=0 experimental_caps=%d volume=1 cfg_corrected_units=%u tail_optimized_units=%u\n",FNV_ENGINE_HW_TAG,FNV_ENGINE_EXPERIMENTAL_CAPS,FNV_ENGINE_CFG_CORRECTED_UNITS,FNV_ENGINE_TAIL_OPTIMIZED_UNITS);
+    report("SoftFloat state=%s\n",FNV_ENGINE_X87_THREAD_LOCAL_STATE?"thread-local":"shared-mutex");
     REQUIRE(appletGetAppletType()==AppletType_Application || appletGetAppletType()==AppletType_SystemApplication,"application memory mode (title takeover)");
     REQUIRE(identify(ROOT "/FalloutNV.exe",FNV_ENGINE_EXE_SHA256),"original supported EXE identity");
     REQUIRE(identify("romfs:/captured-text-data.bin",FNV_ENGINE_TEXT_SHA256),"captured text identity");
