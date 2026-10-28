@@ -96,6 +96,12 @@ def build(a):
     mesa=[Path(name) for name in platform['source_sha256'] if Path(name).name=='libvulkan.a']
     if len(mesa)!=1:raise ValueError('Ambiguous static Mesa archive')
     archives=[pin(r['path'],r['sha256']) for r in runtime['archives'] if Path(r['path']).name not in ('libc.a','libm.a','libgcc.a','libsysbase.a')]
+    return package(a, pc=pc, profile=profile, entry=entry, cpu=cpu, runtime=runtime, text=text, imports=imports, partial=partial, exe=exe, capture=capture, catalog=catalog, programs=programs, fixed=fixed, nx=nx, port=port, cc=cc, nm=nm, readelf=readelf, elf2nro=elf2nro, nacptool=nacptool, icon=icon, archives=archives, mesa=mesa, frozen=frozen, original_stages=original_stages, catalog_codes=catalog_codes, pin=pin)
+
+
+def package(a, *, pc, profile, entry, cpu, runtime, text, imports, partial, exe, capture, catalog, programs, fixed, nx, port, cc, nm, readelf, elf2nro, nacptool, icon, archives, mesa, frozen, original_stages, catalog_codes, pin):
+    """Package admitted inputs; callers must separately establish provenance."""
+    out=a.output.resolve()
     sources=[pc/'switch'/name for name in ('engine_probe.c','engine_layout.c','engine_process_plan.c','engine_movie_io.c','engine_crash.c','engine_watchdog.c')]
     for path in (*sources,*sorted((pc/'switch').glob('engine_*.h')),Path(__file__),a.profile,a.platform_validation,a.bundle_validation):pin(path)
     out.mkdir(parents=True);rom=out/'romfs';rom.mkdir()
