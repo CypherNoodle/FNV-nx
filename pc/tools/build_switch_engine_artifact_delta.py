@@ -2,7 +2,8 @@
 
 This is artifact recovery, not a new audit of historical generated sources.
 The ordinary source-audited builder retains its existing admission checks.
-Only the own x87_extended object may change in this diagnostic path.
+The x87 wrapper may change; an optional separately verified unchanged-source
+tail-optimization proof permits replacing one generated unit as well.
 """
 import argparse
 import json
@@ -86,9 +87,20 @@ def run(a):
         readelf=readelf,elf2nro=elf2nro,nacptool=nacptool,icon=icon,archives=archives,mesa=mesa,
         frozen=frozen,original_stages=original_stages,catalog_codes=catalog_codes,pin=pin)
     # Recreate the delivered binary before admitting any diagnostic change.
-    if cfg.baseline_output.exists():raise ValueError('Baseline recovery requires its original, absent build directory')
-    baseline_cfg=SimpleNamespace(**vars(cfg),output=cfg.baseline_output,hardware_revision='hw15',experimental_caps=True)
-    baseline=package(baseline_cfg,partial=Path(cpu['runtime_object']),**context)
+    if getattr(a,'reuse_baseline',False):
+        baseline_proof=pin(cfg.baseline_output/'validation.json')
+        baseline=json.loads(baseline_proof.read_text())
+        if baseline.get('status')!='BUILT' or baseline.get('admission')!='exact-nro-artifact-recovery-v1':raise ValueError('Unverified recovered baseline')
+        pin(cfg.baseline_output/'fnv-nx.nro',delivery['nro_sha256'])
+        pin(cfg.baseline_output/'fnv-nx.elf',baseline['elf_sha256'])
+        # Python tooling may evolve; retained compiled inputs and all sources
+        # read by the compiler/linker must still match the recovered baseline.
+        for name,digest in baseline['source_sha256'].items():
+            if Path(name).suffix in ('.c','.h','.inc','.a','.o','.specs','.ld'):pin(name,digest)
+    else:
+        if cfg.baseline_output.exists():raise ValueError('Baseline recovery requires its original, absent build directory')
+        baseline_cfg=SimpleNamespace(**vars(cfg),output=cfg.baseline_output,hardware_revision='hw15',experimental_caps=True)
+        baseline=package(baseline_cfg,partial=Path(cpu['runtime_object']),**context)
     if baseline['nro_sha256']!=sha(base):raise ValueError('Baseline NRO did not reproduce exactly; no delta admitted')
     baseline['admission']='exact-nro-artifact-recovery-v1';baseline['fresh_historical_source_audit']=False
     (cfg.baseline_output/'validation.json').write_text(json.dumps(baseline,indent=2)+'\n')
@@ -114,16 +126,41 @@ def run(a):
     relink(cpu_rsp,cpu['runtime_object'],cpu['runtime_sha256'],'cpu-baseline')
     replacement=next(Path(r['object']) for r in core['objects'] if Path(r['object']).name=='x87_extended.o')
     native=relink(native_rsp,runtime['runtime_object'],None,'native-delta',{str(old_core['x87_extended.o'][0].resolve()):replacement})
-    partial=relink(cpu_rsp,cpu['runtime_object'],None,'cpu-delta',{str(Path(runtime['runtime_object']).resolve()):native})
-    delta_cfg=SimpleNamespace(**vars(cfg),output=out/'delta',hardware_revision='hw16',experimental_caps=True)
+    replacements={str(Path(runtime['runtime_object']).resolve()):native}
+    tail=getattr(a,'tail_proof',None)
+    if tail:
+        proof_path=pin(tail);proof=json.loads(proof_path.read_text())
+        if (proof.get('status')!='TAIL_OPTIMIZATION_COMPILED' or proof.get('source_unchanged') is not True or
+            proof['original_sha256']!=proof['corrected_sha256'] or proof['optimizer_flags']!=['-foptimize-sibling-calls'] or
+            proof['compiler_flags']!=runtime['compiler_flags'] or proof['sdk_sha256']!=runtime['sdk_sha256'] or
+            proof.get('legacy_edges')!='CALL26' or proof.get('optimized_edges')!='JUMP26' or len(proof['verified_edges'])<2):
+            raise ValueError('Invalid tail optimization proof')
+        for name,digest in proof['source_sha256'].items():pin(name,digest)
+        generated_path=pin(cpu['inputs']['generated_validation'],cpu['source_sha256'][cpu['inputs']['generated_validation']])
+        generated=json.loads(generated_path.read_text())
+        rows=[r for r in generated['compiled'] if Path(r['source']).resolve()==Path(proof['original_unit']).resolve()]
+        if len(rows)!=1:raise ValueError('Tail source is not a baseline generated unit')
+        old=pin(rows[0]['object'],rows[0]['sha256'])
+        if cpu['source_sha256'].get(str(old))!=rows[0]['sha256']:raise ValueError('Tail unit was already substituted')
+        pin(proof['original_unit'],proof['original_sha256']);pin(proof['corrected_source'],proof['corrected_sha256'])
+        replacements[str(old)]=pin(proof['object'],proof['object_sha256'])
+        context['cpu']={**cpu,'tail_optimized_units':cpu.get('tail_optimized_units',0)+1}
+    partial=relink(cpu_rsp,cpu['runtime_object'],None,'cpu-delta',replacements)
+    revision=getattr(a,'hardware_revision','hw16')
+    if revision not in ('hw16','hw17'):raise ValueError('Invalid artifact diagnostic revision')
+    delta_cfg=SimpleNamespace(**vars(cfg),output=out/'delta',hardware_revision=revision,experimental_caps=True)
     result=package(delta_cfg,partial=partial,**context)
     result.update(admission='exact-nro-baseline-artifact-delta-v1',fresh_historical_source_audit=False,
         baseline_nro_sha256=sha(base),baseline_elf_sha256=baseline['elf_sha256'],changed_native_objects=changed,
-        replacement_core_sha256=sha(cfg.x87_core),gameplay_fix_hardware_verified=False)
+        replacement_core_sha256=sha(cfg.x87_core),tail_optimization_proof_sha256=sha(tail) if tail else None,
+        gameplay_fix_hardware_verified=False)
     (out/'delta/validation.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({k:result[k] for k in ('status','build','nro_sha256','elf_sha256','admission')}))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--recipe',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--reuse-baseline',action='store_true')
+    p.add_argument('--tail-proof',type=Path)
+    p.add_argument('--hardware-revision',choices=('hw16','hw17'),default='hw16')
     run(p.parse_args())
