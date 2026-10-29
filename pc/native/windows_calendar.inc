@@ -2,6 +2,15 @@
  * Snapshot the input before any output writes; invalid timestamps leave output
  * intact. Invalid guest memory follows the runtime's explicit fault policy. */
 #include "host_calendar.h"
+static void api_local_time(void){
+    uint32_t at=fnv_cpu_argument_u32(0);struct fnv_windows_process *p=thread()->process;
+    unsigned char *dst=file_pointer(p,at,16,1);uint64_t utc;int32_t offset;uint16_t fields[8];
+    if(!fnv_host_utc_filetime(&utc) || !fnv_host_current_utc_offset(&offset) ||
+       !fnv_calendar_systemtime(fnv_calendar_local_filetime(utc,offset),fields))
+        sync_invalid("Windows local clock unavailable",at);
+    for(unsigned i=0;i<8;i++){dst[i*2]=(unsigned char)fields[i];dst[i*2+1]=(unsigned char)(fields[i]>>8);}
+    fnv_cpu_return_u32(g_eax,4);
+}
 static void api_filetime_local(void){
     struct fnv_windows_process *p=thread()->process;
     uint32_t input=fnv_cpu_argument_u32(0),output=fnv_cpu_argument_u32(1);

@@ -150,6 +150,8 @@ static __attribute__((noinline)) void sample_native_record(uint32_t entry){
 static void store32(unsigned char *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(v>>(8*i));}
 static __attribute__((noinline)) void sample_native(uint32_t entry){
     static _Thread_local uint64_t last_tick;
+    static _Thread_local unsigned boundary_count;
+    if((boundary_count++&1023u)!=0)return;
     uint64_t tick=armGetSystemTick();
     if(last_tick && armTicksToNs(tick-last_tick)<10000000000ull)return;
     last_tick=tick;sample_native_record(entry);
@@ -280,6 +282,9 @@ static int initialize(void) {
     report("SoftFloat state=%s\n",FNV_ENGINE_X87_THREAD_LOCAL_STATE?"thread-local":"shared-mutex");
     REQUIRE(appletGetAppletType()==AppletType_Application || appletGetAppletType()==AppletType_SystemApplication,"application memory mode (title takeover)");
     REQUIRE(identify(ROOT "/FalloutNV.exe",FNV_ENGINE_EXE_SHA256),"original supported EXE identity");
+    {FILE *voices=fopen(ROOT "/Data/Fallout - Voices1.bsa","rb");unsigned char magic[4]={0};long bytes=-1;int valid=0;
+        if(voices){valid=fread(magic,1,4,voices)==4 && !memcmp(magic,"BSA\0",4);if(!fseek(voices,0,SEEK_END))bytes=ftell(voices);fclose(voices);}
+        report("Voices archive present=%u bsa_header=%u bytes=%ld\n",voices!=NULL,valid,bytes);}
     REQUIRE(identify("romfs:/captured-text-data.bin",FNV_ENGINE_TEXT_SHA256),"captured text identity");
     REQUIRE(identify("romfs:/catalog.sdp",FNV_ENGINE_SDP_SHA256),"private shader catalog identity");
     plan=calloc(1,sizeof(*plan));REQUIRE(plan,"process blueprint allocation");
@@ -307,6 +312,7 @@ static int initialize(void) {
     REQUIRE(!fnv_vk_backend_presentation_format(graphics,22) && !fnv_vk_backend_draw_wait(graphics,10000000000ull),"graphics presentation configuration");
     REQUIRE(!fnv_vk_backend_uniform_reuse(graphics,1),"retired-frame uniform reuse");
     REQUIRE(!fnv_vk_backend_layout_reuse(graphics,1),"immutable descriptor layout reuse");
+    REQUIRE(!fnv_vk_backend_sampler_reuse(graphics,1),"immutable sampler reuse");
     report("GPU timing setup hr=%08lX stride=16 optional=1\n",(unsigned long)fnv_vk_backend_gpu_timing(graphics,16));
     report("Renderer reuse: resource index, retired-frame mapped uniforms, layouts=16; audio silent-voice fast path\n");
     report("CPU hot leaf inlining: units=%u direct_sites=%u guest stack/register writes retained\n",FNV_ENGINE_INLINE_UNITS,FNV_ENGINE_INLINE_SITES);
@@ -316,14 +322,14 @@ static int initialize(void) {
     struct fnv_user32_metrics metrics={&resolution,fnv_display_resolution_metrics};
     REQUIRE(fnv_windows_user32_create_with_metrics(process,&metrics,&user32)==FNV_CPU_OK,"USER32 metrics");
     struct fnv_boot_window_backend wb;REQUIRE(fnv_boot_horizon_backend(&window_binding,nwindowGetDefault(),&wb) && fnv_windows_boot_ui_set_backend(boot_ui,user32,&wb)==FNV_CPU_OK,"NWindow lease");
-    uint32_t input_pool=pool(65536),mmio_pool=pool(0x11000),vorbis_pool=pool(0x11000*16),sound_pool=pool(16u<<20),movie_pool=pool(65536);
+    uint32_t input_pool=pool(65536),mmio_pool=pool(0x11000),vorbis_pool=pool(0x11000*128),sound_pool=pool(16u<<20),movie_pool=pool(65536);
     REQUIRE(input_pool && mmio_pool && vorbis_pool && sound_pool && movie_pool,"media/input pools");
     struct fnv_dinput8_config di={0};di.instance=image.base;di.objects_address=input_pool;di.objects_bytes=65536;di.keyboard=di.mouse=1;di.memory=vm;di.context=boot_ui;di.valid_window=valid_window;di.has_input_focus=input_focus;
     REQUIRE(fnv_dinput8_create(process,&di,&dinput)==FNV_CPU_OK,"DirectInput provider");
     REQUIRE(fnv_horizon_pad_open(process,1,&controller)==FNV_CPU_OK,"Switch XInput controller");
     struct fnv_mmio_config mc={mmio_pool,0x11000,vm};struct fnv_windows_mmio *mmio;
     REQUIRE(fnv_windows_mmio_create(process,&mc,&mmio)==FNV_CPU_OK,"MMIO provider");
-    struct fnv_vorbis_config vc={vorbis_pool,0x11000*16,16,vm};struct fnv_windows_vorbis *vorbis;
+    struct fnv_vorbis_config vc={vorbis_pool,0x11000*128,128,vm};struct fnv_windows_vorbis *vorbis;
     REQUIRE(fnv_windows_vorbis_create(process,&vc,&vorbis)==FNV_CPU_OK,"Vorbis provider");
     struct fnv_pcm_queue *queue;REQUIRE(fnv_pcm_create(2048,&queue)==FNV_PCM_OK,"PCM queue");
     struct fnv_dsound8_config sc={sound_pool,16u<<20,1,vm,queue,boot_ui,valid_window};
@@ -463,6 +469,7 @@ int main(void) {
                 report("Reuse lookup_calls=%llu hits=%llu scan_steps=%llu uniform_allocs=%llu uniform_reuses=%llu\n",(unsigned long long)stats.lookup_calls,(unsigned long long)stats.lookup_hits,(unsigned long long)stats.lookup_scan_steps,(unsigned long long)stats.uniform_allocations,(unsigned long long)stats.uniform_reuses);
                 report("Draw attempts=%llu invalid=%llu unsupported=%llu busy=%llu\n",(unsigned long long)stats.draw_attempts,(unsigned long long)stats.draw_invalid,(unsigned long long)stats.draw_unsupported,(unsigned long long)stats.draw_busy);
                 report("Layouts creates=%llu hits=%llu\n",(unsigned long long)stats.layout_creates,(unsigned long long)stats.layout_hits);
+                report("Samplers creates=%llu hits=%llu\n",(unsigned long long)stats.sampler_creates,(unsigned long long)stats.sampler_hits);
                 report("ProgramLookup hits=%llu scans=%llu\n",(unsigned long long)stats.program_lookup_hits,(unsigned long long)stats.program_lookup_scans);
                 report("GPUTime samples=%llu sampled_ns=%llu draw_ns=%llu other_ns=%llu failures=%llu stride=%u timestamp_bits=%u\n",
                     (unsigned long long)stats.gpu_samples,(unsigned long long)stats.gpu_sample_ns,(unsigned long long)stats.gpu_draw_ns,
@@ -515,8 +522,8 @@ int main(void) {
             if(fnv_dsound8_try_metrics(sound,&sound_metrics)==FNV_PCM_OK)report("DSBuffers slots=%u live=%u playing=%u spatial=%u pcm_upload_bytes=%llu\n",
                 sound_metrics.allocated_slots,sound_metrics.live_buffers,sound_metrics.playing_buffers,sound_metrics.spatial_buffers,(unsigned long long)sound_metrics.pcm_upload_bytes);
             report("Trace unique=%llu suppressed=%llu overflow=%llu\n",(unsigned long long)atomic_load(&trace_unique),(unsigned long long)atomic_load(&trace_suppressed),(unsigned long long)atomic_load(&trace_overflow));
-            struct fnv_vorbis_metrics vorbis_metrics;if(fnv_windows_vorbis_metrics(&vorbis_metrics))report("Vorbis opens=%llu failures=%llu reads=%llu decoded_bytes=%llu last_error=%ld\n",
-                (unsigned long long)vorbis_metrics.opens,(unsigned long long)vorbis_metrics.open_failures,(unsigned long long)vorbis_metrics.reads,(unsigned long long)vorbis_metrics.decoded_bytes,(long)vorbis_metrics.last_error);
+            struct fnv_vorbis_metrics vorbis_metrics;if(fnv_windows_vorbis_metrics(&vorbis_metrics))report("Vorbis opens=%llu failures=%llu reads=%llu decoded_bytes=%llu last_error=%ld attempts=%llu capacity_denials=%llu live=%llu peak=%llu capacity=128\n",
+                (unsigned long long)vorbis_metrics.opens,(unsigned long long)vorbis_metrics.open_failures,(unsigned long long)vorbis_metrics.reads,(unsigned long long)vorbis_metrics.decoded_bytes,(long)vorbis_metrics.last_error,(unsigned long long)vorbis_metrics.attempts,(unsigned long long)vorbis_metrics.capacity_denials,(unsigned long long)vorbis_metrics.live,(unsigned long long)vorbis_metrics.peak);
             struct fnv_bink_decode_metrics bink_decode;struct fnv_bink_movie_metrics bink_movie;
             fnv_bink_decoder_metrics(&bink_decode);fnv_bink_movie_metrics(&bink_movie);
             report("Bink video_frames=%llu audio_frames=%llu next_ns=%llu convert_ns=%llu io_ns=%llu reads=%llu read_bytes=%llu copy_calls=%llu copy_ns=%llu wait_calls=%llu wait_pending=%llu audio_wait_calls=%llu audio_wait_ns=%llu\n",
@@ -543,7 +550,7 @@ int main(void) {
             if(diagnostics.available&FNV_DIAG_FILES)report("IO reads=%llu bytes=%llu read_ms=%llu wait_ms=%llu errors=%llu opens=%llu\n",(unsigned long long)diagnostics.files.reads,(unsigned long long)diagnostics.files.read_bytes,(unsigned long long)(diagnostics.files.read_ns/1000000),(unsigned long long)(diagnostics.files.io_wait_ns/1000000),(unsigned long long)diagnostics.files.read_errors,(unsigned long long)diagnostics.files.opens);
             if(diagnostics.available&FNV_DIAG_HEAPS)report("Heap blocks=%lu lookup_steps=%llu alloc_steps=%llu\n",(unsigned long)diagnostics.heaps.live_blocks,(unsigned long long)diagnostics.heaps.lookup_steps,(unsigned long long)diagnostics.heaps.allocation_steps);
             if(diagnostics.available&FNV_DIAG_HANDLES)report("Wait handles=%lu timeouts=%llu\n",(unsigned long)diagnostics.handles.waiting_threads,(unsigned long long)diagnostics.handles.timeouts);
-            if(diagnostics.available&FNV_DIAG_SYNC)report("Wait sections=%lu live=%lu capacity=%lu\n",(unsigned long)diagnostics.sync.waiting_threads,(unsigned long)diagnostics.sync.live_sections,(unsigned long)plan->process.critical_section_capacity);
+            if(diagnostics.available&FNV_DIAG_SYNC)report("Wait sections=%lu live=%lu capacity=%lu lookup_calls=%llu lookup_hits=%llu lookup_steps=%llu\n",(unsigned long)diagnostics.sync.waiting_threads,(unsigned long)diagnostics.sync.live_sections,(unsigned long)plan->process.critical_section_capacity,(unsigned long long)diagnostics.sync.lookup_calls,(unsigned long long)diagnostics.sync.lookup_hits,(unsigned long long)diagnostics.sync.lookup_steps);
             report("Input pad_down_seen=%016llX\n",(unsigned long long)seen_buttons);last=now;
         }
         fnv_engine_watchdog_stage(FNV_MON_SLEEP);svcSleepThread(8000000);

@@ -31,6 +31,7 @@ static enum fnv_cpu_result fnv_windows_sync_stats_snapshot(struct fnv_windows_pr
         for(uint32_t i=0;i<p->config.critical_section_capacity;++i){struct critical_section *c=p->sections+i;
             s.live_sections+=c->address!=0;s.owned_sections+=c->owner!=0;s.waiting_threads+=c->waiters;}
         s.blocking_waits=p->sync_waits;s.wakeups=p->sync_wakes;s.try_failures=p->sync_try_failures;
+        s.lookup_calls=p->section_lookups;s.lookup_hits=p->section_hits;s.lookup_steps=p->section_scan_steps;
         fnv_host_mutex_unlock(&p->sync_guard);}
     *out=s;return FNV_CPU_OK;
 }
@@ -42,7 +43,10 @@ static unsigned char *sync_pointer(struct fnv_windows_process *p,uint32_t addres
     return memory(p,address);
 }
 static struct critical_section *cs_find(struct fnv_windows_process *p,uint32_t address){
-    for(uint32_t i=0;i<p->config.critical_section_capacity;++i)if(p->sections[i].address==address)return p->sections+i;
+    p->section_lookups++;
+    uint32_t bucket=((address>>2)^(address>>10))&63u,index=p->section_cache[bucket];
+    if(index && index<=p->config.critical_section_capacity && p->sections[index-1].address==address){p->section_hits++;return p->sections+index-1;}
+    for(uint32_t i=0;i<p->config.critical_section_capacity;++i){p->section_scan_steps++;if(p->sections[i].address==address){p->section_cache[bucket]=i+1;return p->sections+i;}}
     return NULL;
 }
 static int cs_mirror(struct critical_section *c,unsigned char *m,int write){

@@ -78,10 +78,12 @@ int main(int argc,char **argv){
     /* Two independent live streams, capacity failure, and slot reuse. */
     memset(sources,0,sizeof(sources));assert(!call(0,8,open));uint32_t second[8];memcpy(second,open,sizeof(second));second[0]=2;second[1]=VF+0x400;assert(!call(0,8,second));
     uint32_t third[8];memcpy(third,open,sizeof(third));third[1]=VF+0x800;assert((int32_t)call(0,8,third)==OV_EFAULT);
+    struct fnv_vorbis_metrics metrics;assert(fnv_windows_vorbis_metrics(&metrics) && metrics.live==2 && metrics.peak==2 && metrics.capacity_denials==1 && metrics.open_failures==1 && metrics.last_error==OV_EFAULT);
     uint32_t first_info[]={VF,UINT32_MAX},second_info[]={VF+0x400,UINT32_MAX};assert(call(5,2,first_info)!=call(5,2,second_info));
     uint32_t read_first[]={VF,OUT_AT,128,0,2,1,SECTION},read_second[]={VF+0x400,OUT_AT+1024,128,0,2,1,SECTION};
     uint32_t a=call(4,7,read_first),b=call(4,7,read_second);assert(a==b && a && !memcmp(arena+OUT_AT-BASE,arena+OUT_AT+1024-BASE,a));
     assert(!call(1,1,&second[1]) && !call(1,1,&open[1]) && sources[0].closes==1 && sources[1].closes==1);
+    assert(fnv_windows_vorbis_metrics(&metrics) && !metrics.live);
     /* Failed open does not take ownership or consume a slot. */
     unsigned char saved[65536];memcpy(saved,encoded,encoded_bytes);memset(encoded,0,encoded_bytes);memset(sources,0,sizeof(sources));assert((int32_t)call(0,8,open)==OV_ENOTVORBIS && !sources[0].closes);memcpy(encoded,saved,encoded_bytes);
     /* Stream-only and no-close callbacks preserve source ownership. */

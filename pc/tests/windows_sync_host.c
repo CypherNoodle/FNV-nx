@@ -124,7 +124,14 @@ int main(int argc,char **argv){
     assert(!call(INIT_SPIN,SECTION+256,0,0) && call(GET_ERROR,0,0,0)==8);
     for(unsigned i=1;i<4;++i)call(DELETE_CS,SECTION+i*64,0,0);
     call(DELETE_CS,SECTION,0,0);call(INIT,SECTION,0,0);call(DELETE_CS,SECTION,0,0);
+    /* Hash collisions and reused metadata slots must never return a stale CS. */
+    for(unsigned i=0;i<256;i++){
+        uint32_t a=SECTION+((i&1)?0x1000:0),b=SECTION+0x404;
+        call(INIT,a,0,0);call(INIT,b,0,0);call(ENTER,a,0,0);call(LEAVE,a,0,0);
+        call(ENTER,b,0,0);call(LEAVE,b,0,0);call(DELETE_CS,a,0,0);call(DELETE_CS,b,0,0);
+    }
     assert(fnv_windows_sync_stats(process,&stats)==FNV_CPU_OK && !stats.live_sections && !stats.owned_sections && !stats.waiting_threads && stats.blocking_waits && stats.wakeups && stats.try_failures);
+    assert(stats.lookup_hits && stats.lookup_hits<stats.lookup_calls && stats.lookup_steps);
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
     printf("{\"status\":\"PASS\",\"critical_section_sequences\":500,\"atomic_comparisons\":%u,\"concurrent_increments\":4000,\"blocked_thread_cpu_100ns\":%llu,\"blocking_waits\":%llu,\"iat_imports\":14,\"all_sections_released\":true,\"native_engine_started\":false}\n",atomic_cases,(unsigned long long)waiting_cpu,(unsigned long long)stats.blocking_waits);return 0;
 }

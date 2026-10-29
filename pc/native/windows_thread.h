@@ -5,7 +5,7 @@
 #define FNV_WINDOWS_TLS_SLOTS 1088u
 #define FNV_WINDOWS_TEB_BYTES 4096u
 #define FNV_WINDOWS_TLS_EXPANSION_BYTES 4096u
-#define FNV_WINDOWS_THREAD_EXPORTS 105u
+#define FNV_WINDOWS_THREAD_EXPORTS 106u
 struct fnv_windows_process;
 /* Immutable built-in catalog, borrowed for native dynamic module preparation. */
 const struct fnv_cpu_export *fnv_windows_exports(size_t *count);
@@ -79,6 +79,7 @@ struct fnv_cpu_runtime *fnv_windows_runtime(struct fnv_windows_process *);
 struct fnv_windows_sync_stats {
     uint32_t live_sections,owned_sections,waiting_threads;
     uint64_t blocking_waits,wakeups,try_failures;
+    uint64_t lookup_calls,lookup_hits,lookup_steps;
 };
 /* Diagnostic snapshot; caller retains the process during this call. */
 enum fnv_cpu_result fnv_windows_sync_stats(struct fnv_windows_process *,struct fnv_windows_sync_stats *);

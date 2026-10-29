@@ -74,7 +74,9 @@ struct fnv_windows_process {
     uint32_t private_heap_count,heap_native_fault;
     fnv_host_mutex sync_guard;
     struct critical_section *sections;
+    uint32_t section_cache[64]; /* sync_guard; validate live address on every hit */
     uint64_t sync_waits,sync_wakes,sync_try_failures;
+    uint64_t section_lookups,section_hits,section_scan_steps;
     fnv_host_mutex kernel_guard;
     struct kernel_object *handles;
     uint32_t kernel_free,kernel_free_tail,kernel_waiting,kernel_slot_bits,kernel_slot_mask,kernel_generation_max;
@@ -142,6 +144,12 @@ static struct windows_thread *thread(void) {
 }
 static unsigned char *slot(struct windows_thread *t,uint32_t index) {
     return index<64?t->teb+TEB_SLOTS+index*4:t->expansion+(index-64)*4;
+}
+/* Allocation/free hold guard while walking the thread list. Aligned TLS words
+ * use atomic access so ordinary per-thread Get/Set need no process-wide lock. */
+static void tls_store_locked(unsigned char *address,uint32_t value){
+    if(!((uintptr_t)address&3))__atomic_store_n((uint32_t *)(void *)address,value,__ATOMIC_RELEASE);
+    else write32(address,value);
 }
 /* Apartment bookkeeping is guest-thread state; it never initializes host COM.
  * Auxiliary COINIT flags do not change the concurrency model. */
@@ -235,7 +243,7 @@ static void api_tls_alloc(void) {
         if(!(p->allocated[index/32]&bit)) {
             p->allocated[index/32]|=bit;
             for(struct windows_thread *other=p->threads;other;other=other->next)
-                write32(slot(other,index),0);
+                tls_store_locked(slot(other,index),0);
             break;
         }
     }
@@ -252,7 +260,7 @@ static void api_tls_free(void) {
     if(index<FNV_WINDOWS_TLS_SLOTS && (p->allocated[index/32]&(1u<<(index&31)))) {
         p->allocated[index/32]&=~(1u<<(index&31));result=1;
         for(struct windows_thread *other=p->threads;other;other=other->next)
-            write32(slot(other,index),0);
+            tls_store_locked(slot(other,index),0);
     }
     unlock(p);
     if(!result)write32(t->teb+TEB_ERROR,ERROR_INVALID_PARAMETER_VALUE);
@@ -261,18 +269,18 @@ static void api_tls_free(void) {
 static void api_tls_get(void) {
     uint32_t index=fnv_cpu_argument_u32(0),value=0;
     struct windows_thread *t=thread();struct fnv_windows_process *p=t->process;
-    lock(p);
-    if(index<FNV_WINDOWS_TLS_SLOTS)value=read32(slot(t,index));
-    unlock(p);
+    if(index<FNV_WINDOWS_TLS_SLOTS){unsigned char *at=slot(t,index);
+        if(!((uintptr_t)at&3))value=__atomic_load_n((uint32_t *)(void *)at,__ATOMIC_ACQUIRE);
+        else {lock(p);value=read32(at);unlock(p);}}
     write32(t->teb+TEB_ERROR,index<FNV_WINDOWS_TLS_SLOTS?0:ERROR_INVALID_PARAMETER_VALUE);
     fnv_cpu_return_u32(value,4);
 }
 static void api_tls_set(void) {
     uint32_t index=fnv_cpu_argument_u32(0),value=fnv_cpu_argument_u32(1);
     struct windows_thread *t=thread();struct fnv_windows_process *p=t->process;
-    lock(p);
-    if(index<FNV_WINDOWS_TLS_SLOTS)write32(slot(t,index),value);
-    unlock(p);
+    if(index<FNV_WINDOWS_TLS_SLOTS){unsigned char *at=slot(t,index);
+        if(!((uintptr_t)at&3))__atomic_store_n((uint32_t *)(void *)at,value,__ATOMIC_RELEASE);
+        else {lock(p);write32(at,value);unlock(p);}}
     if(index>=FNV_WINDOWS_TLS_SLOTS)write32(t->teb+TEB_ERROR,ERROR_INVALID_PARAMETER_VALUE);
     fnv_cpu_return_u32(index<FNV_WINDOWS_TLS_SLOTS,8);
 }
@@ -378,6 +386,7 @@ static const struct fnv_cpu_export exports[FNV_WINDOWS_THREAD_EXPORTS]={
     {"kernel32.dll","QueryPerformanceFrequency",0,0,api_performance_frequency},
     {"kernel32.dll","GetTickCount",0,0,api_tick_count},
     {"kernel32.dll","GetSystemTimeAsFileTime",0,0,api_system_filetime},
+    {"kernel32.dll","GetLocalTime",0,0,api_local_time},
     {"kernel32.dll","FileTimeToLocalFileTime",0,0,api_filetime_local},
     {"kernel32.dll","FileTimeToSystemTime",0,0,api_filetime_system},
     {"kernel32.dll","GetTimeZoneInformation",0,0,api_timezone_information},

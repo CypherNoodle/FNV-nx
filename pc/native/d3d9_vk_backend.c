@@ -62,9 +62,10 @@ struct draw_resources {
     uintptr_t ids[40];uint32_t count;
     struct buffer_version *vertices[16],*indices,*ubo[2];struct texture_version *textures[16];
     VkPipeline pipeline;VkPipelineLayout layout;VkDescriptorSetLayout sets[4];VkDescriptorPool descriptors;VkSampler samplers[16];
-    uint32_t shared_layout;
+    uint32_t shared_layout,shared_samplers;
 };
 struct layout_cache_entry {uint32_t key;VkPipelineLayout layout;VkDescriptorSetLayout sets[4];};
+struct sampler_cache_entry {VkSampler sampler;VkSamplerCreateInfo info;};
 struct stream_binding {uintptr_t id;uint32_t offset,stride;};
 struct clear_command {
     uintptr_t color,depth;uint32_t flags,argb,z,stencil,count;
@@ -108,6 +109,8 @@ struct fnv_vk_backend {
     uint32_t reuse_uniforms;uint64_t uniform_allocations,uniform_reuses;
     uint64_t phase_totals[11],draw_attempts,draw_invalid,draw_unsupported,draw_busy;
     struct layout_cache_entry layout_cache[16];uint32_t reuse_layouts,last_draw_stage;
+    struct sampler_cache_entry sampler_cache[64];uint32_t reuse_samplers;
+    uint64_t sampler_creates,sampler_hits;
     struct shader_catalog *program_cache_vs,*program_cache_ps;struct program_entry *program_cache;
     uint32_t program_cache_valid;uint64_t program_lookup_hits,program_lookup_scans;
     uint32_t timestamp_bits,sample_stride;
@@ -121,6 +124,18 @@ static void clear_layout_cache(struct fnv_vk_backend *d){
         for(unsigned j=0;j<4;++j)if(e->sets[j])d->v.DestroyDescriptorSetLayout(d->device,e->sets[j],NULL);
         memset(e,0,sizeof(*e));
     }
+}
+static void clear_sampler_cache(struct fnv_vk_backend *d){
+    for(unsigned i=0;i<64;i++){if(d->sampler_cache[i].sampler)d->v.DestroySampler(d->device,d->sampler_cache[i].sampler,NULL);memset(d->sampler_cache+i,0,sizeof(d->sampler_cache[i]));}
+}
+uint32_t fnv_vk_backend_sampler_reuse(struct fnv_vk_backend *d,int enabled){
+    if(!d || (enabled!=0 && enabled!=1))return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=0;
+    if(d->lost || !d->device_refs)hr=FNV_VK_LOST;
+    else if(d->in_scene || d->count)hr=FNV_VK_BUSY;
+    else {for(unsigned i=0;i<d->config.frames;i++)if(d->frames[i].pending)hr=FNV_VK_BUSY;
+        if(!hr){d->reuse_samplers=(uint32_t)enabled;if(!enabled)clear_sampler_cache(d);}}
+    fnv_host_mutex_unlock(&d->guard);return hr;
 }
 uint32_t fnv_vk_backend_layout_reuse(struct fnv_vk_backend *d,int enabled){
     if(!d || (enabled!=0 && enabled!=1))return FNV_VK_INVALID;
@@ -674,7 +689,7 @@ static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     s.uniform_allocations=d->uniform_allocations;s.uniform_reuses=d->uniform_reuses;
     memcpy(s.host_phase_ns,d->phase_totals,sizeof(s.host_phase_ns));
     s.draw_attempts=d->draw_attempts;s.draw_invalid=d->draw_invalid;s.draw_unsupported=d->draw_unsupported;s.draw_busy=d->draw_busy;
-    s.layout_creates=d->layout_creates;s.layout_hits=d->layout_hits;memcpy(s.draw_reasons,d->draw_reasons,sizeof(s.draw_reasons));
+    s.layout_creates=d->layout_creates;s.layout_hits=d->layout_hits;s.sampler_creates=d->sampler_creates;s.sampler_hits=d->sampler_hits;memcpy(s.draw_reasons,d->draw_reasons,sizeof(s.draw_reasons));
     s.missing_pairs=d->missing_pairs;
     s.program_lookup_hits=d->program_lookup_hits;s.program_lookup_scans=d->program_lookup_scans;
     s.gpu_samples=d->gpu_samples;s.gpu_sample_ns=d->gpu_ns;s.gpu_draw_ns=d->gpu_draw_ns;s.gpu_other_ns=d->gpu_other_ns;
@@ -874,6 +889,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
         if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
         for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->variant_module)d->v.DestroyShaderModule(d->device,e->variant_module,NULL);
         clear_layout_cache(d);
+        clear_sampler_cache(d);
         if(d->pipeline_cache)d->v.DestroyPipelineCache(d->device,d->pipeline_cache,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
     }

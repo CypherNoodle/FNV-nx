@@ -8,7 +8,7 @@ static void release_draw(struct fnv_vk_backend *d,struct draw_resources *r){
         if(r->layout)d->v.DestroyPipelineLayout(d->device,r->layout,NULL);
         for(unsigned i=0;i<4;++i)if(r->sets[i])d->v.DestroyDescriptorSetLayout(d->device,r->sets[i],NULL);
     }
-    for(unsigned i=0;i<16;++i){if(r->samplers[i])d->v.DestroySampler(d->device,r->samplers[i],NULL);
+    for(unsigned i=0;i<16;++i){if(r->samplers[i] && !(r->shared_samplers&(1u<<i)))d->v.DestroySampler(d->device,r->samplers[i],NULL);
         release_version(d,r->vertices[i]);release_texture_version(d,r->textures[i]);}
     release_version(d,r->indices);for(unsigned i=0;i<2;++i)release_version(d,r->ubo[i]);
     for(unsigned i=0;i<r->count;++i)pin(d,r->ids[i],0);
@@ -135,6 +135,25 @@ static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources 
     if(samplers)sizes[size_count++]=(VkDescriptorPoolSize){VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,samplers};
     VkDescriptorPoolCreateInfo pci={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,.maxSets=3,.poolSizeCount=size_count,.pPoolSizes=sizes};
     VkDescriptorPool pool=VK_NULL_HANDLE;hr=result(d,d->v.CreateDescriptorPool(d->device,&pci,NULL,&pool));if(hr)return hr;r->descriptors=pool;
+    return 0;
+}
+static int same_sampler(const VkSamplerCreateInfo *a,const VkSamplerCreateInfo *b){
+    return a->flags==b->flags && a->magFilter==b->magFilter && a->minFilter==b->minFilter && a->mipmapMode==b->mipmapMode &&
+        a->addressModeU==b->addressModeU && a->addressModeV==b->addressModeV && a->addressModeW==b->addressModeW &&
+        a->mipLodBias==b->mipLodBias && a->anisotropyEnable==b->anisotropyEnable && a->maxAnisotropy==b->maxAnisotropy &&
+        a->compareEnable==b->compareEnable && a->compareOp==b->compareOp && a->minLod==b->minLod && a->maxLod==b->maxLod &&
+        a->borderColor==b->borderColor && a->unnormalizedCoordinates==b->unnormalizedCoordinates;
+}
+static uint32_t draw_sampler(struct fnv_vk_backend *d,struct draw_resources *r,unsigned slot,const VkSamplerCreateInfo *info){
+    struct sampler_cache_entry *vacant=NULL;
+    if(d->reuse_samplers)for(unsigned i=0;i<64;i++){
+        struct sampler_cache_entry *e=d->sampler_cache+i;
+        if(!e->sampler){if(!vacant)vacant=e;}
+        else if(same_sampler(&e->info,info)){r->samplers[slot]=e->sampler;r->shared_samplers|=1u<<slot;d->sampler_hits++;return 0;}
+    }
+    VkSampler sampler=VK_NULL_HANDLE;uint32_t hr=result(d,d->v.CreateSampler(d->device,info,NULL,&sampler));if(hr)return hr;
+    d->sampler_creates++;r->samplers[slot]=sampler;
+    if(vacant){vacant->sampler=sampler;vacant->info=*info;r->shared_samplers|=1u<<slot;}
     return 0;
 }
 struct draw_watch {uint64_t started;int active;};
@@ -281,8 +300,8 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     VkDescriptorBufferInfo buffers[2];VkDescriptorImageInfo images[16];VkWriteDescriptorSet writes[18];uint32_t write_count=0;
     for(unsigned i=0;i<2;++i)if(r->ubo[i]){buffers[i]=(VkDescriptorBufferInfo){r->ubo[i]->buffer,0,snapshot.bytes[i]};
         writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[i?2:0],.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,.pBufferInfo=buffers+i};}
-    for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){VkSampler sampler=VK_NULL_HANDLE;hr=result(d,d->v.CreateSampler(d->device,sampler_info+i,NULL,&sampler));if(hr)goto rollback;r->samplers[i]=sampler;
-        images[i]=(VkDescriptorImageInfo){sampler,r->textures[i]->sample_view?r->textures[i]->sample_view:r->textures[i]->view,VK_IMAGE_LAYOUT_GENERAL};writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[1],.dstBinding=i,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=images+i};}
+    for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){hr=draw_sampler(d,r,i,sampler_info+i);if(hr)goto rollback;
+        images[i]=(VkDescriptorImageInfo){r->samplers[i],r->textures[i]->sample_view?r->textures[i]->sample_view:r->textures[i]->view,VK_IMAGE_LAYOUT_GENERAL};writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[1],.dstBinding=i,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=images+i};}
     d->v.UpdateDescriptorSets(d->device,write_count,writes,0,NULL);
     d->last_draw_stage=14;f->count=1;memset(f->commands,0,sizeof(*f->commands));hr=make_pass(d,f,0,color,depth);if(hr)goto rollback;
     float min_depth,max_depth;memcpy(&min_depth,d->viewport+4,4);memcpy(&max_depth,d->viewport+5,4);
