@@ -153,6 +153,11 @@ are applied to the PC x86 executable.
 
 ## Build storage
 
+The next CPU candidate integrates small getters in explicitly selected load-time
+callers, while keeping the list algorithm and guest state. See
+[generated leaf inlining](generated-leaf-inlining.md) for source reconstruction,
+synthetic differential checks, ARM64 call-site evidence and measurement limits.
+
 Keep stable `pc-engine-current-build`, `pc-engine-active` and `pc-engine-baseline`
 directories. The active NRO/ELF pair must survive a failed replacement build.
 `--replace-output` may clear only the dedicated current-build directory and

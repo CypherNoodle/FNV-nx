@@ -28,6 +28,9 @@ public class AuditCapturedFunctions extends GhidraScript {
         MemoryBlock block=currentProgram.getMemory().getBlock(text);
         if(block==null || !block.isInitialized() || !block.getStart().equals(text) || bytes.length>block.getSize())
             throw new IllegalArgumentException("Capture does not fit initialized code block start");
+        // Run headless with -readOnly: the overlay replaces stale instructions
+        // and selected function boundaries only in this in-memory audit.
+        clearListing(block.getStart(),block.getEnd());
         currentProgram.getMemory().setBytes(text,bytes);
         DecompInterface decompiler=new DecompInterface();
         if(!decompiler.openProgram(currentProgram))throw new IllegalStateException(decompiler.getLastMessage());
@@ -38,8 +41,9 @@ public class AuditCapturedFunctions extends GhidraScript {
                 monitor.checkCancelled();
                 Address at=toAddr(Long.parseUnsignedLong(name.replaceFirst("^0[xX]",""),16));
                 if(!block.contains(at))throw new IllegalArgumentException("Function outside captured block: "+name);
-                Function f=getFunctionAt(at);
-                if(f==null){disassemble(at);f=createFunction(at,null);}
+                currentProgram.getFunctionManager().removeFunction(at);
+                disassemble(at);
+                Function f=createFunction(at,null);
                 out.println("\n===== "+at+" =====");
                 if(f==null){out.println("NO_FUNCTION: inspect boundaries manually");continue;}
                 out.println("body="+f.getBody());

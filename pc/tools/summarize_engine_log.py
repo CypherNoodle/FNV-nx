@@ -18,7 +18,7 @@ def summarize(path):
     previous = None
     heartbeat = None
     for line in lines:
-        if line.startswith(('FNV PC engine ', 'SoftFloat state=', 'Renderer reuse:')):
+        if line.startswith(('FNV PC engine ', 'SoftFloat state=', 'Renderer reuse:', 'CPU hot leaf inlining:')):
             markers.append(line)
         fields = dict(re.findall(r'(\w+)=([^\s]+)', line))
         if line.startswith('Heartbeat '):

@@ -112,6 +112,8 @@ def package(a, *, pc, profile, entry, cpu, runtime, text, imports, partial, exe,
     header+=f'#define FNV_ENGINE_HW_TAG "{a.hardware_revision}"\n'
     header+=f'#define FNV_ENGINE_CFG_CORRECTED_UNITS {cpu.get("cfg_corrected_units",0)}u\n'
     header+=f'#define FNV_ENGINE_TAIL_OPTIMIZED_UNITS {cpu.get("tail_optimized_units",0)}u\n'
+    header+=f'#define FNV_ENGINE_INLINE_UNITS {cpu.get("inline_units",0)}u\n'
+    header+=f'#define FNV_ENGINE_INLINE_SITES {cpu.get("inline_calls_removed",0)}u\n'
     header+=f'#define FNV_ENGINE_X87_THREAD_LOCAL_STATE {int(bool(cpu.get("softfloat_thread_local_state",False)))}\n'
     header+=f'#define FNV_ENGINE_TEXT_RVA {text["rva"]}u\n#define FNV_ENGINE_TEXT_BYTES {text["virtual_bytes"]}u\n'
     header+=f'#define FNV_ENGINE_ENTRY {entry["start"]}u\n#define FNV_ENGINE_IMPORT_COUNT {len(imports)}u\n'

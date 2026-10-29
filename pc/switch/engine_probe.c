@@ -292,6 +292,7 @@ static int initialize(void) {
     REQUIRE(!fnv_vk_backend_uniform_reuse(graphics,1),"retired-frame uniform reuse");
     REQUIRE(!fnv_vk_backend_layout_reuse(graphics,1),"immutable descriptor layout reuse");
     report("Renderer reuse: resource index, retired-frame mapped uniforms, layouts=16; audio silent-voice fast path\n");
+    report("CPU hot leaf inlining: units=%u direct_sites=%u guest stack/register writes retained\n",FNV_ENGINE_INLINE_UNITS,FNV_ENGINE_INLINE_SITES);
     struct fnv_display_backend db={NULL,enumerate_display};struct fnv_windows_display *display;
     REQUIRE(fnv_windows_display_create(process,&db,&display)==FNV_CPU_OK,"display provider");
     REQUIRE(fnv_windows_boot_ui_create(process,&image,&boot_ui)==FNV_CPU_OK,"window provider");

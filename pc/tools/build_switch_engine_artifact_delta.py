@@ -210,6 +210,15 @@ def run(a):
         pin(proof['original_unit'],proof['original_sha256']);pin(proof['corrected_source'],proof['corrected_sha256'])
         replacements[str(old)]=pin(proof['object'],proof['object_sha256'])
         context['cpu']={**cpu,'tail_optimized_units':cpu.get('tail_optimized_units',0)+1}
+    inline_proof=getattr(a,'inline_proof',None)
+    if inline_proof:
+        from build_inline_generated_units import verify as verify_inline
+        inline_path=pin(inline_proof);inline_report,inline_replacements=verify_inline(inline_path,cfg.cpu_validation)
+        for name,digest in inline_report['source_sha256'].items():pin(name,digest)
+        for old,new in inline_replacements.items():
+            if old in replacements:raise ValueError('Inline overlaps an existing CPU replacement')
+            pin(new);replacements[old]=new
+        context['cpu']={**context['cpu'],'inline_units':len(inline_replacements),'inline_calls_removed':sum(r['removed_calls'] for r in inline_report['compiled'])}
     partial=relink(cpu_rsp,cpu['runtime_object'],None,'cpu-delta',replacements)
     revision=getattr(a,'hardware_revision','hw18')
     if not re.fullmatch(r'hw[0-9]{2}',revision):raise ValueError('Invalid artifact diagnostic label')
@@ -221,6 +230,8 @@ def run(a):
         replacement_core_sha256=sha(cfg.x87_core),tail_optimization_proof_sha256=sha(tail) if tail else None,
         own_entry_source_deltas=entry_deltas,
         native_performance_proof_sha256=sha(native_delta) if native_delta else None,
+        inline_proof_sha256=sha(inline_proof) if inline_proof else None,
+        inline_units=context['cpu'].get('inline_units',0),inline_calls_removed=context['cpu'].get('inline_calls_removed',0),
         softfloat_thread_local_state=private_state,
         gameplay_fix_hardware_verified=False)
     (out/'delta/validation.json').write_text(json.dumps(result,indent=2)+'\n')
@@ -234,6 +245,7 @@ if __name__=='__main__':
     p.add_argument('--hardware-revision',default='hw18',help='Stable log label; exact builds are identified by hashes')
     p.add_argument('--private-state-proof',type=Path)
     p.add_argument('--native-performance-proof',type=Path)
+    p.add_argument('--inline-proof',type=Path)
     p.add_argument('--replace-output',action='store_true',help='Reuse only local/pc-engine-current-build after verifying the preserved active NRO/ELF')
     p.add_argument('--entry-source-delta',action='append',choices=('engine_process_plan.c','engine_probe.c'))
     run(p.parse_args())
