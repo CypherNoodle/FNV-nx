@@ -33,8 +33,6 @@ static void draw_pixels(unsigned channel,const unsigned char gray[4],int patch){
 static void exercise_draws(void){
     unsigned stage_index[2]={0};for(unsigned i=0;i<catalog_count;++i)stage_index[((const uint32_t*)catalog[i].bytes)[0]>>16==0xffff]=i;
     struct fnv_vk_vertex_input map[2]={{0,0,0},{5,0,1}};
-    assert(!fnv_vk_backend_link_program(gpu,catalog[stage_index[0]].bytes,catalog[stage_index[0]].size,catalog[stage_index[1]].bytes,catalog[stage_index[1]].size,map,2,1));
-    assert(fnv_vk_backend_link_program(gpu,catalog[stage_index[0]].bytes,catalog[stage_index[0]].size,catalog[stage_index[1]].bytes,catalog[stage_index[1]].size,map,2,1)==FNV_VK_INVALID);memset(map,0xa5,sizeof(map));
     uint32_t vs=make_shader(stage_index[0]),ps=make_shader(stage_index[1]);uint32_t bind[]={device_at,vs};assert(!call(S_VS_BIND,2,bind));bind[1]=ps;assert(!call(S_PS_BIND,2,bind));
     const unsigned char elements[24]={0,0,0,0,1,0,0,0,0,0,8,0,1,0,5,0,255,0,0,0,17,0,0,0};memcpy(ptr(DATA),elements,24);
     uint32_t create[]={device_at,DATA,GUEST_OUT};assert(!call(S_DECL_CREATE,3,create));uint32_t decl=get(GUEST_OUT);bind[1]=decl;assert(!call(S_DECL_BIND,2,bind));
@@ -44,6 +42,21 @@ static void exercise_draws(void){
     const unsigned char first[4]={255,128,64,192},second[4]={21,67,139,233};draw_texture(texture,first);texture_ready(texture);
     uint32_t render[]={device_at,22,1};assert(!call(SET_RENDER,3,render));
     uint32_t clear[]={device_at,0,0,7,0xff000000,0x3f800000,0};assert(!call(CLEAR,7,clear));assert(!fnv_vk_backend_flush(gpu) && !fnv_vk_backend_wait(gpu,10000000000ull));
+    /* Real backend rejects the pair before trusted offline linkage, records it
+     * once and counts repeats without submitting anything to the GPU. */
+    uint32_t missing_args[]={device_at,4,UINT32_MAX,1,4,2,2};
+    assert(!call(BEGIN,1,&device_at));
+    assert(call(D_INDEXED,7,missing_args)==FNV_VK_INVALID);
+    assert(call(D_INDEXED,7,missing_args)==FNV_VK_INVALID);
+    struct fnv_vk_stats missing=stats();assert(missing.missing_pairs.count==1 && !missing.missing_pairs.overflow);
+    const struct fnv_shader_pair_record *pair=missing.missing_pairs.rows;
+    assert(pair->hits==2 && pair->reason==1 && !pair->fixed_bytes);
+    assert(pair->vertex_bytes==catalog[stage_index[0]].size && pair->pixel_bytes==catalog[stage_index[1]].size);
+    assert(pair->vertex_hash==fnv_shader_fingerprint(catalog[stage_index[0]].bytes,catalog[stage_index[0]].size));
+    assert(pair->pixel_hash==fnv_shader_fingerprint(catalog[stage_index[1]].bytes,catalog[stage_index[1]].size));
+    assert(!call(END,1,&device_at));
+    assert(!fnv_vk_backend_link_program(gpu,catalog[stage_index[0]].bytes,catalog[stage_index[0]].size,catalog[stage_index[1]].bytes,catalog[stage_index[1]].size,map,2,1));
+    assert(fnv_vk_backend_link_program(gpu,catalog[stage_index[0]].bytes,catalog[stage_index[0]].size,catalog[stage_index[1]].bytes,catalog[stage_index[1]].size,map,2,1)==FNV_VK_INVALID);memset(map,0xa5,sizeof(map));
     exercise_fixed_dispatch(vs,ps,decl);
     draw_constants(0,.75f);uint32_t draw_args[]={device_at,4,UINT32_MAX,1,4,2,2};
     assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID);assert(!call(BEGIN,1,&device_at));
@@ -78,7 +91,14 @@ static void exercise_draws(void){
     if(uniform_cache_requested){struct fnv_vk_stats saved=stats();fail_flush=1;assert(call(D_INDEXED,7,draw_args)==FNV_VK_OOM);assert(stats().allocated_bytes==saved.allocated_bytes && stats().draws==saved.draws);
         fail_DescriptorPool=1;assert(call(D_INDEXED,7,draw_args)==FNV_VK_OOM);assert(stats().allocated_bytes==saved.allocated_bytes && stats().draws==saved.draws);}
     assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(1,second,0);
-    draw_mirrored=1;render[1]=7;render[2]=0;assert(!call(SET_RENDER,3,render));assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(2,second,0);
+    /* A null depth surface suppresses depth without changing ZENABLE. */
+    uint32_t depth_args[]={device_at,GUEST_OUT};assert(!call(GET_DS,2,depth_args));uint32_t saved_depth=get(GUEST_OUT);
+    depth_args[1]=0;assert(!call(SET_DS,2,depth_args));
+    uint32_t depth_state_get[]={device_at,7,GUEST_OUT};assert(!call(GET_RENDER,3,depth_state_get) && get(GUEST_OUT)==1);
+    draw_mirrored=1;assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(2,second,0);
+    depth_args[1]=saved_depth;assert(!call(SET_DS,2,depth_args));release(saved_depth);
+    assert(!call(GET_RENDER,3,depth_state_get) && get(GUEST_OUT)==1);
+    render[1]=7;render[2]=0;assert(!call(SET_RENDER,3,render));
     /* Scissor applies to draw coverage, independently from viewport. */
     const uint32_t rect[4]={8,4,24,28};memcpy(ptr(DATA),rect,16);uint32_t scissor[]={device_at,DATA};assert(!call(SET_SCISSOR,2,scissor));
     render[1]=174;render[2]=1;assert(!call(SET_RENDER,3,render));draw_constants(0,.5f);

@@ -448,6 +448,13 @@ int main(void) {
                     reason_used+=(size_t)added;
                 }
                 report("DrawReject%s\n",reason_line);
+                report("MissingPairs count=%u overflow=%llu\n",stats.missing_pairs.count,(unsigned long long)stats.missing_pairs.overflow);
+                for(uint32_t pair=0;pair<stats.missing_pairs.count;pair++){
+                    const struct fnv_shader_pair_record *r=stats.missing_pairs.rows+pair;
+                    report("MissingPair vs=%016llx/%u ps=%016llx/%u fixed=%u reason=%u hits=%llu\n",
+                        (unsigned long long)r->vertex_hash,r->vertex_bytes,(unsigned long long)r->pixel_hash,r->pixel_bytes,
+                        r->fixed_bytes,r->reason,(unsigned long long)r->hits);
+                }
                 char phase_line[512]={0};size_t phase_used=0;
                 for(unsigned phase=0;phase<11;phase++){
                     int added=snprintf(phase_line+phase_used,sizeof(phase_line)-phase_used," %s_ms=%llu",phases[phase],(unsigned long long)(stats.host_phase_ns[phase]/1000000));

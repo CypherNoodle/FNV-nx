@@ -48,6 +48,7 @@ struct texture_resource {
 };
 struct shader_catalog {
     struct shader_catalog *next;enum fnv_d3d9_stage stage;uint32_t code_bytes,spirv_bytes;
+    uint64_t diagnostic_hash;uint32_t diagnostic_hash_ready;
     unsigned char *code;uint32_t *spirv;struct fnv_uniform_plan plan;struct fnv_uniform_entry *entries;VkShaderModule variant_module;
 };
 struct shader_resource {uintptr_t id;uint32_t refs,pins;struct shader_catalog *entry;VkShaderModule module;};
@@ -103,6 +104,7 @@ struct fnv_vk_backend {
     uint64_t phase_totals[11],draw_attempts,draw_invalid,draw_unsupported,draw_busy;
     struct layout_cache_entry layout_cache[16];uint32_t reuse_layouts,last_draw_stage;
     uint64_t layout_creates,layout_hits,draw_reasons[16];
+    struct fnv_shader_pair_census missing_pairs;
 };
 static void clear_layout_cache(struct fnv_vk_backend *d){
     for(unsigned i=0;i<16;++i){struct layout_cache_entry *e=d->layout_cache+i;
@@ -644,6 +646,7 @@ static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     memcpy(s.host_phase_ns,d->phase_totals,sizeof(s.host_phase_ns));
     s.draw_attempts=d->draw_attempts;s.draw_invalid=d->draw_invalid;s.draw_unsupported=d->draw_unsupported;s.draw_busy=d->draw_busy;
     s.layout_creates=d->layout_creates;s.layout_hits=d->layout_hits;memcpy(s.draw_reasons,d->draw_reasons,sizeof(s.draw_reasons));
+    s.missing_pairs=d->missing_pairs;
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;

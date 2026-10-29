@@ -189,13 +189,22 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     if(fixed && (d->bound_shaders[0] || (screen?(d->bound_shaders[1] || d->lighting):fixed_bytes==64?d->lighting:(!d->lighting || d->specular || d->color_vertex))))goto done;
     if(!d->in_scene || (primitive<4 || primitive>6))goto done;
     d->last_draw_stage=1;if(!vs || !ps || !decl)goto done;
-    d->last_draw_stage=2;if(!color || (d->depth_state.enable && !depth))goto done;
+    d->last_draw_stage=2;if(!color || (d->depth && !depth))goto done;
     d->last_draw_stage=3;
     if(d->viewport[2]>d->properties.limits.maxViewportDimensions[0] || d->viewport[3]>d->properties.limits.maxViewportDimensions[1] ||
        (double)d->viewport[0]+.5<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]+.5<d->properties.limits.viewportBoundsRange[0] ||
        (double)d->viewport[0]+d->viewport[2]+.5>d->properties.limits.viewportBoundsRange[1] || (double)d->viewport[1]+d->viewport[3]+.5>d->properties.limits.viewportBoundsRange[1])goto done;
     d->last_draw_stage=4;struct program_entry *program=d->programs;while(program && (!same_shader_code(program->stages[0],vs->entry) || !same_shader_code(program->stages[1],ps->entry)))program=program->next;
-    if(!program || (fixed && (program->stages[0]!=vs->entry || program->stages[1]!=ps->entry)))goto done;
+    if(!program || (fixed && (program->stages[0]!=vs->entry || program->stages[1]!=ps->entry))){
+        struct shader_catalog *stages[2]={vs->entry,ps->entry};
+        for(unsigned i=0;i<2;i++)if(!stages[i]->diagnostic_hash_ready){
+            stages[i]->diagnostic_hash=fnv_shader_fingerprint(stages[i]->code,stages[i]->code_bytes);
+            stages[i]->diagnostic_hash_ready=1;
+        }
+        fnv_shader_pair_note(&d->missing_pairs,stages[0]->diagnostic_hash,stages[0]->code_bytes,
+            stages[1]->diagnostic_hash,stages[1]->code_bytes,fixed?fixed_bytes:0,program?2:1);
+        goto done;
+    }
     struct fnv_geometry_input geometry={.elements=decl->elements,.element_count=decl->count,.indexed=(uint32_t)indexed,.primitive=primitive,
         .base_bits=base,.min_vertex=min_vertex,.vertices=vertices,.start=start,.primitives=primitives};
     for(unsigned i=0;i<16;++i){struct buffer_resource *b=up_vertex?(i?NULL:up_vertex):find_buffer(d,streams[i].id);
@@ -231,7 +240,11 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
             VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,bc_format(t->format)?bc_format(t->format):t->usage==1?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_R8G8B8A8_UNORM,&props);
             if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)){hr=FNV_VK_INVALID;goto done;}}
     }
-    d->last_draw_stage=10;VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&d->depth_state,&depth_info);if(hr)goto done;
+    /* SetDepthStencilSurface(NULL) disables the operation, not the stored
+     * render states. Reattaching a surface must restore their effect. */
+    struct fnv_d3d9_depth effective_depth=d->depth_state;
+    if(!depth){effective_depth.enable=0;effective_depth.write=0;}
+    d->last_draw_stage=10;VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&effective_depth,&depth_info);if(hr)goto done;
     VkPipelineColorBlendAttachmentState blend_attachment;float blend_constants[4];hr=fnv_d3d9_vk_blend(&d->blend_state,&blend_attachment,blend_constants);if(hr)goto done;
     if(blend_attachment.blendEnable){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,VK_FORMAT_B8G8R8A8_UNORM,&props);
         if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)){hr=FNV_VK_INVALID;goto done;}}

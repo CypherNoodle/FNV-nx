@@ -3,6 +3,7 @@
 #include "d3d9_com.h"
 #include "d3d9_uniform_state.h"
 #include "d3d9_vk_state.h"
+#include "shader_pair_census.h"
 #include <vulkan/vulkan_core.h>
 struct fnv_vk_backend;
 struct fnv_vk_prepared_program;
@@ -30,6 +31,7 @@ struct fnv_vk_stats {
     uint64_t host_phase_ns[11]; /* Exclusive wall-clock brackets, not GPU/CPU utilization. */
     uint64_t draw_attempts,draw_invalid,draw_unsupported,draw_busy;
     uint64_t layout_creates,layout_hits,draw_reasons[16];
+    struct fnv_shader_pair_census missing_pairs;
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
