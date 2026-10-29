@@ -121,6 +121,12 @@ def run(a):
     allowed={'engine_process_plan.c','engine_probe.c'}
     if any(name not in allowed for name in declared):raise ValueError('Unsupported entry source delta')
     declared_paths={str((pc/'switch'/name).resolve()) for name in declared};entry_deltas={}
+    native_delta=getattr(a,'native_performance_proof',None);native_replacements={};native_dependencies=set()
+    if native_delta:
+        from build_native_performance_delta import verify as verify_native_delta
+        native_proof=pin(native_delta);native_report,native_replacements,native_dependencies=verify_native_delta(native_proof,cfg.runtime_validation)
+        for name,digest in native_report['source_sha256'].items():pin(name,digest)
+        for path in native_replacements.values():pin(path)
     # Recreate the delivered binary before admitting any diagnostic change.
     if getattr(a,'reuse_baseline',False):
         baseline_proof=pin(cfg.baseline_output/'validation.json')
@@ -137,6 +143,8 @@ def run(a):
                 entry_deltas[name]={'baseline_sha256':digest,'compiled_sha256':current_digest}
             elif private_state and Path(name)==own_source:
                 pin(name,core['source_sha256'][name])
+            elif name in native_dependencies:
+                pin(name,native_report['source_sha256'][name])
             elif Path(name).suffix in ('.c','.h','.inc','.a','.o','.specs','.ld'):pin(name,digest)
         if set(entry_deltas)!=declared_paths:raise ValueError('Entry delta lacks baseline provenance')
     else:
@@ -169,7 +177,7 @@ def run(a):
     relink(cpu_rsp,cpu['runtime_object'],cpu['runtime_sha256'],'cpu-baseline')
     core_replacements={str(old_core[Path(r['object']).name][0].resolve()):Path(r['object']) for r in core['objects']
         if Path(r['object']).name in changed}
-    native=relink(native_rsp,runtime['runtime_object'],None,'native-delta',core_replacements)
+    native=relink(native_rsp,runtime['runtime_object'],None,'native-delta',{**core_replacements,**native_replacements})
     replacements={str(Path(runtime['runtime_object']).resolve()):native}
     tail=getattr(a,'tail_proof',None)
     if tail:
@@ -179,7 +187,20 @@ def run(a):
             proof['compiler_flags']!=runtime['compiler_flags'] or proof['sdk_sha256']!=runtime['sdk_sha256'] or
             proof.get('legacy_edges')!='CALL26' or proof.get('optimized_edges')!='JUMP26' or len(proof['verified_edges'])<2):
             raise ValueError('Invalid tail optimization proof')
-        for name,digest in proof['source_sha256'].items():pin(name,digest)
+        changed_tail_headers={name for name,digest in proof['source_sha256'].items()
+                              if name in native_dependencies and sha(name)!=digest}
+        if changed_tail_headers:
+            # The old tail receipt conservatively froze all native headers.
+            # Reproduce its exact object with the current admitted headers;
+            # never assume that an unrelated-looking include is unused.
+            command=list(proof['command']);target=out/'tail-current-headers.o'
+            command[command.index('-o')+1]=str(target)
+            rebuilt=subprocess.run(command,capture_output=True,text=True)
+            (out/'tail-current-headers.log').write_text(rebuilt.stdout+rebuilt.stderr)
+            if rebuilt.returncode or sha(target)!=proof['object_sha256']:raise ValueError('Tail object changed with native headers')
+            pin(target)
+        for name,digest in proof['source_sha256'].items():
+            pin(name,native_report['source_sha256'][name] if name in changed_tail_headers else digest)
         generated_path=pin(cpu['inputs']['generated_validation'],cpu['source_sha256'][cpu['inputs']['generated_validation']])
         generated=json.loads(generated_path.read_text())
         rows=[r for r in generated['compiled'] if Path(r['source']).resolve()==Path(proof['original_unit']).resolve()]
@@ -199,6 +220,7 @@ def run(a):
         baseline_nro_sha256=sha(base),baseline_elf_sha256=baseline['elf_sha256'],changed_native_objects=changed,
         replacement_core_sha256=sha(cfg.x87_core),tail_optimization_proof_sha256=sha(tail) if tail else None,
         own_entry_source_deltas=entry_deltas,
+        native_performance_proof_sha256=sha(native_delta) if native_delta else None,
         softfloat_thread_local_state=private_state,
         gameplay_fix_hardware_verified=False)
     (out/'delta/validation.json').write_text(json.dumps(result,indent=2)+'\n')
@@ -211,6 +233,7 @@ if __name__=='__main__':
     p.add_argument('--tail-proof',type=Path)
     p.add_argument('--hardware-revision',default='hw18',help='Stable log label; exact builds are identified by hashes')
     p.add_argument('--private-state-proof',type=Path)
+    p.add_argument('--native-performance-proof',type=Path)
     p.add_argument('--replace-output',action='store_true',help='Reuse only local/pc-engine-current-build after verifying the preserved active NRO/ELF')
     p.add_argument('--entry-source-delta',action='append',choices=('engine_process_plan.c','engine_probe.c'))
     run(p.parse_args())

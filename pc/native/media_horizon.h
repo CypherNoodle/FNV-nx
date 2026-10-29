@@ -21,6 +21,8 @@ uint32_t fnv_horizon_audio_open(struct fnv_pcm_queue *,struct fnv_horizon_audio 
  * For DirectSound: queue dedicated to provider; producer=fnv_dsound8_produce. */
 uint32_t fnv_horizon_audio_open_source(struct fnv_pcm_queue *,uint32_t (*produce)(void *,uint32_t),void *,struct fnv_horizon_audio **);
 uint32_t fnv_horizon_audio_error(struct fnv_horizon_audio *);
+struct fnv_horizon_audio_metrics {uint64_t refills,underrun_frames,wait_timeouts;};
+uint32_t fnv_horizon_audio_metrics(struct fnv_horizon_audio *,struct fnv_horizon_audio_metrics *);
 /* Nonzero close result retains object/queue ownership; caller must not free it. */
 uint32_t fnv_horizon_audio_close(struct fnv_horizon_audio *);
 #endif

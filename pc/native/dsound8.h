@@ -25,6 +25,11 @@ enum fnv_cpu_result fnv_dsound8_set_focus(struct fnv_dsound8 *,int focused);
 /* Pull producer for the existing PCM/audout pipeline, frames1..512. No guest
  * calls or guest memory reads. FULL rolls back every playback cursor. */
 enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *,uint32_t frames);
+struct fnv_dsound_metrics {
+    uint64_t pumps,frames,full_returns,lock_wait_ns,mix_ns,max_pump_ns,late_pumps,silent_voice_frames;
+};
+/* Nonblocking cumulative host-side metrics. BUSY leaves output unchanged. */
+enum fnv_pcm_result fnv_dsound8_try_metrics(struct fnv_dsound8 *,struct fnv_dsound_metrics *);
 /* Callback compatible with fnv_horizon_audio_open_source; zero=success. */
 uint32_t fnv_dsound8_produce(void *,uint32_t frames);
 /* One host movie stream: stereo S16/48kHz, one-second bounded ring. Host

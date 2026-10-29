@@ -25,6 +25,10 @@ struct fnv_vk_stats {
     uint32_t swapchain_images,present_mode; /* Vulkan mode; valid with images. */
     uint64_t resets;
     uint64_t draw_waits; /* Ring-pressure fence waits, not one wait per draw. */
+    uint64_t lookup_calls,lookup_hits,lookup_scan_steps;
+    uint64_t uniform_allocations,uniform_reuses;
+    uint64_t host_phase_ns[11]; /* Exclusive wall-clock brackets, not GPU/CPU utilization. */
+    uint64_t draw_attempts,draw_invalid,draw_unsupported,draw_busy;
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
@@ -37,6 +41,10 @@ struct fnv_vk_stats {
  * No fake shader/draw provider: unsupported callback extensions remain null.
  * Backend methods serialize internally; no callbacks/reentry under its lock. */
 uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr,const struct fnv_vk_config *,struct fnv_vk_backend **,VkResult *failure);
+/* Optional constant-buffer reuse per retired command frame, with persistent
+ * mapping and noncoherent flushes. Enable/disable only outside a scene after
+ * all queued/submitted work completes. Disabling releases the retained owners. */
+uint32_t fnv_vk_backend_uniform_reuse(struct fnv_vk_backend *,int enabled);
 /* Exclusive initialization, before COM construction or exposing the backbuffer.
  * Select ARGB8 (21, default) or XRGB8 (22) for the implicit presentation surface.
  * Storage remains BGRA8; X is unspecified and WSI uses opaque composition.

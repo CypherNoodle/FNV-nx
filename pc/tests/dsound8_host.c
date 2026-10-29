@@ -303,6 +303,7 @@ int main(int argc,char **argv){
     assert(fnv_dsound8_set_focus(sound,1)==FNV_CPU_OK && fnv_dsound8_pump(sound,8)==FNV_PCM_OK);read_exact(output,8);for(unsigned k=0;k<16;k++){assert(output[k]==20000);sample_checks++;}
     assert(fnv_dsound_stream_close(sound,simultaneous)==FNV_PCM_OK);free(ring);
 finish:
+    {struct fnv_dsound_metrics metrics;assert(fnv_dsound8_try_metrics(sound,&metrics)==FNV_PCM_OK);if(argc==2)assert(metrics.pumps && metrics.frames && metrics.full_returns && metrics.silent_voice_frames);}
     assert(DestroyWindow(window));assert(fnv_windows_thread_detach()==FNV_CPU_OK&&fnv_dsound8_destroy(sound)==FNV_CPU_OK&&fnv_windows_destroy(process)==FNV_CPU_OK);fnv_pcm_destroy(queue);assert(VirtualFree(arena,0,MEM_RELEASE));
     if(argc==3){puts("strict PASS");return 0;}
     printf("{\"status\":\"PASS\",\"pcm_samples_compared\":%u,\"windows_ABI_checks\":%u,\"listener_state_checks\":%u,\"unattached_audio_worker\":true,\"full_queue_rolls_back_cursors\":true,\"engine_started\":false}\n",sample_checks,native_checks,listener_checks);return 0;

@@ -7,6 +7,7 @@
 #include "host_mutex.h"
 #include "host_mutex_try.h"
 #include "host_clock.h"
+#include "resource_lookup.h"
 #include "d3d9_texture_upload.h"
 #include "d3d9_geometry.h"
 #include <math.h>
@@ -35,7 +36,7 @@ struct surface {
     VkImageLayout layout;
     struct texture_version *texture;uintptr_t parent_texture;uint32_t level,shadow_alias;
 };
-struct buffer_version {VkBuffer buffer;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs;};
+struct buffer_version {VkBuffer buffer;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,bytes,coherent;void *mapped;};
 struct buffer_resource {
     uintptr_t id;uint32_t refs,pins,kind,bytes,usage,format,pool;
     unsigned char *shadow;struct buffer_version *version;
@@ -69,12 +70,12 @@ struct frame {
     uintptr_t read_surface;VkBuffer read_buffer;VkDeviceMemory read_memory;
     VkDeviceSize read_allocation;uint32_t read_coherent;
     struct draw_resources *draw;struct buffer_version *read_version;struct texture_version *read_texture;
+    struct buffer_version *uniform_cache[2];
 };
 struct wsi_image {VkImage image;VkSemaphore ready;VkFence presented;int pending;};
 struct wsi_state {VkSurfaceKHR surface;VkSwapchainKHR chain;uint32_t count;struct wsi_image images[8];VkPresentModeKHR mode;uint64_t presents,timeouts;};
 /* Resource arrays have stable addresses until backend destruction. Validate the
  * live identity on every hit, including hits for a different resource kind. */
-struct resource_lookup {uintptr_t id;const uintptr_t *identity;void *resource;unsigned kind;};
 struct fnv_vk_backend {
     fnv_host_mutex guard;struct dispatch v;struct fnv_vk_config config;
     VkInstance instance;VkPhysicalDevice physical;VkDevice device;VkQueue queue;VkPipelineCache pipeline_cache;struct wsi_state wsi;
@@ -95,10 +96,14 @@ struct fnv_vk_backend {
     uint32_t viewport[6],scissor[4];uint64_t device_refs,allocated,submissions,completions,draw_timeout_ns,draw_waits;
     VkResult last;int lost,in_scene,queue_touched;uint32_t scissor_enabled;
     atomic_uint phase;atomic_uint_fast64_t phase_ns,wait_calls,wait_ns,submit_calls,submit_ns;
-    struct resource_lookup lookups[128];
+    struct fnv_resource_lookup lookups;
+    uint32_t reuse_uniforms;uint64_t uniform_allocations,uniform_reuses;
+    uint64_t phase_totals[11],draw_attempts,draw_invalid,draw_unsupported,draw_busy;
 };
 static unsigned gpu_phase(struct fnv_vk_backend *d,unsigned phase){
     unsigned previous=atomic_load_explicit(&d->phase,memory_order_relaxed);uint64_t now=0;(void)fnv_host_now_ns(&now);
+    uint64_t before=atomic_load_explicit(&d->phase_ns,memory_order_relaxed);
+    if(previous<11 && before && now>=before)d->phase_totals[previous]+=now-before;
     atomic_store_explicit(&d->phase_ns,now,memory_order_relaxed);atomic_store_explicit(&d->phase,phase,memory_order_relaxed);return previous;
 }
 static VkResult tracked_wait(struct fnv_vk_backend *d,uint32_t count,const VkFence *fences,VkBool32 all,uint64_t timeout){
@@ -126,16 +131,7 @@ static uint32_t result(struct fnv_vk_backend *d,VkResult r){
     d->lost=1;return FNV_VK_LOST;
 }
 static void *lookup_resource(struct fnv_vk_backend *d,uintptr_t id,unsigned kind,void *base,size_t stride){
-    if(!id || !base)return NULL;
-    struct resource_lookup *entry=d->lookups+(id%128);
-    if(entry->id==id && entry->identity && *entry->identity==id)
-        return entry->kind==kind?entry->resource:NULL;
-    for(uint32_t i=0;i<d->config.resource_capacity;++i){
-        /* Every array element starts with its uintptr_t identity member. */
-        void *resource=(unsigned char*)base+(size_t)i*stride;uintptr_t *identity=resource;
-        if(*identity==id){*entry=(struct resource_lookup){id,identity,resource,kind};return resource;}
-    }
-    return NULL;
+    return fnv_resource_lookup_find(&d->lookups,id,kind,base,stride,d->config.resource_capacity);
 }
 static struct surface *find(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,0,d->surfaces,sizeof(*d->surfaces));}
 static struct buffer_resource *find_buffer(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,1,d->buffer_resources,sizeof(*d->buffer_resources));}
@@ -162,7 +158,7 @@ static uint32_t resource_count(struct fnv_vk_backend *d){
     uint32_t n=0;for(uint32_t i=0;i<d->config.resource_capacity;++i)n+=(d->surfaces[i].id!=0)+(d->buffer_resources[i].id!=0)+(d->textures[i].id!=0)+(d->shaders[i].id!=0)+(d->declarations[i].id!=0);return n;
 }
 static void release_version(struct fnv_vk_backend *d,struct buffer_version *v){
-    if(v && !--v->refs){d->v.DestroyBuffer(d->device,v->buffer,NULL);d->v.FreeMemory(d->device,v->memory,NULL);
+    if(v && !--v->refs){if(v->mapped)d->v.UnmapMemory(d->device,v->memory);d->v.DestroyBuffer(d->device,v->buffer,NULL);d->v.FreeMemory(d->device,v->memory,NULL);
         d->allocated-=v->allocation;d->buffer_versions--;free(v);}
 }
 static void collect_buffer(struct fnv_vk_backend *d,struct buffer_resource *b){
@@ -232,10 +228,37 @@ static uint32_t make_version(struct fnv_vk_backend *d,uint32_t kind,uint32_t byt
         memset(mapped,0,(size_t)padded);memcpy(mapped,data,bytes);
         if(!coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=v->memory,.offset=0,.size=VK_WHOLE_SIZE};
             hr=result(d,d->v.FlushMappedMemoryRanges(d->device,1,&range));}
-        d->v.UnmapMemory(d->device,v->memory);
+        if(!hr && d->reuse_uniforms && (kind==FNV_D3D9_VS || kind==FNV_D3D9_PS))v->mapped=mapped;
+        else d->v.UnmapMemory(d->device,v->memory);
     }
     if(hr){d->v.DestroyBuffer(d->device,v->buffer,NULL);if(v->memory){d->v.FreeMemory(d->device,v->memory,NULL);d->allocated-=v->allocation;}free(v);return hr;}
-    v->refs=1;d->buffer_versions++;*out=v;return 0;
+    v->refs=1;v->bytes=bytes;v->coherent=coherent;d->buffer_versions++;*out=v;return 0;
+}
+/* Only a retired frame's owner reference may be overwritten. Pending draws
+ * retain their own refs; newly allocated versions enter the cache only after
+ * a successful submission, so build failures preserve allocation rollback. */
+static uint32_t draw_uniform(struct fnv_vk_backend *d,struct frame *f,unsigned stage,uint32_t bytes,const void *data,struct buffer_version **out){
+    struct buffer_version *v=f->uniform_cache[stage];
+    if(d->reuse_uniforms && !f->pending && v && v->refs==1 && v->mapped && v->bytes>=bytes){
+        memcpy(v->mapped,data,bytes);
+        if(!v->coherent){VkMappedMemoryRange range={.sType=VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,.memory=v->memory,.size=VK_WHOLE_SIZE};
+            uint32_t hr=result(d,d->v.FlushMappedMemoryRanges(d->device,1,&range));if(hr)return hr;}
+        v->refs++;*out=v;d->uniform_reuses++;return 0;
+    }
+    uint32_t hr=make_version(d,stage?FNV_D3D9_PS:FNV_D3D9_VS,bytes,data,out);
+    if(!hr)d->uniform_allocations++;return hr;
+}
+uint32_t fnv_vk_backend_uniform_reuse(struct fnv_vk_backend *d,int enabled){
+    if(!d || (enabled!=0 && enabled!=1))return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=0;
+    if(d->lost || !d->device_refs)hr=FNV_VK_LOST;
+    else if(d->in_scene || d->count)hr=FNV_VK_BUSY;
+    else{
+        for(uint32_t i=0;i<d->config.frames;++i)if(d->frames[i].pending)hr=FNV_VK_BUSY;
+        if(!hr){d->reuse_uniforms=(uint32_t)enabled;if(!enabled)for(uint32_t i=0;i<d->config.frames;++i)for(unsigned s=0;s<2;++s){
+            release_version(d,d->frames[i].uniform_cache[s]);d->frames[i].uniform_cache[s]=NULL;}}
+    }
+    fnv_host_mutex_unlock(&d->guard);return hr;
 }
 static uint32_t create_buffer(void *ctx,enum fnv_d3d9_resource_kind kind,uint32_t bytes,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out){
     struct fnv_vk_backend *d=ctx;
@@ -594,6 +617,10 @@ static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->surfaces[i].id)s.live_surfaces++;
     for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->buffer_resources[i].id)s.live_buffers++;
     s.shader_catalog_entries=d->catalog_count;s.linked_programs=d->program_count;s.draws=d->draws;s.resets=d->resets;s.draw_waits=d->draw_waits;
+    s.lookup_calls=d->lookups.calls;s.lookup_hits=d->lookups.hits;s.lookup_scan_steps=d->lookups.scan_steps;
+    s.uniform_allocations=d->uniform_allocations;s.uniform_reuses=d->uniform_reuses;
+    memcpy(s.host_phase_ns,d->phase_totals,sizeof(s.host_phase_ns));
+    s.draw_attempts=d->draw_attempts;s.draw_invalid=d->draw_invalid;s.draw_unsupported=d->draw_unsupported;s.draw_busy=d->draw_busy;
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
@@ -749,6 +776,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
                 if(f->passes && f->passes[j])d->v.DestroyRenderPass(d->device,f->passes[j],NULL);
             }
             release_draw(d,f->draw);
+            for(unsigned s=0;s<2;++s)release_version(d,f->uniform_cache[s]);
             if(f->pool)d->v.DestroyCommandPool(d->device,f->pool,NULL);
             if(f->fence)d->v.DestroyFence(d->device,f->fence,NULL);
             if(f->read_buffer)d->v.DestroyBuffer(d->device,f->read_buffer,NULL);
@@ -777,7 +805,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
     while(d->programs){struct program_entry *entry=d->programs;d->programs=entry->next;free(entry);}
     while(d->catalog){struct shader_catalog *entry=d->catalog;d->catalog=entry->next;free(entry->code);free(entry->spirv);free(entry->entries);free(entry);}
     if(d->uniforms)(void)fnv_uniform_state_destroy(d->uniforms);
-    free(d->shaders);free(d->declarations);free(d->surfaces);free(d->buffer_resources);free(d->textures);free(d->commands);fnv_host_mutex_destroy(&d->guard);free(d);return 0;
+    free(d->lookups.entries);free(d->shaders);free(d->declarations);free(d->surfaces);free(d->buffer_resources);free(d->textures);free(d->commands);fnv_host_mutex_destroy(&d->guard);free(d);return 0;
 }
 uint32_t fnv_vk_backend_destroy(struct fnv_vk_backend *d){
     if(!d)return FNV_VK_INVALID;
@@ -798,6 +826,9 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     atomic_init(&d->phase,0);atomic_init(&d->phase_ns,0);atomic_init(&d->wait_calls,0);atomic_init(&d->wait_ns,0);atomic_init(&d->submit_calls,0);atomic_init(&d->submit_ns,0);
     if(!fnv_host_mutex_init(&d->guard)){free(d);return FNV_VK_OOM;}
     d->config=*cfg;d->device_refs=1;uint32_t hr=FNV_VK_LOST;
+    d->lookups.capacity=16;while(d->lookups.capacity<(size_t)cfg->resource_capacity*2)d->lookups.capacity*=2;
+    d->lookups.entries=calloc(d->lookups.capacity,sizeof(*d->lookups.entries));
+    if(!d->lookups.entries){fnv_host_mutex_destroy(&d->guard);free(d);return FNV_VK_OOM;}
     d->v.CreateInstance=(PFN_vkCreateInstance)gp(VK_NULL_HANDLE,"vkCreateInstance");if(!d->v.CreateInstance)goto fail;
     VkApplicationInfo app={.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO,.pApplicationName="FNV native D3D9 backend",.apiVersion=VK_API_VERSION_1_1};
     VkInstanceCreateInfo ici={.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,.pApplicationInfo=&app};

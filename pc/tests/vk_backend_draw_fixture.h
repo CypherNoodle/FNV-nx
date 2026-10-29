@@ -48,7 +48,8 @@ static void exercise_draws(void){
     draw_constants(0,.75f);uint32_t draw_args[]={device_at,4,UINT32_MAX,1,4,2,2};
     assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID);assert(!call(BEGIN,1,&device_at));
     draw_args[3]=2;assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID && !stats().draws);draw_args[3]=1;
-    uint32_t no_texture[]={device_at,0,0};assert(!call(T_BIND,3,no_texture));assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID);assert(!call(T_BIND,3,texture_bind));
+    /* Null samplers now have a native fallback; they are not invalid draws. */
+    uint32_t no_texture[]={device_at,0,0};assert(!call(T_BIND,3,no_texture));assert(!call(T_BIND,3,texture_bind));
     stream[3]=17;assert(!call(B_STREAM,5,stream));assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID);stream[3]=16;stream[4]=18;
     assert(!call(B_STREAM,5,stream));assert(call(D_INDEXED,7,draw_args)==FNV_VK_INVALID);stream[4]=16;assert(!call(B_STREAM,5,stream));
     struct fnv_vk_stats before=stats();
@@ -66,11 +67,16 @@ static void exercise_draws(void){
     draw_geometry(vb,ib,1);assert(call(D_INDEXED,7,draw_args)==FNV_VK_BUSY);
     assert(!call(END,1,&device_at) && stats().pending_frames==2);draw_pixels(0,first,0);
     assert(stats().buffer_versions==2 && stats().texture_versions==1);
-    assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(1,second,0);
+    if(uniform_cache_requested)assert(!fnv_vk_backend_uniform_reuse(gpu,1));
+    assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw_args));
+    if(uniform_cache_requested)assert(fnv_vk_backend_uniform_reuse(gpu,0)==FNV_VK_BUSY);
+    assert(!call(END,1,&device_at));draw_pixels(1,second,0);
     /* A farther blue draw must fail LEQUAL; disabling depth then reveals it. */
     draw_constants(2,.9f);draw_geometry(vb,ib,1);uint32_t sampler[]={device_at,0,1,2};assert(!call(D_SAMPLER_SET,4,sampler));
     uint32_t sampler_get[]={device_at,0,1,GUEST_OUT};assert(!call(D_SAMPLER_GET,4,sampler_get) && get(GUEST_OUT)==2);
-    assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(1,second,0);
+    assert(!call(BEGIN,1,&device_at));
+    if(uniform_cache_requested){struct fnv_vk_stats saved=stats();fail_flush=1;assert(call(D_INDEXED,7,draw_args)==FNV_VK_OOM);assert(stats().allocated_bytes==saved.allocated_bytes && stats().draws==saved.draws);}
+    assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(1,second,0);
     draw_mirrored=1;render[1]=7;render[2]=0;assert(!call(SET_RENDER,3,render));assert(!call(BEGIN,1,&device_at));assert(!call(D_INDEXED,7,draw_args));assert(!call(END,1,&device_at));draw_pixels(2,second,0);
     /* Scissor applies to draw coverage, independently from viewport. */
     const uint32_t rect[4]={8,4,24,28};memcpy(ptr(DATA),rect,16);uint32_t scissor[]={device_at,DATA};assert(!call(SET_SCISSOR,2,scissor));
@@ -87,7 +93,9 @@ static void exercise_draws(void){
     bind[1]=0;assert(!call(S_VS_BIND,2,bind) && !call(S_PS_BIND,2,bind) && !call(S_DECL_BIND,2,bind));
     stream[2]=stream[3]=stream[4]=0;assert(!call(B_STREAM,5,stream));assert(!call(T_BIND,3,no_texture));
     assert(stats().live_shaders==2 && stats().live_declarations==1 && stats().live_buffers==1 && stats().live_textures==1);
-    draw_pixels(2,second,0);assert(!stats().live_shaders && !stats().live_declarations && !stats().live_buffers && !stats().live_textures && !stats().buffer_versions && !stats().texture_versions);
+    draw_pixels(2,second,0);
+    if(uniform_cache_requested){assert(stats().uniform_reuses>10);assert(!fnv_vk_backend_uniform_reuse(gpu,0));}
+    assert(!stats().live_shaders && !stats().live_declarations && !stats().live_buffers && !stats().live_textures && !stats().buffer_versions && !stats().texture_versions);
     render[1]=7;render[2]=1;assert(!call(SET_RENDER,3,render));
 }
 

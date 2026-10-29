@@ -289,6 +289,8 @@ static int initialize(void) {
     REQUIRE(!fnv_vk_backend_adapter_identifier(graphics,adapter,sizeof(adapter)),"actual Vulkan adapter");
     report("Adapter %.511s / %.511s vendor=%04lX device=%04lX\n",adapter,adapter+512,(unsigned long)load32(adapter+1064),(unsigned long)load32(adapter+1068));
     REQUIRE(!fnv_vk_backend_presentation_format(graphics,22) && !fnv_vk_backend_draw_wait(graphics,10000000000ull),"graphics presentation configuration");
+    REQUIRE(!fnv_vk_backend_uniform_reuse(graphics,1),"retired-frame uniform reuse");
+    report("Renderer reuse: resource index, retired-frame mapped uniforms; audio silent-voice fast path\n");
     struct fnv_display_backend db={NULL,enumerate_display};struct fnv_windows_display *display;
     REQUIRE(fnv_windows_display_create(process,&db,&display)==FNV_CPU_OK,"display provider");
     REQUIRE(fnv_windows_boot_ui_create(process,&image,&boot_ui)==FNV_CPU_OK,"window provider");
@@ -433,7 +435,27 @@ int main(void) {
             if(!snapshot){
                 report("Progress elapsed_ms=%llu draws=%llu submissions=%llu presents=%llu gpu_alloc=%llu\n",(unsigned long long)elapsed,(unsigned long long)stats.draws,(unsigned long long)stats.submissions,(unsigned long long)stats.presentation_requests,(unsigned long long)stats.allocated_bytes);
                 report("Pipelines calls=%llu host_ms=%llu max_host_ms=%llu cache=device\n",(unsigned long long)pipelines.calls,(unsigned long long)(pipelines.host_ns/1000000),(unsigned long long)(pipelines.max_host_ns/1000000));
+                report("Reuse lookup_calls=%llu hits=%llu scan_steps=%llu uniform_allocs=%llu uniform_reuses=%llu\n",(unsigned long long)stats.lookup_calls,(unsigned long long)stats.lookup_hits,(unsigned long long)stats.lookup_scan_steps,(unsigned long long)stats.uniform_allocations,(unsigned long long)stats.uniform_reuses);
+                report("Draw attempts=%llu invalid=%llu unsupported=%llu busy=%llu\n",(unsigned long long)stats.draw_attempts,(unsigned long long)stats.draw_invalid,(unsigned long long)stats.draw_unsupported,(unsigned long long)stats.draw_busy);
+                char phase_line[512]={0};size_t phase_used=0;
+                for(unsigned phase=0;phase<11;phase++){
+                    int added=snprintf(phase_line+phase_used,sizeof(phase_line)-phase_used," %s_ms=%llu",phases[phase],(unsigned long long)(stats.host_phase_ns[phase]/1000000));
+                    if(added<0 || (size_t)added>=sizeof(phase_line)-phase_used)break;
+                    phase_used+=(size_t)added;
+                }
+                report("HostPhases%s\n",phase_line);
             }else report("Renderer snapshot busy hr=%08lX\n",(unsigned long)snapshot);
+            struct fnv_dsound_metrics sound_metrics;
+            if(fnv_dsound8_try_metrics(sound,&sound_metrics)==FNV_PCM_OK)report("Audio pumps=%llu frames=%llu full=%llu lock_ms=%llu mix_ms=%llu max_us=%llu late=%llu silent_voice_frames=%llu\n",(unsigned long long)sound_metrics.pumps,(unsigned long long)sound_metrics.frames,(unsigned long long)sound_metrics.full_returns,(unsigned long long)(sound_metrics.lock_wait_ns/1000000),(unsigned long long)(sound_metrics.mix_ns/1000000),(unsigned long long)(sound_metrics.max_pump_ns/1000),(unsigned long long)sound_metrics.late_pumps,(unsigned long long)sound_metrics.silent_voice_frames);
+            else report("Audio metrics busy\n");
+            struct fnv_horizon_audio_metrics audout_metrics;
+            if(!fnv_horizon_audio_metrics(audio,&audout_metrics))report("Audout refills=%llu underrun_frames=%llu wait_timeouts=%llu\n",(unsigned long long)audout_metrics.refills,(unsigned long long)audout_metrics.underrun_frames,(unsigned long long)audout_metrics.wait_timeouts);
+            u64 core_mask=0,main_ticks[4]={0};s32 preferred_core=-1;Result ticks_result=svcGetThreadCoreMask(&preferred_core,&core_mask,thread.thread.handle);
+            for(unsigned core=0;core<4 && R_SUCCEEDED(ticks_result);core++)if(core_mask&(1u<<core)){
+                ticks_result=svcGetInfo(main_ticks+core,InfoType_ThreadTickCount,thread.thread.handle,core);
+                if(R_FAILED(ticks_result))ticks_result=svcGetInfo(main_ticks+core,InfoType_ThreadTickCountDeprecated,thread.thread.handle,core);
+            }
+            report("CPU main_ticks_rc=%08lX affinity=%llX preferred=%ld ticks_hz=%llu core0=%llu core1=%llu core2=%llu core3=%llu\n",(unsigned long)ticks_result,(unsigned long long)core_mask,(long)preferred_core,(unsigned long long)armGetSystemTickFreq(),(unsigned long long)main_ticks[0],(unsigned long long)main_ticks[1],(unsigned long long)main_ticks[2],(unsigned long long)main_ticks[3]);
             struct fnv_windows_diagnostics diagnostics;fnv_windows_try_diagnostics(process,&diagnostics);
             struct fnv_vm_counters memory={0};int vm_ready=fnv_vm_try_counters(vm,&memory);
             report("Providers available_mask=%02X vm_ready=%d vm_commit=%lu workers=%lu/%lu failures=%llu\n",diagnostics.available,vm_ready,(unsigned long)memory.committed_bytes,(unsigned long)diagnostics.workers.active,(unsigned long)diagnostics.workers.capacity,(unsigned long long)diagnostics.workers.failures);

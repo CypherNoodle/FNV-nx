@@ -230,7 +230,7 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
         r->textures[i]=t->version;r->textures[i]->refs++;draw_pin(d,r,t->id);}
     const struct fnv_uniform_plan *plans[2]={&program->stages[0]->plan,&program->stages[1]->plan};
     struct fnv_uniform_draw snapshot;hr=(automatic || screen)?fnv_uniform_state_prepare_fixed(d->uniforms,fixed,fixed_bytes,&snapshot):fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,fixed_bytes,&snapshot):fnv_uniform_state_prepare_program(d->uniforms,plans,&snapshot);if(hr)goto rollback;
-    for(unsigned i=0;i<2 && !hr;++i)if(snapshot.bytes[i])hr=make_version(d,i?FNV_D3D9_PS:FNV_D3D9_VS,snapshot.bytes[i],snapshot.data[i],r->ubo+i);
+    for(unsigned i=0;i<2 && !hr;++i)if(snapshot.bytes[i])hr=draw_uniform(d,f,i,snapshot.bytes[i],snapshot.data[i],r->ubo+i);
     {uint32_t cancel=fnv_uniform_state_cancel(d->uniforms,snapshot.ticket);if(cancel && !hr)hr=cancel;}if(hr)goto rollback;
     hr=draw_descriptors(d,r,program);if(hr)goto rollback;
     VkDescriptorSet descriptors[3];VkDescriptorSetAllocateInfo ai={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,.descriptorPool=r->descriptors,.descriptorSetCount=3,.pSetLayouts=r->sets+1};
@@ -281,7 +281,11 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     if(indexed){d->v.CmdBindIndexBuffer(f->cmd,r->indices->buffer,0,ib->format==101?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32);
         int64_t signed_base=base&0x80000000u?(int64_t)base-0x100000000ll:base;d->v.CmdDrawIndexed(f->cmd,access.count,1,start,(int32_t)signed_base,0);}
     else d->v.CmdDraw(f->cmd,access.count,1,start,0);
-    d->v.CmdEndRenderPass(f->cmd);hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}if(color->texture)color->texture->initialized=1;d->draws++;goto done;
+    d->v.CmdEndRenderPass(f->cmd);hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}
+    if(d->reuse_uniforms)for(unsigned s=0;s<2;++s)if(r->ubo[s] && f->uniform_cache[s]!=r->ubo[s]){
+        release_version(d,f->uniform_cache[s]);f->uniform_cache[s]=r->ubo[s];r->ubo[s]->refs++;
+    }
+    if(color->texture)color->texture->initialized=1;d->draws++;goto done;
 rollback:
     if(!d->lost && f)retire_frame(d,f);
 done:return hr;
@@ -290,6 +294,7 @@ done:return hr;
 static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
     unsigned previous=gpu_phase(d,FNV_VK_PHASE_DRAW);
     uint32_t hr=draw_locked_body(d,indexed,primitive,base,min_vertex,vertices,start,primitives,up_vertex,up_index,up_stride,fixed,fixed_bytes);
+    d->draw_attempts++;d->draw_invalid+=hr==FNV_VK_INVALID;d->draw_unsupported+=hr==0x8876086au;d->draw_busy+=hr==FNV_VK_BUSY;
     (void)gpu_phase(d,previous);return hr;
 }
 static uint32_t draw(void *ctx,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives){

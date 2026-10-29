@@ -4,6 +4,8 @@
 #include "dsound_streams.h"
 #include "guest_memory.h"
 #include "host_mutex.h"
+#include "host_mutex_try.h"
+#include "host_clock.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -32,6 +34,7 @@ struct fnv_dsound8 {
     int16_t movie[MOVIE_FRAMES*2];uint32_t movie_head,movie_count,movie_paused;
     uint64_t movie_played;
     struct music_ring music[8];
+    struct fnv_dsound_metrics metrics;
 };
 static struct fnv_dsound8 *active;
 static const unsigned char unknown[16]={0,0,0,0,0,0,0,0,0xc0,0,0,0,0,0,0,0x46};
@@ -348,10 +351,12 @@ static int32_t sample(const struct sound_object *o,uint32_t frame,unsigned chann
     return o->bits==8?((int32_t)o->samples[at]-128)*256:(int16_t)half(o->samples+at);
 }
 #include "dsound_streams.inc"
+#include "audio_phase.h"
 enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *d,uint32_t frames){
     if(!d||d!=active||!frames||frames>512)return FNV_PCM_INVALID;
     int64_t mix[1024]={0};int16_t output[1024];uint64_t phases[CAPACITY];uint32_t playing[CAPACITY];
-    fnv_host_mutex_lock(&d->guard);
+    uint64_t started=0,locked=0,ended=0;int timed=fnv_host_now_ns(&started);
+    fnv_host_mutex_lock(&d->guard);if(timed)timed=fnv_host_now_ns(&locked);
     int32_t masters[CAPACITY][2];for(unsigned i=0;i<d->count;i++)masters[i][0]=masters[i][1]=65536;
     for(unsigned i=0;i<d->count;i++){struct sound_object *o=d->objects+i;
         if(o->refs && o->kind && (o->flags&1) && o->parent){masters[o->parent-1][0]=o->gain[0];masters[o->parent-1][1]=o->gain[1];}}
@@ -360,6 +365,13 @@ enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *d,uint32_t frames){
         uint32_t count=o->bytes/(o->channels*(o->bits/8));uint64_t end=(uint64_t)count*48000;
         int32_t gains[2]={o->gain[0],o->gain[1]};uint32_t hz=o->frequency;
         if(o->flags&0x10)spatial_mix(d,o,gains,&hz);
+        /* Muted/background-suppressed voices still consume playback time.
+         * Preserve cursor/end/loop behavior without fetching or resampling
+         * PCM that cannot contribute to either output channel. */
+        if((!d->focused && !(o->flags&0x8000)) ||
+           ((!gains[0] || !masters[o->parent-1][0]) && (!gains[1] || !masters[o->parent-1][1]))){
+            o->phase=fnv_audio_silent_advance(o->phase,frames,hz,end,o->looping,&o->playing);d->metrics.silent_voice_frames+=frames;continue;
+        }
         for(unsigned f=0;f<frames&&o->playing;f++){
             uint32_t a=(uint32_t)(o->phase/48000),fraction=(uint32_t)(o->phase%48000),b=a+1;
             if(b==count)b=o->looping?0:a;
@@ -382,6 +394,17 @@ enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *d,uint32_t frames){
     if(r!=FNV_PCM_OK)for(unsigned i=0;i<d->count;i++){d->objects[i].phase=phases[i];d->objects[i].playing=playing[i];}
     if(r==FNV_PCM_OK){d->movie_head=(d->movie_head+movie_frames)%MOVIE_FRAMES;d->movie_count-=movie_frames;d->movie_played+=movie_frames;}
     if(r==FNV_PCM_OK)for(unsigned i=0;i<8;i++){struct music_ring *m=d->music+i;m->head=(m->head+music_frames[i])%MOVIE_FRAMES;m->count-=music_frames[i];m->played+=music_frames[i];}
+    d->metrics.pumps++;if(r==FNV_PCM_OK)d->metrics.frames+=frames;if(r==FNV_PCM_FULL)d->metrics.full_returns++;
+    if(timed && fnv_host_now_ns(&ended) && ended>=locked && locked>=started){
+        uint64_t total=ended-started;d->metrics.lock_wait_ns+=locked-started;d->metrics.mix_ns+=ended-locked;
+        if(total>d->metrics.max_pump_ns)d->metrics.max_pump_ns=total;
+        d->metrics.late_pumps+=total>(uint64_t)frames*1000000000/48000;
+    }
     fnv_host_mutex_unlock(&d->guard);return r;
+}
+enum fnv_pcm_result fnv_dsound8_try_metrics(struct fnv_dsound8 *d,struct fnv_dsound_metrics *out){
+    if(!d || d!=active || !out)return FNV_PCM_INVALID;
+    if(!fnv_host_mutex_trylock(&d->guard))return FNV_PCM_FULL;
+    *out=d->metrics;fnv_host_mutex_unlock(&d->guard);return FNV_PCM_OK;
 }
 uint32_t fnv_dsound8_produce(void *context,uint32_t frames){return (uint32_t)fnv_dsound8_pump(context,frames);}

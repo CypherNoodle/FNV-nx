@@ -25,7 +25,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('sdk','python-deps','output'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--cc',nargs='+',required=True);p.add_argument('--x87-build',type=Path)
-    a=p.parse_args();pc=Path(__file__).resolve().parents[1];extra=[Path(__file__).resolve(),pc/'native/dsound8.h',pc/'native/pcm_queue.h',pc/'native/dsound_streams.h',pc/'native/dsound_streams.inc',pc/'native/dsound_listener.inc',pc/'native/dsound_spatial.inc',pc/'tests/dsound_spatial_fixture.h'];link=['-ldsound','-ldxguid','-luser32','-lole32','-Wl,--stack,8388608']
+    a=p.parse_args();pc=Path(__file__).resolve().parents[1];extra=[pc/'native/audio_phase.h',Path(__file__).resolve(),pc/'native/dsound8.h',pc/'native/pcm_queue.h',pc/'native/dsound_streams.h',pc/'native/dsound_streams.inc',pc/'native/dsound_listener.inc',pc/'native/dsound_spatial.inc',pc/'tests/dsound_spatial_fixture.h'];link=['-ldsound','-ldxguid','-luser32','-lole32','-Wl,--stack,8388608']
     if a.x87_build:
         sys.path[:0]=[str(a.sdk.resolve()),str(a.python_deps.resolve()),str(pc/'tools')]
         from test_x87_environment import verify
