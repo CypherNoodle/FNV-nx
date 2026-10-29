@@ -32,6 +32,7 @@ struct fnv_vk_stats {
     uint64_t draw_attempts,draw_invalid,draw_unsupported,draw_busy;
     uint64_t layout_creates,layout_hits,draw_reasons[16];
     struct fnv_shader_pair_census missing_pairs;
+    uint64_t program_lookup_hits,program_lookup_scans;
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu

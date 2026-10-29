@@ -19,7 +19,7 @@ def run(a):
         result=dict(status='PASS',wrong_a8_white_detected=True)
     else:
         if tested.returncode:raise RuntimeError(f'{tested.returncode}: '+tested.stdout+tested.stderr)
-        result=json.loads(tested.stdout.strip().splitlines()[-1]);assert result['gpu_pixel_checks']==1536 and result['a8_rgb_zero']
+        result=json.loads(tested.stdout.strip().splitlines()[-1]);assert result['gpu_pixel_checks']==2048 and result['a8_rgb_zero']
     assert frozen=={str(p):sha(p) for p in inputs};result.update(source_sha256=frozen,exe_sha256=sha(exe),switch_hardware_tested=False)
     (out/'validation.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k!='source_sha256'},indent=2))
 

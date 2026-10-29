@@ -17,4 +17,10 @@ assert [v['index'] for v in p['pixel_candidates']]==[1]
 assert not match(row+'1\n',[ps])['pairs'][0]['vertex_candidates']
 assert match('no diagnostic rows',[])['pairs']==[]
 assert len(match(row+'1\n'+row.replace('reason=1','reason=2')+'3',[])['pairs'])==2
+attrs=f'MissingPairAttributes vs={fingerprint(vs)}/8 ps={fingerprint(ps)}/8 fixed=0 reason=1 state=1 count=2 attrs=020000,04010a'
+assert match(row+'1\n'+attrs,[vs,ps])['pairs'][0]['attributes']==dict(state=1,elements=[[0,0,2],[10,1,4]])
+assert match(row+'1\n'+attrs.replace('state=1','state=3'),[vs,ps])['pairs'][0]['attributes']['state']==3
+try:match(row+'1\n'+attrs.replace('count=2','count=3'),[vs,ps])
+except ValueError:pass
+else:raise AssertionError('Truncated attributes accepted')
 print('PASS: vectors, cumulative counters, duplicate candidates, stage filtering, absent identities')

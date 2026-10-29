@@ -34,7 +34,7 @@ static uint32_t link_program(struct fnv_vk_backend *d,const void *vertex,uint32_
     }
     if(d->program_count>=4096){hr=FNV_VK_OOM;goto done;}
     struct program_entry *entry=malloc(sizeof(*entry));if(!entry){hr=FNV_VK_OOM;goto done;}
-    memcpy(next.inputs,inputs,count*sizeof(*inputs));next.next=d->programs;*entry=next;d->programs=entry;d->program_count++;hr=0;
+    memcpy(next.inputs,inputs,count*sizeof(*inputs));next.next=d->programs;*entry=next;d->programs=entry;d->program_count++;d->program_cache_valid=0;hr=0;
 done:fnv_host_mutex_unlock(&d->guard);return hr;
 }
 uint32_t fnv_vk_backend_link_program(struct fnv_vk_backend *d,const void *vertex,uint32_t vertex_bytes,const void *pixel,uint32_t pixel_bytes,const struct fnv_vk_vertex_input *inputs,uint32_t count,uint32_t mask){return link_program(d,vertex,vertex_bytes,pixel,pixel_bytes,inputs,count,mask,0,NULL);}
@@ -194,15 +194,28 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     if(d->viewport[2]>d->properties.limits.maxViewportDimensions[0] || d->viewport[3]>d->properties.limits.maxViewportDimensions[1] ||
        (double)d->viewport[0]+.5<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]+.5<d->properties.limits.viewportBoundsRange[0] ||
        (double)d->viewport[0]+d->viewport[2]+.5>d->properties.limits.viewportBoundsRange[1] || (double)d->viewport[1]+d->viewport[3]+.5>d->properties.limits.viewportBoundsRange[1])goto done;
-    d->last_draw_stage=4;struct program_entry *program=d->programs;while(program && (!same_shader_code(program->stages[0],vs->entry) || !same_shader_code(program->stages[1],ps->entry)))program=program->next;
+    d->last_draw_stage=4;struct program_entry *program;
+    /* Catalog/program nodes live until device destruction. Cache by exact
+     * entry identity, preserving the original first-match and fixed checks. */
+    if(d->program_cache_valid && d->program_cache_vs==vs->entry && d->program_cache_ps==ps->entry){
+        program=d->program_cache;d->program_lookup_hits++;
+    }else{
+        program=d->programs;
+        while(program){d->program_lookup_scans++;
+            if(same_shader_code(program->stages[0],vs->entry) && same_shader_code(program->stages[1],ps->entry))break;
+            program=program->next;
+        }
+        d->program_cache_vs=vs->entry;d->program_cache_ps=ps->entry;d->program_cache=program;d->program_cache_valid=1;
+    }
     if(!program || (fixed && (program->stages[0]!=vs->entry || program->stages[1]!=ps->entry))){
         struct shader_catalog *stages[2]={vs->entry,ps->entry};
         for(unsigned i=0;i<2;i++)if(!stages[i]->diagnostic_hash_ready){
             stages[i]->diagnostic_hash=fnv_shader_fingerprint(stages[i]->code,stages[i]->code_bytes);
             stages[i]->diagnostic_hash_ready=1;
         }
-        fnv_shader_pair_note(&d->missing_pairs,stages[0]->diagnostic_hash,stages[0]->code_bytes,
+        struct fnv_shader_pair_record *missing=fnv_shader_pair_note(&d->missing_pairs,stages[0]->diagnostic_hash,stages[0]->code_bytes,
             stages[1]->diagnostic_hash,stages[1]->code_bytes,fixed?fixed_bytes:0,program?2:1);
+        fnv_shader_pair_attributes(missing,decl->elements,decl->count-1);
         goto done;
     }
     struct fnv_geometry_input geometry={.elements=decl->elements,.element_count=decl->count,.indexed=(uint32_t)indexed,.primitive=primitive,
@@ -237,7 +250,7 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
         if(!t || !t->version->initialized){hr=FNV_VK_INVALID;goto done;}
         d->last_draw_stage=9;hr=fnv_d3d9_vk_sampler(d->sampler_state+i,t->levels,d->properties.limits.maxSamplerLodBias,sampler_info+i);if(hr)goto done;
         if(sampler_info[i].magFilter==VK_FILTER_LINEAR || sampler_info[i].minFilter==VK_FILTER_LINEAR || sampler_info[i].mipmapMode==VK_SAMPLER_MIPMAP_MODE_LINEAR){
-            VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,bc_format(t->format)?bc_format(t->format):t->usage==1?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_R8G8B8A8_UNORM,&props);
+            VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,texture_vk_format(t->format,t->usage),&props);
             if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)){hr=FNV_VK_INVALID;goto done;}}
     }
     /* SetDepthStencilSurface(NULL) disables the operation, not the stored
@@ -246,7 +259,7 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     if(!depth){effective_depth.enable=0;effective_depth.write=0;}
     d->last_draw_stage=10;VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&effective_depth,&depth_info);if(hr)goto done;
     VkPipelineColorBlendAttachmentState blend_attachment;float blend_constants[4];hr=fnv_d3d9_vk_blend(&d->blend_state,&blend_attachment,blend_constants);if(hr)goto done;
-    if(blend_attachment.blendEnable){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,VK_FORMAT_B8G8R8A8_UNORM,&props);
+    if(blend_attachment.blendEnable){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,color->format?color->format:VK_FORMAT_B8G8R8A8_UNORM,&props);
         if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)){hr=FNV_VK_INVALID;goto done;}}
     d->last_draw_stage=11;if(d->count && (hr=draw_slot(d,&watch))!=0)goto done;
     if((hr=flush_locked(d))!=0 || (hr=draw_slot(d,&watch))!=0)goto done;
@@ -269,7 +282,7 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     for(unsigned i=0;i<2;++i)if(r->ubo[i]){buffers[i]=(VkDescriptorBufferInfo){r->ubo[i]->buffer,0,snapshot.bytes[i]};
         writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[i?2:0],.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,.pBufferInfo=buffers+i};}
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){VkSampler sampler=VK_NULL_HANDLE;hr=result(d,d->v.CreateSampler(d->device,sampler_info+i,NULL,&sampler));if(hr)goto rollback;r->samplers[i]=sampler;
-        images[i]=(VkDescriptorImageInfo){sampler,r->textures[i]->view,VK_IMAGE_LAYOUT_GENERAL};writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[1],.dstBinding=i,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=images+i};}
+        images[i]=(VkDescriptorImageInfo){sampler,r->textures[i]->sample_view?r->textures[i]->sample_view:r->textures[i]->view,VK_IMAGE_LAYOUT_GENERAL};writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[1],.dstBinding=i,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=images+i};}
     d->v.UpdateDescriptorSets(d->device,write_count,writes,0,NULL);
     d->last_draw_stage=14;f->count=1;memset(f->commands,0,sizeof(*f->commands));hr=make_pass(d,f,0,color,depth);if(hr)goto rollback;
     float min_depth,max_depth;memcpy(&min_depth,d->viewport+4,4);memcpy(&max_depth,d->viewport+5,4);

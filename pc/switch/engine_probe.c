@@ -440,6 +440,7 @@ int main(void) {
                 report("Reuse lookup_calls=%llu hits=%llu scan_steps=%llu uniform_allocs=%llu uniform_reuses=%llu\n",(unsigned long long)stats.lookup_calls,(unsigned long long)stats.lookup_hits,(unsigned long long)stats.lookup_scan_steps,(unsigned long long)stats.uniform_allocations,(unsigned long long)stats.uniform_reuses);
                 report("Draw attempts=%llu invalid=%llu unsupported=%llu busy=%llu\n",(unsigned long long)stats.draw_attempts,(unsigned long long)stats.draw_invalid,(unsigned long long)stats.draw_unsupported,(unsigned long long)stats.draw_busy);
                 report("Layouts creates=%llu hits=%llu\n",(unsigned long long)stats.layout_creates,(unsigned long long)stats.layout_hits);
+                report("ProgramLookup hits=%llu scans=%llu\n",(unsigned long long)stats.program_lookup_hits,(unsigned long long)stats.program_lookup_scans);
                 static const char *draw_reasons[16]={"state","inputs","targets","viewport","program","indices","geometry","attributes","texture","sampler","depth_blend","queue","uniforms","descriptors","pipeline","submit"};
                 char reason_line[512]={0};size_t reason_used=0;
                 for(unsigned reason=0;reason<16;reason++){
@@ -454,6 +455,15 @@ int main(void) {
                     report("MissingPair vs=%016llx/%u ps=%016llx/%u fixed=%u reason=%u hits=%llu\n",
                         (unsigned long long)r->vertex_hash,r->vertex_bytes,(unsigned long long)r->pixel_hash,r->pixel_bytes,
                         r->fixed_bytes,r->reason,(unsigned long long)r->hits);
+                    char attributes[160]={0};size_t used=0;
+                    for(uint32_t a=0;a<r->attribute_count && a<16;a++){
+                        int n=snprintf(attributes+used,sizeof(attributes)-used,"%s%06x",a?",":"",r->attributes[a]);
+                        if(n<0 || (size_t)n>=sizeof(attributes)-used)break;
+                        used+=(size_t)n;
+                    }
+                    report("MissingPairAttributes vs=%016llx/%u ps=%016llx/%u fixed=%u reason=%u state=%u count=%u attrs=%s\n",
+                        (unsigned long long)r->vertex_hash,r->vertex_bytes,(unsigned long long)r->pixel_hash,r->pixel_bytes,
+                        r->fixed_bytes,r->reason,r->attribute_state,r->attribute_count,attributes);
                 }
                 char phase_line[512]={0};size_t phase_used=0;
                 for(unsigned phase=0;phase<11;phase++){

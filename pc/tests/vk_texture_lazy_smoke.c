@@ -31,6 +31,25 @@ int main(void){
     if(hr){fprintf(stderr,"SKIP: no usable Vulkan device hr=%08x vk=%d\n",hr,(int)why);return 77;}
     struct fnv_d3d9_shader_backend p;memset(&p,0,sizeof(p));fnv_vk_backend_callbacks(b,&p);
     CHECK(p.create_texture && p.upload_texture);
+    /* R32F must preserve float bits and support a real render attachment. */
+    {
+    uintptr_t floats=0;CHECK(!p.create_texture(b,3,2,1,0,114,1,&floats));
+    const uint32_t bits[6]={0,0x3f800000,0xbf800000,0x3e800000,0x00800000,0x7f7fffff};uint32_t copied[6];
+    CHECK(!p.upload_texture(b,floats,0,0,0,3,2,0,12,bits));
+    CHECK(!fnv_vk_backend_read_texture(b,floats,0,copied,sizeof(copied),5000000000ull));CHECK(!memcmp(bits,copied,sizeof(bits)));
+    uint32_t patch=0x3f000000;CHECK(!p.upload_texture(b,floats,0,1,1,1,1,0,4,&patch));
+    CHECK(!fnv_vk_backend_read_texture(b,floats,0,copied,sizeof(copied),5000000000ull));
+    CHECK(copied[4]==patch && copied[3]==bits[3] && copied[5]==bits[5]);p.release(b,floats);
+    uintptr_t rt_texture=0,rt_surface=0,old_target=0;
+    CHECK(!p.create_texture(b,4,4,1,1,114,0,&rt_texture));CHECK(!p.texture_surface(b,rt_texture,0,&rt_surface));
+    uint32_t desc[8];CHECK(!p.surface_desc(b,rt_surface,desc) && desc[0]==114);
+    CHECK(!p.get_target(b,0,0,&old_target));CHECK(!p.set_target(b,0,0,rt_surface));
+    CHECK(!p.clear(b,0,NULL,1,0xff400000,0,0));CHECK(!fnv_vk_backend_flush(b));CHECK(!fnv_vk_backend_wait(b,5000000000ull));
+    float cleared[16];CHECK(!fnv_vk_backend_read_texture(b,rt_texture,0,cleared,sizeof(cleared),5000000000ull));
+    for(unsigned i=0;i<16;i++)CHECK(cleared[i]==64.0f/255.0f);
+    CHECK(!p.set_target(b,0,0,old_target));p.release(b,old_target);p.release(b,rt_surface);p.release(b,rt_texture);
+    puts("R32F: float bits, partial update, target descriptor and GPU clear PASS");
+    }
 
     /* --- BC1 64x64, 7 levels, one Lock/Unlock per level, then two overwrites of level 0 --- */
     uintptr_t bc=0;hr=p.create_texture(p.context,64,64,0,0,0x31545844u,1,&bc);

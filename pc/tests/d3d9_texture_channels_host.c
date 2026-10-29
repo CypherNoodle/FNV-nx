@@ -37,10 +37,11 @@ int main(void){
     checked(IDirect3DDevice9_SetTextureStageState(device,1,D3DTSS_COLOROP,D3DTOP_DISABLE),"Disable stage1");
     checked(IDirect3DDevice9_SetFVF(device,D3DFVF_XYZRHW|D3DFVF_TEX1),"FVF");
     struct vertex {float x,y,z,rhw,u,v;} vertices[4]={{-.5f,-.5f,0,1,0,0},{15.5f,-.5f,0,1,1,0},{-.5f,15.5f,0,1,0,1},{15.5f,15.5f,0,1,1,1}};
-    const D3DFORMAT formats[]={D3DFMT_A8,D3DFMT_A8R8G8B8,D3DFMT_L8};unsigned pixels_checked=0;
-    for(unsigned format=0;format<3;++format){IDirect3DTexture9 *texture=NULL;unsigned unit=format==1?4:1;unsigned char input[1024],rgba[1024];
-        for(unsigned i=0;i<256;++i){if(unit==4){input[i*4]=113;input[i*4+1]=57;input[i*4+2]=17;input[i*4+3]=(unsigned char)i;}else input[i]=(unsigned char)i;}
-        struct fnv_texture_patch patch={16,16,0,0,16,16,(uint32_t)formats[format],16*unit,input,256*unit};assert(!fnv_d3d9_texture_rgba8(&patch,rgba,sizeof(rgba),64));
+    const D3DFORMAT formats[]={D3DFMT_A8,D3DFMT_A8R8G8B8,D3DFMT_L8,D3DFMT_R32F};unsigned pixels_checked=0;
+    for(unsigned format=0;format<4;++format){IDirect3DTexture9 *texture=NULL;unsigned unit=(format==1 || format==3)?4:1;unsigned char input[1024],rgba[1024];
+        for(unsigned i=0;i<256;++i){if(format==3){float value=i/255.0f;memcpy(input+i*4,&value,4);rgba[i*4]=(unsigned char)i;rgba[i*4+1]=rgba[i*4+2]=255;rgba[i*4+3]=255;}
+            else if(unit==4){input[i*4]=113;input[i*4+1]=57;input[i*4+2]=17;input[i*4+3]=(unsigned char)i;}else input[i]=(unsigned char)i;}
+        if(format!=3){struct fnv_texture_patch patch={16,16,0,0,16,16,(uint32_t)formats[format],16*unit,input,256*unit};assert(!fnv_d3d9_texture_rgba8(&patch,rgba,sizeof(rgba),64));}
         checked(IDirect3DDevice9_CreateTexture(device,16,16,1,0,formats[format],D3DPOOL_MANAGED,&texture,NULL),"Create texture");D3DLOCKED_RECT mapped;
         checked(IDirect3DTexture9_LockRect(texture,0,&mapped,NULL,0),"Lock texture");for(unsigned y=0;y<16;++y)memcpy((unsigned char*)mapped.pBits+y*mapped.Pitch,input+y*16*unit,16*unit);checked(IDirect3DTexture9_UnlockRect(texture,0),"Unlock texture");
         checked(IDirect3DDevice9_SetTexture(device,0,(IDirect3DBaseTexture9*)texture),"Bind texture");
@@ -54,5 +55,5 @@ int main(void){
         checked(IDirect3DDevice9_SetTexture(device,0,NULL),"Unbind");IDirect3DTexture9_Release(texture);
     }
     IDirect3DSurface9_Release(readback);IDirect3DSurface9_Release(target);IDirect3DPixelShader9_Release(shader);IDirect3DDevice9_Release(device);IDirect3D9_Release(api);FreeLibrary(compiler);DestroyWindow(window);UnregisterClassW(wc.lpszClassName,wc.hInstance);
-    printf("{\"status\":\"PASS\",\"real_d3d9_hal\":true,\"formats\":3,\"pipelines\":2,\"gpu_pixel_checks\":%u,\"a8_rgb_zero\":true}\n",pixels_checked);return 0;
+    printf("{\"status\":\"PASS\",\"real_d3d9_hal\":true,\"formats\":4,\"pipelines\":2,\"gpu_pixel_checks\":%u,\"a8_rgb_zero\":true}\n",pixels_checked);return 0;
 }

@@ -11,6 +11,7 @@ import re
 from build_switch_engine_probe import catalog_entries
 
 ROW=re.compile(r'MissingPair vs=([0-9a-f]{16})/(\d+) ps=([0-9a-f]{16})/(\d+) fixed=(\d+) reason=(\d+) hits=(\d+)')
+ATTRS=re.compile(r'MissingPairAttributes vs=([0-9a-f]{16})/(\d+) ps=([0-9a-f]{16})/(\d+) fixed=(\d+) reason=(\d+) state=(\d+) count=(\d+) attrs=([0-9a-f,]*)')
 
 def fingerprint(code):
     value=14695981039346656037
@@ -27,10 +28,19 @@ def match(text,entries):
     for found in ROW.finditer(text):
         vs,vb,ps,pb,fixed,reason,hits=found.groups();key=(vs,int(vb),ps,int(pb),int(fixed),int(reason))
         latest[key]=int(hits)
+    attributes={}
+    for found in ATTRS.finditer(text):
+        vs,vb,ps,pb,fixed,reason,state,count,raw=found.groups()
+        packed=[int(v,16) for v in raw.split(',') if v]
+        if len(packed)!=int(count) or len(packed)>16 or any(v>0xffffff for v in packed):
+            raise ValueError('Invalid captured vertex attributes')
+        attributes[(vs,int(vb),ps,int(pb),int(fixed),int(reason))]=dict(
+            state=int(state),elements=[[v&255,(v>>8)&255,(v>>16)&255] for v in packed])
     result=[]
     for (vs,vb,ps,pb,fixed,reason),hits in latest.items():
         result.append(dict(vertex_hash=vs,vertex_bytes=vb,pixel_hash=ps,pixel_bytes=pb,
             fixed_bytes=fixed,reason=reason,hits=hits,
+            attributes=attributes.get((vs,vb,ps,pb,fixed,reason)),
             vertex_candidates=index.get((0xfffe,vs,vb),[]),pixel_candidates=index.get((0xffff,ps,pb),[])))
     return dict(status='MATCHED_DIAGNOSTIC_FINGERPRINTS',pairs=result,linked_programs_created=0)
 

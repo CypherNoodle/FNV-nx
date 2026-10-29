@@ -107,6 +107,7 @@ def package(a, *, pc, profile, entry, cpu, runtime, text, imports, partial, exe,
     out.mkdir(parents=True);rom=out/'romfs';rom.mkdir()
     shutil.copyfile(capture,rom/'captured-text-data.bin');shutil.copyfile(catalog,rom/'catalog.sdp')
     shutil.copyfile(programs,out/'prepared_programs.h');shutil.copyfile(fixed,out/'fixed_screen.h')
+    program_count=int(re.search(r'^#define FNV_STARTUP_PROGRAM_COUNT (\d+)$',programs.read_text(),re.M).group(1))
     (out/'engine_programs.h').write_text('#include "fixed_screen.h"\n#include "prepared_programs.h"\n')
     header=f'#define FNV_ENGINE_BASE {profile["image_base"]}u\n#define FNV_ENGINE_IMAGE_BYTES {profile["image_bytes"]}u\n'
     header+=f'#define FNV_ENGINE_HW_TAG "{a.hardware_revision}"\n'
@@ -172,7 +173,7 @@ def package(a, *, pc, profile, entry, cpu, runtime, text, imports, partial, exe,
         if sha(name)!=digest:raise ValueError('Changed build input: '+name)
     result=dict(status='BUILT',build='pc-engine-'+a.hardware_revision,nro=str(nro),nro_bytes=len(raw),nro_sha256=sha(nro),
         elf_sha256=sha(elf),source_sha256=frozen,commands=commands,experimental_caps=bool(a.experimental_caps),
-        volume=1,entry=entry['start'],prepared_programs=54,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
+        volume=1,entry=entry['start'],prepared_programs=program_count,catalog_entries=len(catalog_codes),original_shader_arrays=original_stages,
         cfg_corrected_units=cpu.get('cfg_corrected_units',0),tail_optimized_units=cpu.get('tail_optimized_units',0),
         captured_code_embedded=True,generated_game_code_embedded=True,private_output=True,
         native_crash_capture=True,native_exception_stack_bytes=65536,

@@ -131,6 +131,7 @@ int FNV_VK_HOST_MAIN(int argc,char **argv){
     uint64_t rejected=0;for(unsigned i=0;i<16;++i)rejected+=final.draw_reasons[i];assert(rejected==final.draw_attempts-final.draws);
     uint64_t pairs=final.missing_pairs.overflow;for(unsigned i=0;i<final.missing_pairs.count;i++)pairs+=final.missing_pairs.rows[i].hits;
     assert(pairs==final.draw_reasons[4]);
+    assert(final.program_lookup_hits>0 && final.program_lookup_scans>0);
     uint32_t destroyed=FNV_VK_BUSY;for(unsigned i=0;i<100 && destroyed==FNV_VK_BUSY;++i){destroyed=fnv_vk_backend_destroy(gpu);if(destroyed==FNV_VK_BUSY)Sleep(1);}assert(!destroyed);
     if(present_window){DestroyWindow(present_window);UnregisterClassW(L"FNVCOMPresentProbe",GetModuleHandleW(NULL));}
     no_live_handles();exercise_draw_submit_faults(&cfg,argv[4],argv[5]);exercise_texture_submit_faults(&cfg);unsigned fault_cases=exercise_faults(&cfg);assert(fault_cases==9);

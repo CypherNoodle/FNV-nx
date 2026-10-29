@@ -480,6 +480,7 @@ static int texture_format(uint32_t format,uint32_t *block,uint32_t *unit) {
     *block=1;
     switch(format){case 20:*unit=3;return 1;case 21:case 22:*unit=4;return 1;case 23:*unit=2;return 1;
         case 28:case 50:*unit=1;return 1;
+        case 114:*unit=4;return 1; /* D3DFMT_R32F: one IEEE float per texel, no CPU conversion. */
         case 0x31545844:*block=4;*unit=8;return 1;
         case 0x32545844:case 0x33545844:case 0x34545844:case 0x35545844:*block=4;*unit=16;return 1;
         default:return 0;}
@@ -498,7 +499,7 @@ static uint32_t create_texture_shape(struct fnv_d3d9_com *c,uint32_t self,uint32
     if((faces==6?(!c->config.backend.create_cube_texture || !c->config.backend.upload_cube_texture):(!c->config.backend.create_texture || !c->config.backend.upload_texture)) || (!c->buffer_memory && usage!=1))invalid("D3D9 texture provider/arena pending",self);
     uint32_t maximum=1;for(uint32_t n=width>height?width:height;n>1;n>>=1)maximum++;
     if(!levels)levels=maximum;
-    if((usage&1) && (usage!=1 || format!=21 || pool || levels!=1)){*out=0;return FNV_D3D9_INVALIDCALL;}
+    if((usage&1) && (usage!=1 || (format!=21 && format!=114) || pool || levels!=1)){*out=0;return FNV_D3D9_INVALIDCALL;}
     if(levels>maximum){*out=0;return FNV_D3D9_INVALIDCALL;}
     struct mip mips[90];uint64_t total=0;
     for(uint32_t face=0;face<faces;face++)for(uint32_t i=0,w=width,h=height;i<levels;i++,w=w>1?w>>1:1,h=h>1?h>>1:1) {

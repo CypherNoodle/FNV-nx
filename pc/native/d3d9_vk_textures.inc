@@ -4,6 +4,11 @@ static VkFormat bc_format(uint32_t format){
     switch(format){case 0x31545844:return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;case 0x33545844:return VK_FORMAT_BC2_UNORM_BLOCK;case 0x35545844:return VK_FORMAT_BC3_UNORM_BLOCK;default:return VK_FORMAT_UNDEFINED;}
 }
 static uint32_t bc_unit(uint32_t format){return format==0x31545844?8:16;}
+static VkFormat texture_vk_format(uint32_t format,uint32_t usage){
+    VkFormat bc=bc_format(format);if(bc)return bc;
+    if(format==114)return VK_FORMAT_R32_SFLOAT;
+    return usage==1?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_R8G8B8A8_UNORM;
+}
 static size_t texture_level_bytes(const struct texture_resource *t,uint32_t level){
     uint32_t w=mip_size(t->width,level),h=mip_size(t->height,level);
     return bc_format(t->format)?(size_t)((w+3)/4)*((h+3)/4)*bc_unit(t->format):(size_t)w*h*4;
@@ -16,7 +21,7 @@ static void texture_barrier(struct fnv_vk_backend *d,VkCommandBuffer cmd,struct 
         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,NULL,0,NULL,1,&b);
 }
 static uint32_t make_texture_version(struct fnv_vk_backend *d,const struct texture_resource *t,struct texture_version **out){
-    VkFormat format=bc_format(t->format);if(!format)format=t->usage==1?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_R8G8B8A8_UNORM;
+    VkFormat format=texture_vk_format(t->format,t->usage);
     VkImageFormatProperties caps;VkImageUsageFlags usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if(t->usage==1)usage|=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     VkResult query=d->v.GetPhysicalDeviceImageFormatProperties(d->physical,format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,usage,t->faces==6?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0,&caps);
@@ -33,17 +38,24 @@ static uint32_t make_texture_version(struct fnv_vk_backend *d,const struct textu
     if(!hr){v->allocation=req.size;hr=result(d,d->v.BindImageMemory(d->device,v->image,v->memory,0));}
     if(!hr){VkImageViewCreateInfo vi={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,.image=v->image,.viewType=t->faces==6?VK_IMAGE_VIEW_TYPE_CUBE:VK_IMAGE_VIEW_TYPE_2D,
         .format=format,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,t->levels,0,v->layers}};
-        VkImageView view=VK_NULL_HANDLE;hr=result(d,d->v.CreateImageView(d->device,&vi,NULL,&view));if(!hr)v->view=view;}
-    if(hr){d->v.DestroyImage(d->device,v->image,NULL);if(v->memory){d->v.FreeMemory(d->device,v->memory,NULL);d->allocated-=v->allocation;}free(v);return hr;}
+        VkImageView view=VK_NULL_HANDLE;hr=result(d,d->v.CreateImageView(d->device,&vi,NULL,&view));if(!hr)v->view=view;
+        if(!hr && t->format==114){
+            /* Windows D3D9 HAL samples R32F as (R,1,1,1). Keep the attachment
+             * view identity mapped; Vulkan attachment views cannot swizzle. */
+            vi.components=(VkComponentMapping){VK_COMPONENT_SWIZZLE_R,VK_COMPONENT_SWIZZLE_ONE,VK_COMPONENT_SWIZZLE_ONE,VK_COMPONENT_SWIZZLE_ONE};
+            view=VK_NULL_HANDLE;hr=result(d,d->v.CreateImageView(d->device,&vi,NULL,&view));if(!hr)v->sample_view=view;
+        }
+    }
+    if(hr){if(v->sample_view)d->v.DestroyImageView(d->device,v->sample_view,NULL);if(v->view)d->v.DestroyImageView(d->device,v->view,NULL);d->v.DestroyImage(d->device,v->image,NULL);if(v->memory){d->v.FreeMemory(d->device,v->memory,NULL);d->allocated-=v->allocation;}free(v);return hr;}
     v->refs=1;d->texture_versions++;*out=v;return 0;
 }
 static uint32_t create_texture_shape(void *ctx,uint32_t w,uint32_t h,uint32_t levels,uint32_t usage,uint32_t format,uint32_t pool,uintptr_t *out,uint32_t faces){
     struct fnv_vk_backend *d=ctx;
     if((faces!=1 && faces!=6) || (faces==6 && (w!=h || usage)) || !out || !w || !h || w>32768 || h>32768 || pool>1 || (usage && usage!=512 && usage!=1) || (usage && pool) ||
-       (format!=20 && format!=21 && format!=22 && format!=23 && format!=28 && format!=50 && !bc_format(format)))return FNV_VK_INVALID;
+       (format!=20 && format!=21 && format!=22 && format!=23 && format!=28 && format!=50 && format!=114 && !bc_format(format)))return FNV_VK_INVALID;
     uint32_t max=1;for(uint32_t n=w>h?w:h;n>1;n>>=1)max++;
     if(!levels)levels=max;
-    if(usage==1 && (format!=21 || levels!=1 || pool))return FNV_VK_INVALID;
+    if(usage==1 && ((format!=21 && format!=114) || levels!=1 || pool))return FNV_VK_INVALID;
     if(levels>max || levels>16)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
@@ -78,8 +90,8 @@ static uint32_t texture_surface(void *ctx,uintptr_t id,uint32_t level,uintptr_t 
     if(d->next_id==UINTPTR_MAX)goto done;
     for(unsigned i=0;i<d->config.resource_capacity;i++)if(!d->surfaces[i].id){
         struct surface *s=d->surfaces+i;
-        if(t->usage!=1){*s=(struct surface){.id=++d->next_id,.refs=1,.width=mip_size(t->width,level),.height=mip_size(t->height,level),.parent_texture=id,.level=level,.shadow_alias=1};pin(d,id,1);d->device_refs++;*out=s->id;hr=0;break;}
-        *s=(struct surface){.id=++d->next_id,.refs=1,.width=t->width,.height=t->height,.image=t->version->image,.view=t->version->view,.texture=t->version,.parent_texture=id,.layout=t->version->initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED};
+        if(t->usage!=1){*s=(struct surface){.id=++d->next_id,.refs=1,.width=mip_size(t->width,level),.height=mip_size(t->height,level),.parent_texture=id,.level=level,.shadow_alias=1,.format=texture_vk_format(t->format,t->usage)};pin(d,id,1);d->device_refs++;*out=s->id;hr=0;break;}
+        *s=(struct surface){.id=++d->next_id,.refs=1,.width=t->width,.height=t->height,.image=t->version->image,.view=t->version->view,.texture=t->version,.parent_texture=id,.layout=t->version->initialized?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED,.format=texture_vk_format(t->format,t->usage)};
         t->version->refs++;pin(d,id,1);d->device_refs++;*out=s->id;hr=0;break;
     }
 done:fnv_host_mutex_unlock(&d->guard);return hr;
@@ -144,6 +156,14 @@ static uint32_t upload_texture_face(void *ctx,uintptr_t id,uint32_t face,uint32_
         if(pitch<row || (uint64_t)(rows-1)*pitch+row>SIZE_MAX)goto done;
         size_t destination_pitch=(size_t)((patch.width+3)/4)*block;
         for(uint32_t y=0;y<rows;++y)memcpy(candidate+face*t->face_bytes+t->offsets[level]+(top/4+y)*destination_pitch+(left/4)*block,(const unsigned char*)data+(size_t)y*pitch,row);
+    }else if(t->format==114){
+        /* R32F texels are already IEEE floats; copy the guest rows verbatim
+         * instead of passing them through the RGBA8 converter. */
+        if(left>=patch.width || top>=patch.height || width>patch.width-left || height>patch.height-top)goto done;
+        size_t row=(size_t)width*4;
+        if(pitch<row || (uint64_t)(height-1)*pitch+row>SIZE_MAX)goto done;
+        size_t destination_pitch=(size_t)patch.width*4;
+        for(uint32_t y=0;y<height;++y)memcpy(candidate+face*t->face_bytes+t->offsets[level]+(size_t)(top+y)*destination_pitch+(size_t)left*4,(const unsigned char*)data+(size_t)y*pitch,row);
     }else {hr=fnv_d3d9_texture_rgba8(&patch,candidate+face*t->face_bytes+t->offsets[level],t->face_bytes-t->offsets[level],patch.width*4);if(hr)goto done;}
     free(t->shadow);t->shadow=candidate;candidate=NULL;t->dirty=1;hr=0;
 done:free(candidate);fnv_host_mutex_unlock(&d->guard);return hr;

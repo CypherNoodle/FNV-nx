@@ -223,6 +223,15 @@ def run(a):
     revision=getattr(a,'hardware_revision','hw18')
     if not re.fullmatch(r'hw[0-9]{2}',revision):raise ValueError('Invalid artifact diagnostic label')
     delta_cfg=SimpleNamespace(**vars(cfg),output=out/'delta',hardware_revision=revision,experimental_caps=True)
+    extension=getattr(a,'program_bundle',None)
+    if extension:
+        from verify_bundle_extension import verify as verify_bundle_extension
+        for name in ('verify_bundle_extension.py','emit_prepared_bundle.py','emit_prepared_program.py','inspect_spirv.py','spirv_uniform_layout.py'):
+            pin(Path(__file__).with_name(name))
+        extension=pin(extension);expanded=verify_bundle_extension(cfg.bundle_validation,extension)
+        for name,digest in expanded['input_sha256'].items():pin(name,digest)
+        context['programs']=pin(extension.parent/'startup_program.h',expanded['header_sha256'])
+        context['original_stages']=bundle_membership(context['programs'].read_text(),catalog_codes)
     context['cpu']={**context['cpu'],'softfloat_thread_local_state':private_state}
     result=package(delta_cfg,partial=partial,**context)
     result.update(admission='exact-nro-baseline-artifact-delta-v1',fresh_historical_source_audit=False,
@@ -232,6 +241,7 @@ def run(a):
         native_performance_proof_sha256=sha(native_delta) if native_delta else None,
         inline_proof_sha256=sha(inline_proof) if inline_proof else None,
         inline_units=context['cpu'].get('inline_units',0),inline_calls_removed=context['cpu'].get('inline_calls_removed',0),
+        program_bundle_proof_sha256=sha(extension) if extension else None,
         softfloat_thread_local_state=private_state,
         gameplay_fix_hardware_verified=False)
     (out/'delta/validation.json').write_text(json.dumps(result,indent=2)+'\n')
@@ -246,6 +256,7 @@ if __name__=='__main__':
     p.add_argument('--private-state-proof',type=Path)
     p.add_argument('--native-performance-proof',type=Path)
     p.add_argument('--inline-proof',type=Path)
+    p.add_argument('--program-bundle',type=Path,help='Reconstructed additive shader bundle; base rows must remain unchanged')
     p.add_argument('--replace-output',action='store_true',help='Reuse only local/pc-engine-current-build after verifying the preserved active NRO/ELF')
     p.add_argument('--entry-source-delta',action='append',choices=('engine_process_plan.c','engine_probe.c'))
     run(p.parse_args())

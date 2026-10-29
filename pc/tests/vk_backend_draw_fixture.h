@@ -51,6 +51,8 @@ static void exercise_draws(void){
     struct fnv_vk_stats missing=stats();assert(missing.missing_pairs.count==1 && !missing.missing_pairs.overflow);
     const struct fnv_shader_pair_record *pair=missing.missing_pairs.rows;
     assert(pair->hits==2 && pair->reason==1 && !pair->fixed_bytes);
+    assert(pair->attribute_state==1 && pair->attribute_count==2);
+    assert(pair->attributes[0]==0x010000 && pair->attributes[1]==0x010005);
     assert(pair->vertex_bytes==catalog[stage_index[0]].size && pair->pixel_bytes==catalog[stage_index[1]].size);
     assert(pair->vertex_hash==fnv_shader_fingerprint(catalog[stage_index[0]].bytes,catalog[stage_index[0]].size));
     assert(pair->pixel_hash==fnv_shader_fingerprint(catalog[stage_index[1]].bytes,catalog[stage_index[1]].size));

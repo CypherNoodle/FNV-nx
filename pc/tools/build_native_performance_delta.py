@@ -9,8 +9,8 @@ import json
 from pathlib import Path
 import subprocess
 
-UNITS=('d3d9_vk_backend.c','dsound8.c','audio_horizon.c')
-CHANGED_BASELINE_DEPENDENCIES=('d3d9_vk_backend.h','d3d9_vk_draw.inc','dsound8.h','media_horizon.h')
+UNITS=('d3d9_vk_backend.c','d3d9_com.c','dsound8.c','audio_horizon.c')
+CHANGED_BASELINE_DEPENDENCIES=('d3d9_vk_backend.h','d3d9_vk_draw.inc','d3d9_vk_textures.inc','dsound8.h','media_horizon.h')
 
 def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 

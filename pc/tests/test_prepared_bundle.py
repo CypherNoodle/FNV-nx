@@ -13,6 +13,7 @@ from test_d3d9_spirv import VS,PS,compile_hlsl
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from translate_d3d9_pair import translate
 from emit_prepared_bundle import emit_bundle
+from verify_bundle_extension import verify as verify_extension
 
 def run(a):
     out=a.output.resolve();out.mkdir(parents=True,exist_ok=False);pc=Path(__file__).resolve().parents[1];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
@@ -24,6 +25,27 @@ def run(a):
         translate(SimpleNamespace(vs=f/'vs.bin',ps=f/'ps.bin',attributes=f/'attributes.txt',linker=a.linker.resolve(),output=f/'pair'))
     assert (out/'fixture0/pair/vs.spv').read_bytes()==(out/'fixture1/pair/vs.spv').read_bytes()
     row=lambda i:dict(fixture='fixture%d'%i,inputs=[[0,0,0],[5,0,1]],sampler_mask=1)
+    def extension_proof(name,indices):
+        directory=out/name;directory.mkdir()
+        manifest=directory/'manifest.json'
+        manifest.write_text(json.dumps(dict(schema=1,programs=[{**row(i),'fixture':str(out/('fixture%d'%i))} for i in indices])))
+        proof=emit_bundle(manifest,directory/'startup_program.h')
+        path=directory/'validation.json';path.write_text(json.dumps(proof));return path
+    base=extension_proof('base',[0]);expanded=extension_proof('expanded',[0,1])
+    assert verify_extension(base,expanded)['programs']==2
+    for name,indices in [('reordered',[1,0]),('replaced',[1]),('duplicate-only',[0,0])]:
+        invalid=extension_proof(name,indices)
+        try:verify_extension(base,invalid)
+        except ValueError:pass
+        else:raise AssertionError('Invalid extension accepted: '+name)
+    saved=expanded.read_text();bad=json.loads(saved);bad['header_sha256']='0'*64;expanded.write_text(json.dumps(bad))
+    try:verify_extension(base,expanded)
+    except ValueError:pass
+    else:raise AssertionError('Forged header accepted')
+    expanded.write_text(saved)
+    try:verify_extension(base,base)
+    except ValueError:pass
+    else:raise AssertionError('Base reused as extension')
     request=dict(schema=1,programs=[row(0),row(1),row(0)]);manifest=out/'manifest.json';manifest.write_text(json.dumps(request))
     proof=emit_bundle(manifest,out/'bundle.h');assert proof['programs']==2 and proof['duplicate_programs']==1
     assert (out/'bundle.h').read_text().count('static const uint32_t ')==6 # three bytecodes, three linked modules

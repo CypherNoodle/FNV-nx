@@ -34,6 +34,7 @@ struct surface {
     uintptr_t id;uint32_t refs,pins,width,height,depth,flag;
     VkImage image;VkDeviceMemory memory;VkImageView view;VkDeviceSize allocation;
     VkImageLayout layout;
+    VkFormat format;
     struct texture_version *texture;uintptr_t parent_texture;uint32_t level,shadow_alias;
 };
 struct buffer_version {VkBuffer buffer;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,bytes,coherent;void *mapped;};
@@ -41,7 +42,7 @@ struct buffer_resource {
     uintptr_t id;uint32_t refs,pins,kind,bytes,usage,format,pool;
     unsigned char *shadow;struct buffer_version *version;
 };
-struct texture_version {VkImage image;VkImageView view;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,initialized,layers;};
+struct texture_version {VkImage image;VkImageView view,sample_view;VkDeviceMemory memory;VkDeviceSize allocation;uint32_t refs,initialized,layers;};
 struct texture_resource {
     uintptr_t id;uint32_t refs,pins,block_pins,width,height,levels,usage,format,pool;
     size_t bytes,offsets[16],face_bytes;uint32_t faces;unsigned char *shadow;struct texture_version *version;uint32_t dirty;
@@ -103,6 +104,8 @@ struct fnv_vk_backend {
     uint32_t reuse_uniforms;uint64_t uniform_allocations,uniform_reuses;
     uint64_t phase_totals[11],draw_attempts,draw_invalid,draw_unsupported,draw_busy;
     struct layout_cache_entry layout_cache[16];uint32_t reuse_layouts,last_draw_stage;
+    struct shader_catalog *program_cache_vs,*program_cache_ps;struct program_entry *program_cache;
+    uint32_t program_cache_valid;uint64_t program_lookup_hits,program_lookup_scans;
     uint64_t layout_creates,layout_hits,draw_reasons[16];
     struct fnv_shader_pair_census missing_pairs;
 };
@@ -161,7 +164,7 @@ static struct surface *find(struct fnv_vk_backend *d,uintptr_t id){return lookup
 static struct buffer_resource *find_buffer(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,1,d->buffer_resources,sizeof(*d->buffer_resources));}
 static struct texture_resource *find_texture(struct fnv_vk_backend *d,uintptr_t id){return lookup_resource(d,id,2,d->textures,sizeof(*d->textures));}
 static void release_texture_version(struct fnv_vk_backend *d,struct texture_version *v){
-    if(v && !--v->refs){d->v.DestroyImageView(d->device,v->view,NULL);d->v.DestroyImage(d->device,v->image,NULL);
+    if(v && !--v->refs){if(v->sample_view)d->v.DestroyImageView(d->device,v->sample_view,NULL);d->v.DestroyImageView(d->device,v->view,NULL);d->v.DestroyImage(d->device,v->image,NULL);
         d->v.FreeMemory(d->device,v->memory,NULL);d->allocated-=v->allocation;d->texture_versions--;free(v);}
 }
 static void collect_texture(struct fnv_vk_backend *d,struct texture_resource *t){
@@ -344,7 +347,7 @@ static uint32_t build_surface(struct fnv_vk_backend *d,int depth,uint32_t w,uint
     if(r==VK_ERROR_FORMAT_NOT_SUPPORTED)return FNV_VK_INVALID;
     if(r)return result(d,r);
     if(w>caps.maxExtent.width || h>caps.maxExtent.height || !(caps.sampleCounts&VK_SAMPLE_COUNT_1_BIT))return FNV_VK_INVALID;
-    struct surface next={.width=w,.height=h,.depth=(uint32_t)depth,.flag=flag,.refs=(uint32_t)public_ref,.layout=VK_IMAGE_LAYOUT_UNDEFINED};
+    struct surface next={.width=w,.height=h,.depth=(uint32_t)depth,.flag=flag,.refs=(uint32_t)public_ref,.layout=VK_IMAGE_LAYOUT_UNDEFINED,.format=format};
     VkImageCreateInfo ci={.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,.imageType=VK_IMAGE_TYPE_2D,.format=format,
         .extent={w,h,1},.mipLevels=1,.arrayLayers=1,.samples=VK_SAMPLE_COUNT_1_BIT,.tiling=VK_IMAGE_TILING_OPTIMAL,.usage=usage};
     uint32_t hr=result(d,d->v.CreateImage(d->device,&ci,NULL,&next.image));if(hr)return hr;
@@ -412,10 +415,12 @@ static void barrier(struct fnv_vk_backend *d,VkCommandBuffer cmd,struct surface 
     s->layout=VK_IMAGE_LAYOUT_GENERAL;
 }
 static uint32_t make_pass(struct fnv_vk_backend *d,struct frame *f,uint32_t index,struct surface *color,struct surface *depth){
+    VkFormat color_format=color->format?color->format:VK_FORMAT_B8G8R8A8_UNORM;
+    VkFormat depth_format=depth?(depth->format?depth->format:VK_FORMAT_D24_UNORM_S8_UINT):VK_FORMAT_UNDEFINED;
     VkAttachmentDescription attachments[2]={
-        {.format=VK_FORMAT_B8G8R8A8_UNORM,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,
+        {.format=color_format,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,
          .stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE,.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE,.initialLayout=VK_IMAGE_LAYOUT_GENERAL,.finalLayout=VK_IMAGE_LAYOUT_GENERAL},
-        {.format=VK_FORMAT_D24_UNORM_S8_UINT,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,
+        {.format=depth_format,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,
          .stencilLoadOp=VK_ATTACHMENT_LOAD_OP_LOAD,.stencilStoreOp=VK_ATTACHMENT_STORE_OP_STORE,.initialLayout=VK_IMAGE_LAYOUT_GENERAL,.finalLayout=VK_IMAGE_LAYOUT_GENERAL}};
     VkAttachmentReference cr={0,VK_IMAGE_LAYOUT_GENERAL},dr={1,VK_IMAGE_LAYOUT_GENERAL};
     VkSubpassDescription sub={.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS,.colorAttachmentCount=1,.pColorAttachments=&cr,.pDepthStencilAttachment=depth?&dr:NULL};
@@ -496,7 +501,7 @@ static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_
 static uint32_t describe(void *ctx,uintptr_t id,uint32_t values[8]){
     struct fnv_vk_backend *d=ctx;if(!values)return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);uint32_t hr=FNV_VK_INVALID;
     if(s && s->shadow_alias){struct texture_resource *t=find_texture(d,s->parent_texture);if(t){const uint32_t v[8]={t->format,1,t->usage,t->pool,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}}
-    else if(s){const uint32_t v[8]={s->depth?75u:s->id==d->back && d->presentation_format?d->presentation_format:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}
+    else if(s){const uint32_t v[8]={s->depth?75u:s->format==VK_FORMAT_R32_SFLOAT?114u:s->id==d->back && d->presentation_format?d->presentation_format:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}
     fnv_host_mutex_unlock(&d->guard);return hr;
 }
 uint32_t fnv_vk_backend_presentation_format(struct fnv_vk_backend *d,uint32_t format){
@@ -647,6 +652,7 @@ static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     s.draw_attempts=d->draw_attempts;s.draw_invalid=d->draw_invalid;s.draw_unsupported=d->draw_unsupported;s.draw_busy=d->draw_busy;
     s.layout_creates=d->layout_creates;s.layout_hits=d->layout_hits;memcpy(s.draw_reasons,d->draw_reasons,sizeof(s.draw_reasons));
     s.missing_pairs=d->missing_pairs;
+    s.program_lookup_hits=d->program_lookup_hits;s.program_lookup_scans=d->program_lookup_scans;
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
@@ -947,14 +953,14 @@ uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *d,uint32_t usage,uin
     if(!d)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=0x8876086au;VkFormat vk_format=VK_FORMAT_UNDEFINED;VkImageUsageFlags flags=0;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
-    if(type==1 && usage==1 && format==21){vk_format=VK_FORMAT_B8G8R8A8_UNORM;flags=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
+    if(type==1 && usage==1 && format==21){vk_format=texture_vk_format(format,1);flags=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
     else if(type==1 && usage==2 && format==75){vk_format=VK_FORMAT_D24_UNORM_S8_UINT;flags=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
-    else if(type==3 && (usage==1 || usage==(1u|0x20000u)) && format==21){
-        vk_format=VK_FORMAT_B8G8R8A8_UNORM;flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    else if(type==3 && (usage==1 || usage==(1u|0x20000u)) && (format==21 || format==114)){
+        vk_format=texture_vk_format(format,1);flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if(usage&0x20000u){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,vk_format,&props);if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))goto done;}
     }
-    else if(type==3 && !(usage&~(512u|0x20000u)) && (format==20 || format==21 || format==22 || format==23 || format==28 || format==50 || (d->bc && bc_format(format)))){
-        vk_format=bc_format(format)?bc_format(format):VK_FORMAT_R8G8B8A8_UNORM;flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    else if(type==3 && !(usage&~(512u|0x20000u)) && (format==20 || format==21 || format==22 || format==23 || format==28 || format==50 || format==114 || (d->bc && bc_format(format)))){
+        vk_format=texture_vk_format(format,0);flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if(usage&0x20000u){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,vk_format,&props);if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))goto done;}
     }
     if(!flags)goto done;
