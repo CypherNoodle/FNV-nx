@@ -32,4 +32,6 @@ enum fnv_cpu_result fnv_bink_movie_destroy(struct fnv_bink_movie *);
  * it is not interoperable with an external Bink DLL's BINKSND structure. */
 uint32_t fnv_bink_movie_sound_factory(void *,uint32_t guest_device);
 const struct fnv_cpu_export *fnv_bink_movie_exports(size_t *);
+struct fnv_bink_movie_metrics {uint64_t wait_calls,wait_pending,audio_wait_calls,audio_wait_ns,copy_calls,copy_ns;};
+void fnv_bink_movie_metrics(struct fnv_bink_movie_metrics *);
 #endif

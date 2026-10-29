@@ -28,7 +28,10 @@
  X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CreateSampler) X(DestroySampler) \
  X(CreatePipelineCache) X(DestroyPipelineCache) X(CreateGraphicsPipelines) X(DestroyPipeline) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdDraw) X(CmdDrawIndexed)
 #define FIELD(n) PFN_vk##n n;
-struct dispatch { GLOBALS(FIELD) INSTANCE(FIELD) DEVICE(FIELD) WSI_INSTANCE(FIELD) WSI_DEVICE(FIELD) };
+struct dispatch { GLOBALS(FIELD) INSTANCE(FIELD) DEVICE(FIELD) WSI_INSTANCE(FIELD) WSI_DEVICE(FIELD)
+    PFN_vkCreateQueryPool CreateQueryPool;PFN_vkDestroyQueryPool DestroyQueryPool;
+    PFN_vkGetQueryPoolResults GetQueryPoolResults;PFN_vkCmdResetQueryPool CmdResetQueryPool;PFN_vkCmdWriteTimestamp CmdWriteTimestamp;
+};
 #undef FIELD
 struct surface {
     uintptr_t id;uint32_t refs,pins,width,height,depth,flag;
@@ -68,6 +71,7 @@ struct clear_command {
     VkClearRect rects[32];
 };
 struct frame {
+    VkQueryPool query_pool;uint32_t query_active;
     VkCommandPool pool;VkCommandBuffer cmd;VkFence fence;int pending;VkSemaphore acquired;VkFence acquire_fence;int acquire_pending;
     uint32_t count;struct clear_command *commands;
     VkRenderPass *passes;VkFramebuffer *buffers;
@@ -106,6 +110,8 @@ struct fnv_vk_backend {
     struct layout_cache_entry layout_cache[16];uint32_t reuse_layouts,last_draw_stage;
     struct shader_catalog *program_cache_vs,*program_cache_ps;struct program_entry *program_cache;
     uint32_t program_cache_valid;uint64_t program_lookup_hits,program_lookup_scans;
+    uint32_t timestamp_bits,sample_stride;
+    uint64_t gpu_samples,gpu_ns,gpu_draw_ns,gpu_other_ns,gpu_query_failures;
     uint64_t layout_creates,layout_hits,draw_reasons[16];
     struct fnv_shader_pair_census missing_pairs;
 };
@@ -372,6 +378,19 @@ static void full_viewport(struct fnv_vk_backend *d,struct surface *s){
 }
 static void release_draw(struct fnv_vk_backend *,struct draw_resources *);
 static void retire_frame(struct fnv_vk_backend *d,struct frame *f){
+    if(f->pending && f->query_active && !d->lost){
+        uint64_t ticks[2];VkResult qr=d->v.GetQueryPoolResults(d->device,f->query_pool,0,2,sizeof(ticks),ticks,sizeof(uint64_t),VK_QUERY_RESULT_64_BIT);
+        if(qr==VK_SUCCESS){
+            uint64_t mask=d->timestamp_bits==64?UINT64_MAX:(UINT64_C(1)<<d->timestamp_bits)-1;
+            uint64_t elapsed=(ticks[1]-ticks[0])&mask;
+            double ns=(double)elapsed*d->properties.limits.timestampPeriod;
+            if(isfinite(ns) && ns>=0 && ns<18446744073709549568.0){
+                uint64_t value=(uint64_t)ns;d->gpu_samples++;d->gpu_ns+=value;
+                if(f->draw)d->gpu_draw_ns+=value;else d->gpu_other_ns+=value;
+            }else d->gpu_query_failures++;
+        }else d->gpu_query_failures++;
+    }
+    f->query_active=0;
     VkResult reset=d->v.ResetCommandPool(d->device,f->pool,0);if(reset){(void)result(d,reset);d->lost=1;}
     for(uint32_t i=0;i<f->count;++i){
         if(f->buffers[i])d->v.DestroyFramebuffer(d->device,f->buffers[i],NULL);
@@ -450,9 +469,13 @@ static uint32_t begin_frame(struct fnv_vk_backend *d,struct frame **out){
     struct frame *f=NULL;for(uint32_t i=0;i<d->config.frames;++i)if(!d->frames[i].pending){f=d->frames+i;break;}
     if(!f)return FNV_VK_BUSY;
     VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-    uint32_t hr=result(d,d->v.BeginCommandBuffer(f->cmd,&bi));if(!hr)*out=f;else d->lost=1;return hr;
+    uint32_t hr=result(d,d->v.BeginCommandBuffer(f->cmd,&bi));
+    if(!hr){f->query_active=d->sample_stride && !(d->submissions%d->sample_stride);
+        if(f->query_active){d->v.CmdResetQueryPool(f->cmd,f->query_pool,0,2);d->v.CmdWriteTimestamp(f->cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,f->query_pool,0);}*out=f;
+    }else d->lost=1;return hr;
 }
 static uint32_t submit_frame(struct fnv_vk_backend *d,struct frame *f){
+    if(f->query_active)d->v.CmdWriteTimestamp(f->cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,f->query_pool,1);
     uint32_t hr=result(d,d->v.EndCommandBuffer(f->cmd));if(hr)return hr;
     hr=result(d,d->v.ResetFences(d->device,1,&f->fence));if(hr)return hr;
     VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.commandBufferCount=1,.pCommandBuffers=&f->cmd};
@@ -653,6 +676,8 @@ static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     s.layout_creates=d->layout_creates;s.layout_hits=d->layout_hits;memcpy(s.draw_reasons,d->draw_reasons,sizeof(s.draw_reasons));
     s.missing_pairs=d->missing_pairs;
     s.program_lookup_hits=d->program_lookup_hits;s.program_lookup_scans=d->program_lookup_scans;
+    s.gpu_samples=d->gpu_samples;s.gpu_sample_ns=d->gpu_ns;s.gpu_draw_ns=d->gpu_draw_ns;s.gpu_other_ns=d->gpu_other_ns;
+    s.gpu_query_failures=d->gpu_query_failures;s.gpu_sample_stride=d->sample_stride;s.gpu_timestamp_bits=d->timestamp_bits;
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
@@ -663,6 +688,24 @@ static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
 uint32_t fnv_vk_backend_stats(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     if(!d || !out)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=stats_locked(d,out);fnv_host_mutex_unlock(&d->guard);return hr;
+}
+uint32_t fnv_vk_backend_gpu_timing(struct fnv_vk_backend *d,uint32_t stride){
+    if(!d || !stride || stride>65536)return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_BUSY;VkQueryPool pools[3]={0};
+    if(d->submissions || d->sample_stride)goto done;
+    hr=0x8876086au;
+    if(!d->timestamp_bits || d->timestamp_bits>64 || !(d->properties.limits.timestampPeriod>0) ||
+       !d->v.CreateQueryPool || !d->v.DestroyQueryPool || !d->v.GetQueryPoolResults || !d->v.CmdResetQueryPool || !d->v.CmdWriteTimestamp)goto done;
+    for(uint32_t i=0;i<d->config.frames;i++){
+        VkQueryPoolCreateInfo info={.sType=VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,.queryType=VK_QUERY_TYPE_TIMESTAMP,.queryCount=2};
+        VkResult r=d->v.CreateQueryPool(d->device,&info,NULL,pools+i);
+        if(r!=VK_SUCCESS){pools[i]=VK_NULL_HANDLE;hr=0x8876086au;goto done;}
+    }
+    for(uint32_t i=0;i<d->config.frames;i++){d->frames[i].query_pool=pools[i];pools[i]=VK_NULL_HANDLE;}
+    d->sample_stride=stride;hr=0;
+done:
+    for(unsigned i=0;i<3;i++)if(pools[i])d->v.DestroyQueryPool(d->device,pools[i],NULL);
+    fnv_host_mutex_unlock(&d->guard);return hr;
 }
 uint32_t fnv_vk_backend_try_snapshot(struct fnv_vk_backend *d,struct fnv_vk_stats *out,struct fnv_vk_pipeline_metrics *pipelines){
     if(!d || !out || !pipelines)return FNV_VK_INVALID;
@@ -811,6 +854,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
             for(unsigned s=0;s<2;++s)release_version(d,f->uniform_cache[s]);
             if(f->pool)d->v.DestroyCommandPool(d->device,f->pool,NULL);
             if(f->fence)d->v.DestroyFence(d->device,f->fence,NULL);
+            if(f->query_pool)d->v.DestroyQueryPool(d->device,f->query_pool,NULL);
             if(f->read_buffer)d->v.DestroyBuffer(d->device,f->read_buffer,NULL);
             if(f->read_memory)d->v.FreeMemory(d->device,f->read_memory,NULL);
             release_version(d,f->read_version);release_texture_version(d,f->read_texture);
@@ -890,7 +934,7 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
         VkQueueFamilyProperties queues[256];d->v.GetPhysicalDeviceQueueFamilyProperties(devices[i],&n,queues);
         for(uint32_t j=0;j<n;++j)if(queues[j].queueCount && (queues[j].queueFlags&VK_QUEUE_GRAPHICS_BIT)){
             if(window){VkBool32 support=VK_FALSE;if((hr=result(d,d->v.GetPhysicalDeviceSurfaceSupportKHR(devices[i],j,d->wsi.surface,&support)))!=0)goto fail;if(!support)continue;}
-            d->physical=devices[i];d->family=j;d->properties=props;break;}
+            d->physical=devices[i];d->family=j;d->properties=props;d->timestamp_bits=queues[j].timestampValidBits;break;}
     }
     if(!d->physical){hr=FNV_VK_INVALID;goto fail;}
     d->v.GetPhysicalDeviceMemoryProperties(d->physical,&d->memory);
@@ -906,6 +950,11 @@ static uint32_t create_backend(PFN_vkGetInstanceProcAddr gp,const struct fnv_vk_
     DEVICE(LOAD_DEVICE)
     if(window){WSI_DEVICE(LOAD_DEVICE)}
 #undef LOAD_DEVICE
+    d->v.CreateQueryPool=(PFN_vkCreateQueryPool)d->v.GetDeviceProcAddr(d->device,"vkCreateQueryPool");
+    d->v.DestroyQueryPool=(PFN_vkDestroyQueryPool)d->v.GetDeviceProcAddr(d->device,"vkDestroyQueryPool");
+    d->v.GetQueryPoolResults=(PFN_vkGetQueryPoolResults)d->v.GetDeviceProcAddr(d->device,"vkGetQueryPoolResults");
+    d->v.CmdResetQueryPool=(PFN_vkCmdResetQueryPool)d->v.GetDeviceProcAddr(d->device,"vkCmdResetQueryPool");
+    d->v.CmdWriteTimestamp=(PFN_vkCmdWriteTimestamp)d->v.GetDeviceProcAddr(d->device,"vkCmdWriteTimestamp");
     /* Draws are serialized by guard, which also satisfies cache host access
      * synchronization. Keep compiler results alive across transient pipelines. */
     VkPipelineCacheCreateInfo cache_info={.sType=VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};

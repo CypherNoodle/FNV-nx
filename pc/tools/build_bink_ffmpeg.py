@@ -23,6 +23,8 @@ def msys(p):
 
 
 def build(a):
+    neon=getattr(a,'arm64_neon',False)
+    if neon and a.target!='switch':raise ValueError('ARM64 NEON profile requires the Switch target')
     tool_identity=sha(Path(__file__))
     source=a.source.resolve();out=a.output.resolve();out.mkdir(parents=True,exist_ok=a.resume)
     git=Path(a.git).resolve();bash=Path(a.bash).resolve();sdk=Path(a.devkitpro).resolve()
@@ -52,6 +54,9 @@ def build(a):
                 '--extra-ldflags=-fPIE -mtp=soft -specs='+msys(sdk/'libnx/switch.specs')+' -L'+msys(sdk/'libnx/lib'),
                 '--extra-libs=-lnx -lm']
     env=os.environ.copy();env['DEVKITPRO']=sdk.as_posix();env['DEVKITA64']=(sdk/'devkitA64').as_posix()
+    if neon:
+        flags.remove('--disable-asm');flags+=['--enable-asm','--enable-inline-asm','--enable-neon']
+        flags=[f+' -march=armv8-a+simd -mtune=cortex-a57' if f.startswith('--extra-cflags=') else f for f in flags]
     shell_prefix='export PATH='+shlex.quote(msys(sdk/'msys2/clang64/bin')+':'+msys(sdk/'msys2/usr/bin'))+'; '
     command=[str(bash),'--noprofile','--norc',msys(source/'configure'),*flags]
     # Native Windows PATH is translated by MSYS; an explicit shell path also
@@ -74,13 +79,14 @@ def build(a):
     with (out/'make.log').open('w') as log:
         r=subprocess.run([str(bash),'--noprofile','--norc','-c',shell_prefix+'exec make -j'+str(a.jobs)],cwd=out,env=env,stdout=log,stderr=log,timeout=600)
     if r.returncode:raise RuntimeError('FFmpeg build failed; inspect '+str(out/'make.log'))
+    if neon and not re.search(r'^#define HAVE_NEON 1$',(out/'config.h').read_text(),re.M):raise RuntimeError('Requested NEON profile was not enabled')
     if any(sha(source/n)!=h for n,h in frozen.items()):raise RuntimeError('External sources changed')
     if sha(Path(__file__))!=tool_identity:raise RuntimeError('Build tool changed during execution')
     libs={n:sha(out/('lib'+n)/('lib'+n+'.a')) for n in ('avformat','avcodec','avutil','swscale','swresample')}
     proof=dict(status='PASS',target=a.target,commit=commit,source_root=str(source),source_sha256=frozen,configure_flags=flags,
                compiler_sha256=sha(cc),tool_sha256=sha(Path(__file__)),library_sha256=libs,
                config_sha256=sha(out/'config.h'),external_sources_unchanged=True,decoded_frames=0,
-               switch_hardware_tested=False)
+               switch_hardware_tested=False,arm64_neon=bool(neon))
     (out/'validation.json').write_text(json.dumps(proof,indent=2)+'\n')
     print(json.dumps({k:proof[k] for k in ('status','target','commit','decoded_frames')}))
 
@@ -91,6 +97,7 @@ if __name__=='__main__':
     p.add_argument('--target',choices=('windows','switch'),required=True)
     p.add_argument('--jobs',type=int,default=4)
     p.add_argument('--resume',action='store_true',help='Reuse only an identical existing configuration')
+    p.add_argument('--arm64-neon',action='store_true',help='Separate Switch ASM/NEON candidate; does not add Bink SIMD or threading capabilities')
     a=p.parse_args()
     if not 1<=a.jobs<=16:p.error('jobs must be 1..16')
     build(a)

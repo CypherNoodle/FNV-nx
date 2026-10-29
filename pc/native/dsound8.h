@@ -27,6 +27,8 @@ enum fnv_cpu_result fnv_dsound8_set_focus(struct fnv_dsound8 *,int focused);
 enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *,uint32_t frames);
 struct fnv_dsound_metrics {
     uint64_t pumps,frames,full_returns,lock_wait_ns,mix_ns,max_pump_ns,late_pumps,silent_voice_frames;
+    uint64_t pcm_upload_bytes;
+    uint32_t allocated_slots,live_buffers,playing_buffers,spatial_buffers;
 };
 /* Nonblocking cumulative host-side metrics. BUSY leaves output unchanged. */
 enum fnv_pcm_result fnv_dsound8_try_metrics(struct fnv_dsound8 *,struct fnv_dsound_metrics *);

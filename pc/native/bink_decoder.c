@@ -9,6 +9,13 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
+#include "host_clock.h"
+static atomic_uint_fast64_t video_count,audio_count,next_time,convert_time,io_time,read_count,read_bytes;
+static void metric_elapsed(atomic_uint_fast64_t *counter,uint64_t start){uint64_t end;if(start && fnv_host_now_ns(&end) && end>=start)atomic_fetch_add_explicit(counter,end-start,memory_order_relaxed);}
+void fnv_bink_decoder_metrics(struct fnv_bink_decode_metrics *out){if(!out)return;
+    *out=(struct fnv_bink_decode_metrics){atomic_load_explicit(&video_count,memory_order_relaxed),atomic_load_explicit(&audio_count,memory_order_relaxed),
+        atomic_load_explicit(&next_time,memory_order_relaxed),atomic_load_explicit(&convert_time,memory_order_relaxed),atomic_load_explicit(&io_time,memory_order_relaxed),atomic_load_explicit(&read_count,memory_order_relaxed),atomic_load_explicit(&read_bytes,memory_order_relaxed)};}
 struct fnv_bink_decoder {
     struct fnv_bink_io input;struct fnv_bink_info info;
     AVFormatContext *format;AVIOContext *io;AVCodecContext *codec[2];
@@ -17,7 +24,8 @@ struct fnv_bink_decoder {
     uint32_t pcm_capacity;uint64_t audio_position;AVRational video_timebase;
 };
 static int read_input(void *context,uint8_t *data,int bytes){
-    struct fnv_bink_decoder *d=context;int n=d->input.read(d->input.context,data,bytes);
+    struct fnv_bink_decoder *d=context;uint64_t start=0;(void)fnv_host_now_ns(&start);int n=d->input.read(d->input.context,data,bytes);
+    metric_elapsed(&io_time,start);atomic_fetch_add_explicit(&read_count,1,memory_order_relaxed);if(n>0)atomic_fetch_add_explicit(&read_bytes,(uint64_t)n,memory_order_relaxed);
     return n>bytes || n<0?AVERROR(EIO):n?n:AVERROR_EOF;
 }
 static int64_t seek_input(void *context,int64_t offset,int whence){
@@ -85,7 +93,7 @@ static int audio_frame(struct fnv_bink_decoder *d,struct fnv_bink_frame *out,int
     int got=swr_convert(d->resample,&output,(int)capacity,drain?NULL:(const unsigned char **)d->frame->extended_data,n);if(got<0)return -1;
     out->pcm=d->pcm;out->audio_frames=(uint32_t)got;out->pts_us=av_rescale((int64_t)d->audio_position,1000000,48000);d->audio_position+=(uint32_t)got;return got!=0;
 }
-enum fnv_bink_decode_result fnv_bink_decoder_next(struct fnv_bink_decoder *d,struct fnv_bink_frame *out){
+static enum fnv_bink_decode_result decode_next(struct fnv_bink_decoder *d,struct fnv_bink_frame *out){
     if(!d || !out || d->failed)return FNV_BINK_DECODE_ERROR;
     memset(out,0,sizeof(*out));
     for(;;){
@@ -97,7 +105,9 @@ enum fnv_bink_decode_result fnv_bink_decoder_next(struct fnv_bink_decoder *d,str
             if(d->frame->width!=(int)d->info.width || d->frame->height!=(int)d->info.height || d->frame->pts==AV_NOPTS_VALUE || d->frame->pts<0)goto bad;
             d->scale=sws_getCachedContext(d->scale,d->frame->width,d->frame->height,(enum AVPixelFormat)d->frame->format,d->frame->width,d->frame->height,AV_PIX_FMT_RGBA,SWS_BILINEAR,NULL,NULL,NULL);if(!d->scale)goto bad;
             unsigned char *planes[4]={d->rgba,NULL,NULL,NULL};int pitch[4]={(int)d->info.width*4,0,0,0};
-            if(sws_scale(d->scale,(const unsigned char *const*)d->frame->data,d->frame->linesize,0,d->frame->height,planes,pitch)!=d->frame->height)goto bad;
+            uint64_t start=0;(void)fnv_host_now_ns(&start);
+            int scaled=sws_scale(d->scale,(const unsigned char *const*)d->frame->data,d->frame->linesize,0,d->frame->height,planes,pitch);
+            metric_elapsed(&convert_time,start);if(scaled!=d->frame->height)goto bad;
             out->rgba=d->rgba;out->width=d->info.width;out->height=d->info.height;out->pitch=d->info.width*4;out->pts_us=av_rescale_q(d->frame->pts,d->video_timebase,(AVRational){1,1000000});return FNV_BINK_VIDEO;
         }
         if(d->eof){
@@ -114,4 +124,10 @@ enum fnv_bink_decode_result fnv_bink_decoder_next(struct fnv_bink_decoder *d,str
         else av_packet_unref(d->packet);
     }
 bad:d->failed=1;memset(out,0,sizeof(*out));return FNV_BINK_DECODE_ERROR;
+}
+enum fnv_bink_decode_result fnv_bink_decoder_next(struct fnv_bink_decoder *d,struct fnv_bink_frame *out){
+    uint64_t start=0;(void)fnv_host_now_ns(&start);enum fnv_bink_decode_result result=decode_next(d,out);metric_elapsed(&next_time,start);
+    if(result==FNV_BINK_VIDEO)atomic_fetch_add_explicit(&video_count,1,memory_order_relaxed);
+    if(result==FNV_BINK_AUDIO)atomic_fetch_add_explicit(&audio_count,out->audio_frames,memory_order_relaxed);
+    return result;
 }

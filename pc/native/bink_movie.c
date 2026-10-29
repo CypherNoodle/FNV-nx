@@ -8,6 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
+#include "host_clock.h"
+static atomic_uint_fast64_t wait_calls,wait_pending,audio_wait_calls,audio_wait_time,copy_calls,copy_time;
+static void movie_elapsed(atomic_uint_fast64_t *counter,uint64_t start){uint64_t end;if(start && fnv_host_now_ns(&end) && end>=start)atomic_fetch_add_explicit(counter,end-start,memory_order_relaxed);}
+void fnv_bink_movie_metrics(struct fnv_bink_movie_metrics *out){if(!out)return;
+    *out=(struct fnv_bink_movie_metrics){atomic_load_explicit(&wait_calls,memory_order_relaxed),atomic_load_explicit(&wait_pending,memory_order_relaxed),atomic_load_explicit(&audio_wait_calls,memory_order_relaxed),atomic_load_explicit(&audio_wait_time,memory_order_relaxed),atomic_load_explicit(&copy_calls,memory_order_relaxed),atomic_load_explicit(&copy_time,memory_order_relaxed)};}
 struct fnv_bink_movie {
     struct fnv_cpu_runtime *cpu;struct fnv_bink_movie_config config;
     struct fnv_bink_sound *selection;uint32_t tokens[8],used,handle,header[7];
@@ -92,7 +97,9 @@ static void api_close(void){uint32_t h=fnv_cpu_argument_u32(0);if(!handle(h))ret
 static void api_wait(void){
     uint32_t h=fnv_cpu_argument_u32(0);if(!handle(h))return;uint64_t t;if(!now(&t))return;
     uint64_t due=(uint64_t)((__uint128_t)(active->header[3]-1)*active->info.rate_den*1000000000u/active->info.rate_num);
-    fnv_cpu_return_u32(active->paused || t-active->epoch<due,4);
+    uint32_t pending=active->paused || t-active->epoch<due;
+    atomic_fetch_add_explicit(&wait_calls,1,memory_order_relaxed);if(pending)atomic_fetch_add_explicit(&wait_pending,1,memory_order_relaxed);
+    fnv_cpu_return_u32(pending,4);
 }
 static void api_pause(void){
     uint32_t h=fnv_cpu_argument_u32(0),paused=fnv_cpu_argument_u32(1);if(!handle(h))return;
@@ -111,7 +118,10 @@ static void api_decode(void){
     for(unsigned i=0;i<4096;i++){
         enum fnv_bink_stream_result r=fnv_bink_stream_step(active->stream,&active->frame);
         if(r==FNV_BINK_STREAM_VIDEO){active->decoded=1;active->header[4]=active->header[3];if(publish())fnv_cpu_return_u32(0,4);return;}
-        if(r==FNV_BINK_STREAM_WAIT){uint64_t t;if(!now(&t))return;if(t-start>=2000000000u || !active->config.wait_audio(active->config.context)){fail("Bink movie audio cannot progress",h);return;}}
+        if(r==FNV_BINK_STREAM_WAIT){uint64_t t;if(!now(&t))return;if(t-start>=2000000000u){fail("Bink movie audio cannot progress",h);return;}
+            uint64_t wait_start=0;(void)fnv_host_now_ns(&wait_start);int ready=active->config.wait_audio(active->config.context);
+            movie_elapsed(&audio_wait_time,wait_start);atomic_fetch_add_explicit(&audio_wait_calls,1,memory_order_relaxed);
+            if(!ready){fail("Bink movie audio cannot progress",h);return;}}
         else if(r!=FNV_BINK_STREAM_AUDIO){fail("Bink movie decoding failed or unexpected EOF",h);return;}
     }fail("Bink movie decode budget exceeded",h);
 }
@@ -132,7 +142,9 @@ static void api_copy(void){
     if(!active->decoded){fail("Bink copy before decoded frame unavailable",a[0]);return;}
     uint64_t span=(uint64_t)a[2]*a[3];if(!span || span>UINT32_MAX || (int32_t)a[2]<=0){fail("Bink copy destination span unavailable",a[1]);return;}
     unsigned char *p=memory(a[1],(uint32_t)span,1);if(!p)return;
+    uint64_t copy_start=0;(void)fnv_host_now_ns(&copy_start);
     enum fnv_bink_copy_result r=fnv_bink_copy_rect(&active->frame,(size_t)active->frame.pitch*active->frame.height,p,(size_t)span,(int32_t)a[2],a[3],a[4],a[5],a[6],a[7],a[8],a[9],a[10]);
+    movie_elapsed(&copy_time,copy_start);atomic_fetch_add_explicit(&copy_calls,1,memory_order_relaxed);
     if(r!=FNV_BINK_COPY_OK){fail("Bink copy profile or bounds unavailable",a[1]);return;}fnv_cpu_return_u32(0,44);
 }
 static const struct fnv_cpu_export exports[]={

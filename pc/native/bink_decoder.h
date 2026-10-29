@@ -22,4 +22,6 @@ struct fnv_bink_frame {
 int fnv_bink_decoder_open(const struct fnv_bink_io *,struct fnv_bink_decoder **,struct fnv_bink_info *);
 enum fnv_bink_decode_result fnv_bink_decoder_next(struct fnv_bink_decoder *,struct fnv_bink_frame *);
 void fnv_bink_decoder_close(struct fnv_bink_decoder *);
+struct fnv_bink_decode_metrics {uint64_t video_frames,audio_frames,next_ns,convert_ns,io_ns,read_calls,read_bytes;};
+void fnv_bink_decoder_metrics(struct fnv_bink_decode_metrics *);
 #endif

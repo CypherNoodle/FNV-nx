@@ -249,6 +249,7 @@ static void unlock_buffer(void){
     if(!o->locked || a!=o->address+o->offset || b!=o->first || c!=(o->second?o->address:0) || d!=o->second){finish(INVALID,20);return;}
     if(b)memcpy(o->samples+o->offset,p,b);
     if(d)memcpy(o->samples,q,d);
+    active->metrics.pcm_upload_bytes+=(uint64_t)b+d;
     o->locked=0;finish(0,20);
 }
 static void play(void){uint32_t reserved=fnv_cpu_argument_u32(1),priority=fnv_cpu_argument_u32(2),flags=fnv_cpu_argument_u32(3);
@@ -405,6 +406,9 @@ enum fnv_pcm_result fnv_dsound8_pump(struct fnv_dsound8 *d,uint32_t frames){
 enum fnv_pcm_result fnv_dsound8_try_metrics(struct fnv_dsound8 *d,struct fnv_dsound_metrics *out){
     if(!d || d!=active || !out)return FNV_PCM_INVALID;
     if(!fnv_host_mutex_trylock(&d->guard))return FNV_PCM_FULL;
-    *out=d->metrics;fnv_host_mutex_unlock(&d->guard);return FNV_PCM_OK;
+    *out=d->metrics;out->allocated_slots=d->count;
+    for(unsigned i=0;i<d->count;i++){const struct sound_object *o=d->objects+i;
+        if(o->refs && o->kind && !(o->flags&1)){out->live_buffers++;out->playing_buffers+=o->playing!=0;out->spatial_buffers+=(o->flags&0x10)!=0;}}
+    fnv_host_mutex_unlock(&d->guard);return FNV_PCM_OK;
 }
 uint32_t fnv_dsound8_produce(void *context,uint32_t frames){return (uint32_t)fnv_dsound8_pump(context,frames);}

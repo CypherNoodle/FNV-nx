@@ -137,6 +137,13 @@ static __attribute__((noinline)) void sample_native_record(uint32_t entry){
     const char *label="native-COM";
     if(entry>=0xfe000000u && entry<0xfe010000u){uint32_t index=(entry-0xfe000000u)/4;if(index<FNV_NATIVE_MAX_IMPORTS)label=import_labels[index];}
     char debug_name[128]="<busy>";(void)fnv_windows_try_debug_name(debug_name);
+    u64 host_id=0,thread_ticks=0,thread_mask=0;s32 preferred=-1;
+    Result thread_tick_rc=svcGetInfo(&thread_ticks,InfoType_ThreadTickCount,CUR_THREAD_HANDLE,UINT64_MAX);
+    if(R_FAILED(thread_tick_rc))thread_tick_rc=svcGetInfo(&thread_ticks,InfoType_ThreadTickCountDeprecated,CUR_THREAD_HANDLE,UINT64_MAX);
+    Result affinity_rc=svcGetThreadCoreMask(&preferred,&thread_mask,CUR_THREAD_HANDLE);(void)svcGetThreadId(&host_id,CUR_THREAD_HANDLE);
+    report("NativeThread guest=%08lX host=%llu core=%ld preferred=%ld mask=%llX affinity_rc=%08lX ticks=%llu ticks_rc=%08lX\n",
+        (unsigned long)id,(unsigned long long)host_id,(long)svcGetCurrentProcessorNumber(),(long)preferred,(unsigned long long)thread_mask,
+        (unsigned long)affinity_rc,(unsigned long long)thread_ticks,(unsigned long)thread_tick_rc);
     report("NativeSample thread=%08lX name=%.80s entry=%08lX api=%.95s esp=%08lX ebp=%08lX calls=%llu stack=%s\n",
         (unsigned long)id,debug_name,(unsigned long)entry,label,(unsigned long)sp,(unsigned long)s.gpr[5],(unsigned long long)fnv_cpu_icall_count,words);
 }
@@ -228,10 +235,19 @@ static int add_exports(struct exports *all,const struct fnv_cpu_export *e,size_t
     return 1;
 }
 static int import_matches(const struct fnv_cpu_export *e,const struct fnv_native_import *i){return !strcasecmp(e->dll,i->dll) && e->by_ordinal==i->by_ordinal && (i->by_ordinal?e->ordinal==i->ordinal:!strcmp(e->name,i->name));}
-static atomic_int trace_lines;
+static atomic_uint_fast64_t trace_suppressed,trace_unique,trace_overflow;
+static struct {uint64_t hash;size_t length;} trace_seen[256];
 static void d3d9_trace_sink(const char *line) {
-    if(atomic_fetch_add_explicit(&trace_lines,1,memory_order_relaxed)>=4096)return;
-    report("%s",line);
+    uint64_t hash=UINT64_C(14695981039346656037);size_t length=0;
+    for(;line[length];length++){hash^=(unsigned char)line[length];hash*=UINT64_C(1099511628211);}
+    fnv_host_mutex_lock(&log_guard);
+    for(unsigned i=0;i<256;i++){unsigned slot=((unsigned)hash+i)&255;
+        if(!trace_seen[slot].length){trace_seen[slot].hash=hash;trace_seen[slot].length=length;
+            atomic_fetch_add_explicit(&trace_unique,1,memory_order_relaxed);fputs(line,log_file);fflush(log_file);fnv_host_mutex_unlock(&log_guard);return;}
+        if(trace_seen[slot].hash==hash && trace_seen[slot].length==length){
+            atomic_fetch_add_explicit(&trace_suppressed,1,memory_order_relaxed);fnv_host_mutex_unlock(&log_guard);return;}
+    }
+    atomic_fetch_add_explicit(&trace_overflow,1,memory_order_relaxed);fnv_host_mutex_unlock(&log_guard);
 }
 static uint32_t guest32(uint32_t at) {const unsigned char *p=fnv_cpu_try_memory(at,4);return p?load32(p):0;}
 static uint32_t guest16(uint32_t at) {const unsigned char *p=fnv_cpu_try_memory(at,2);return p?(uint32_t)p[0]|(uint32_t)p[1]<<8:0;}
@@ -291,6 +307,7 @@ static int initialize(void) {
     REQUIRE(!fnv_vk_backend_presentation_format(graphics,22) && !fnv_vk_backend_draw_wait(graphics,10000000000ull),"graphics presentation configuration");
     REQUIRE(!fnv_vk_backend_uniform_reuse(graphics,1),"retired-frame uniform reuse");
     REQUIRE(!fnv_vk_backend_layout_reuse(graphics,1),"immutable descriptor layout reuse");
+    report("GPU timing setup hr=%08lX stride=16 optional=1\n",(unsigned long)fnv_vk_backend_gpu_timing(graphics,16));
     report("Renderer reuse: resource index, retired-frame mapped uniforms, layouts=16; audio silent-voice fast path\n");
     report("CPU hot leaf inlining: units=%u direct_sites=%u guest stack/register writes retained\n",FNV_ENGINE_INLINE_UNITS,FNV_ENGINE_INLINE_SITES);
     struct fnv_display_backend db={NULL,enumerate_display};struct fnv_windows_display *display;
@@ -322,7 +339,13 @@ static int initialize(void) {
     struct fnv_bink_sound_config bs={movie,fnv_bink_movie_sound_factory};struct fnv_bink_sound *bink_sound;
     REQUIRE(fnv_bink_sound_create(process,&bs,&bink_sound)==FNV_CPU_OK && fnv_bink_movie_bind_sound(movie,bink_sound)==FNV_CPU_OK,"Bink sound bridge");
     struct fnv_steam_callbacks *steam;struct fnv_windows_system *system;
-    REQUIRE(fnv_steam_callbacks_create(process,&steam)==FNV_CPU_OK && fnv_windows_system_create(process,3,&system)==FNV_CPU_OK,"system providers");
+    u64 startup_core_mask=0;uint32_t logical_processors=3;
+    Result startup_core_result=svcGetInfo(&startup_core_mask,InfoType_CoreMask,CUR_PROCESS_HANDLE,0);
+    if(R_SUCCEEDED(startup_core_result) && (startup_core_mask&15)){
+        logical_processors=0;for(unsigned core=0;core<4;core++)logical_processors+=(startup_core_mask>>core)&1u;
+    }
+    report("CPU guest_processors=%u allowed_mask=%llX query_rc=%08lX\n",logical_processors,(unsigned long long)startup_core_mask,(unsigned long)startup_core_result);
+    REQUIRE(fnv_steam_callbacks_create(process,&steam)==FNV_CPU_OK && fnv_windows_system_create(process,logical_processors,&system)==FNV_CPU_OK,"system providers");
     struct fnv_d3d9_sdp *sdp;REQUIRE(fnv_sdp_load("romfs:/catalog.sdp",16u<<20,&sdp)==FNV_SDP_OK,"original shader catalog");
     size_t catalog_count;const struct fnv_d3d9_shader_code *codes=fnv_sdp_entries(sdp,&catalog_count);REQUIRE(catalog_count==FNV_ENGINE_CATALOG_COUNT,"shader catalog inventory");
     for(size_t i=0;i<catalog_count;i++){const struct fnv_d3d9_shader_code *code=codes+i;uint32_t version=load32(code->bytes);REQUIRE(!fnv_vk_backend_declare_shader(graphics,(version>>16)==0xffff?FNV_D3D9_PIXEL:FNV_D3D9_VERTEX,code->bytes,code->size),"shader declaration");}
@@ -332,7 +355,7 @@ static int initialize(void) {
     uint32_t graphics_objects=pool(65536),graphics_buffers=pool(128u<<20);REQUIRE(graphics_objects && graphics_buffers,"D3D9 COM pools");
     struct fnv_d3d9_factory_profile factory={gc.width,gc.height,22,0,60,graphics,graphics_query};
     struct fnv_d3d9_com_config cc={0};cc.objects_address=graphics_objects;cc.objects_bytes=65536;cc.resource_capacity=4096;cc.vertex_floats=256;cc.pixel_floats=224;cc.memory=vm;cc.buffer_address=graphics_buffers;cc.buffer_bytes=128u<<20;cc.factory=&factory;cc.catalog=codes;cc.catalog_count=catalog_count;cc.presentation_timeout_ns=10000000000ull;fnv_vk_backend_callbacks(graphics,&cc.backend);
-    fnv_d3d9_trace_hook=d3d9_trace_sink;report("D3D9 trace sink enabled cap=4096\n");
+    fnv_d3d9_trace_hook=d3d9_trace_sink;report("D3D9 trace sink enabled unique_cap=256 repeated_lines=counted\n");
     REQUIRE(fnv_d3d9_com_create(fnv_windows_runtime(process),&cc,&graphics_com)==FNV_CPU_OK,"D3D9 COM factory");
     {struct fnv_d3d9_surface_io io={graphics,surface_read,surface_write};fnv_d3d9_com_surface_io(graphics_com,&io);report("D3D9 lockable backbuffer transfer provider installed\n");}
     fnv_sdp_destroy(sdp);
@@ -441,6 +464,19 @@ int main(void) {
                 report("Draw attempts=%llu invalid=%llu unsupported=%llu busy=%llu\n",(unsigned long long)stats.draw_attempts,(unsigned long long)stats.draw_invalid,(unsigned long long)stats.draw_unsupported,(unsigned long long)stats.draw_busy);
                 report("Layouts creates=%llu hits=%llu\n",(unsigned long long)stats.layout_creates,(unsigned long long)stats.layout_hits);
                 report("ProgramLookup hits=%llu scans=%llu\n",(unsigned long long)stats.program_lookup_hits,(unsigned long long)stats.program_lookup_scans);
+                report("GPUTime samples=%llu sampled_ns=%llu draw_ns=%llu other_ns=%llu failures=%llu stride=%u timestamp_bits=%u\n",
+                    (unsigned long long)stats.gpu_samples,(unsigned long long)stats.gpu_sample_ns,(unsigned long long)stats.gpu_draw_ns,
+                    (unsigned long long)stats.gpu_other_ns,(unsigned long long)stats.gpu_query_failures,stats.gpu_sample_stride,stats.gpu_timestamp_bits);
+                static uint64_t frame_previous_ms,frame_previous_count,frame_previous_draws;
+                if(frame_previous_ms && elapsed>frame_previous_ms && stats.presentation_requests>=frame_previous_count && stats.draws>=frame_previous_draws){
+                    uint64_t window=elapsed-frame_previous_ms,frames=stats.presentation_requests-frame_previous_count;
+                    uint64_t fps_milli=frames*1000000/window,draws=stats.draws-frame_previous_draws,dpf=frames?draws*1000/frames:0;
+                    report("FrameRate window_ms=%llu fps=%llu.%03llu frames=%llu total_frames=%llu mean_interval_us=%llu draws=%llu draws_per_frame=%llu.%03llu interval_valid=%u\n",
+                        (unsigned long long)window,(unsigned long long)(fps_milli/1000),(unsigned long long)(fps_milli%1000),
+                        (unsigned long long)frames,(unsigned long long)stats.presentation_requests,(unsigned long long)(frames?window*1000/frames:0),(unsigned long long)draws,
+                        (unsigned long long)(dpf/1000),(unsigned long long)(dpf%1000),frames?1u:0u);
+                }
+                frame_previous_ms=elapsed;frame_previous_count=stats.presentation_requests;frame_previous_draws=stats.draws;
                 static const char *draw_reasons[16]={"state","inputs","targets","viewport","program","indices","geometry","attributes","texture","sampler","depth_blend","queue","uniforms","descriptors","pipeline","submit"};
                 char reason_line[512]={0};size_t reason_used=0;
                 for(unsigned reason=0;reason<16;reason++){
@@ -476,9 +512,23 @@ int main(void) {
             struct fnv_dsound_metrics sound_metrics;
             if(fnv_dsound8_try_metrics(sound,&sound_metrics)==FNV_PCM_OK)report("Audio pumps=%llu frames=%llu full=%llu lock_ms=%llu mix_ms=%llu max_us=%llu late=%llu silent_voice_frames=%llu\n",(unsigned long long)sound_metrics.pumps,(unsigned long long)sound_metrics.frames,(unsigned long long)sound_metrics.full_returns,(unsigned long long)(sound_metrics.lock_wait_ns/1000000),(unsigned long long)(sound_metrics.mix_ns/1000000),(unsigned long long)(sound_metrics.max_pump_ns/1000),(unsigned long long)sound_metrics.late_pumps,(unsigned long long)sound_metrics.silent_voice_frames);
             else report("Audio metrics busy\n");
+            if(fnv_dsound8_try_metrics(sound,&sound_metrics)==FNV_PCM_OK)report("DSBuffers slots=%u live=%u playing=%u spatial=%u pcm_upload_bytes=%llu\n",
+                sound_metrics.allocated_slots,sound_metrics.live_buffers,sound_metrics.playing_buffers,sound_metrics.spatial_buffers,(unsigned long long)sound_metrics.pcm_upload_bytes);
+            report("Trace unique=%llu suppressed=%llu overflow=%llu\n",(unsigned long long)atomic_load(&trace_unique),(unsigned long long)atomic_load(&trace_suppressed),(unsigned long long)atomic_load(&trace_overflow));
+            struct fnv_vorbis_metrics vorbis_metrics;if(fnv_windows_vorbis_metrics(&vorbis_metrics))report("Vorbis opens=%llu failures=%llu reads=%llu decoded_bytes=%llu last_error=%ld\n",
+                (unsigned long long)vorbis_metrics.opens,(unsigned long long)vorbis_metrics.open_failures,(unsigned long long)vorbis_metrics.reads,(unsigned long long)vorbis_metrics.decoded_bytes,(long)vorbis_metrics.last_error);
+            struct fnv_bink_decode_metrics bink_decode;struct fnv_bink_movie_metrics bink_movie;
+            fnv_bink_decoder_metrics(&bink_decode);fnv_bink_movie_metrics(&bink_movie);
+            report("Bink video_frames=%llu audio_frames=%llu next_ns=%llu convert_ns=%llu io_ns=%llu reads=%llu read_bytes=%llu copy_calls=%llu copy_ns=%llu wait_calls=%llu wait_pending=%llu audio_wait_calls=%llu audio_wait_ns=%llu\n",
+                (unsigned long long)bink_decode.video_frames,(unsigned long long)bink_decode.audio_frames,(unsigned long long)bink_decode.next_ns,
+                (unsigned long long)bink_decode.convert_ns,(unsigned long long)bink_decode.io_ns,(unsigned long long)bink_decode.read_calls,(unsigned long long)bink_decode.read_bytes,
+                (unsigned long long)bink_movie.copy_calls,(unsigned long long)bink_movie.copy_ns,(unsigned long long)bink_movie.wait_calls,(unsigned long long)bink_movie.wait_pending,
+                (unsigned long long)bink_movie.audio_wait_calls,(unsigned long long)bink_movie.audio_wait_ns);
             struct fnv_horizon_audio_metrics audout_metrics;
             if(!fnv_horizon_audio_metrics(audio,&audout_metrics))report("Audout refills=%llu underrun_frames=%llu wait_timeouts=%llu\n",(unsigned long long)audout_metrics.refills,(unsigned long long)audout_metrics.underrun_frames,(unsigned long long)audout_metrics.wait_timeouts);
             u64 core_mask=0,main_ticks[4]={0};s32 preferred_core=-1;Result ticks_result=svcGetThreadCoreMask(&preferred_core,&core_mask,thread.thread.handle);
+            u64 allowed_cores=0;Result allowed_result=svcGetInfo(&allowed_cores,InfoType_CoreMask,CUR_PROCESS_HANDLE,0);
+            report("CPUAllowed rc=%08lX process_mask=%llX fourth_core=%u\n",(unsigned long)allowed_result,(unsigned long long)allowed_cores,R_SUCCEEDED(allowed_result) && (allowed_cores&8)?1u:0u);
             for(unsigned core=0;core<4 && R_SUCCEEDED(ticks_result);core++)if(core_mask&(1u<<core)){
                 ticks_result=svcGetInfo(main_ticks+core,InfoType_ThreadTickCount,thread.thread.handle,core);
                 if(R_FAILED(ticks_result))ticks_result=svcGetInfo(main_ticks+core,InfoType_ThreadTickCountDeprecated,thread.thread.handle,core);

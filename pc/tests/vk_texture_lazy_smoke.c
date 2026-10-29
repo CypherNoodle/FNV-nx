@@ -31,6 +31,7 @@ int main(void){
     if(hr){fprintf(stderr,"SKIP: no usable Vulkan device hr=%08x vk=%d\n",hr,(int)why);return 77;}
     struct fnv_d3d9_shader_backend p;memset(&p,0,sizeof(p));fnv_vk_backend_callbacks(b,&p);
     CHECK(p.create_texture && p.upload_texture);
+    CHECK(!fnv_vk_backend_gpu_timing(b,16));
     /* R32F must preserve float bits and support a real render attachment. */
     {
     uintptr_t floats=0;CHECK(!p.create_texture(b,3,2,1,0,114,1,&floats));
@@ -122,7 +123,10 @@ int main(void){
     for(unsigned l=0;l<4;l++){uint32_t desc[8];CHECK(!p.surface_desc(p.context,aliases[l],desc));p.release(p.context,aliases[l]);}
     puts("managed mip surface identity, dimensions, lifetime and no GPU allocation OK");
     p.release(p.context,a8);p.release(p.context,blank);p.device_release(p.context);CHECK(!fnv_vk_backend_wait(b,5000000000ull));
-    struct fnv_vk_stats final;CHECK(!fnv_vk_backend_stats(b,&final));CHECK(!final.device_references && !final.live_textures && !final.allocated_bytes);CHECK(!fnv_vk_backend_destroy(b));
+    struct fnv_vk_stats final;CHECK(!fnv_vk_backend_stats(b,&final));CHECK(!final.device_references && !final.live_textures && !final.allocated_bytes);
+    CHECK(final.gpu_samples>0 && final.gpu_sample_ns>0 && !final.gpu_query_failures);
+    printf("GPU timestamps: samples=%llu ns=%llu stride=%u PASS\n",(unsigned long long)final.gpu_samples,(unsigned long long)final.gpu_sample_ns,final.gpu_sample_stride);
+    CHECK(!fnv_vk_backend_destroy(b));
 #ifdef _WIN32
     FreeLibrary(loader);
 #endif

@@ -8,12 +8,19 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
 #define STREAMS 32u
 #define STRIDE 0x11000u
 #define SCRATCH 65536u
 struct stream {uint32_t key,phase,source,functions[4],scratch,info;OggVorbis_File file;const vorbis_info *views[8];};
 struct fnv_windows_vorbis {struct fnv_cpu_runtime *cpu;struct fnv_vorbis_config config;fnv_host_mutex guard;uint32_t tokens[6];struct stream streams[STREAMS];};
 static struct fnv_windows_vorbis *active;
+static atomic_uint_fast64_t metric_opens,metric_open_failures,metric_reads,metric_decoded;
+static atomic_int metric_last_error;
+int fnv_windows_vorbis_metrics(struct fnv_vorbis_metrics *out){
+    if(!out || !active)return 0;
+    *out=(struct fnv_vorbis_metrics){atomic_load_explicit(&metric_opens,memory_order_relaxed),atomic_load_explicit(&metric_open_failures,memory_order_relaxed),atomic_load_explicit(&metric_reads,memory_order_relaxed),atomic_load_explicit(&metric_decoded,memory_order_relaxed),atomic_load_explicit(&metric_last_error,memory_order_relaxed)};return 1;
+}
 static uint32_t rd(const unsigned char *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 static void wr(unsigned char *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(unsigned char)(v>>(i*8));}
 static void bad(const char *s,uint32_t at){recomp_unimpl(s,at);}
@@ -68,6 +75,7 @@ static void api_open(void){
     s->source=source;memcpy(s->functions,functions,sizeof(functions));memset(&s->file,0,sizeof(s->file));memset(s->views,0,sizeof(s->views));
     ov_callbacks cb={read_cb,functions[1]?seek_cb:NULL,functions[2]?close_cb:NULL,functions[3]?tell_cb:NULL};
     int result=ov_open_callbacks(s,&s->file,(const char*)input,(long)bytes,cb);
+    atomic_fetch_add_explicit(&metric_opens,1,memory_order_relaxed);if(result){atomic_fetch_add_explicit(&metric_open_failures,1,memory_order_relaxed);atomic_store_explicit(&metric_last_error,result,memory_order_relaxed);}
     fnv_host_mutex_lock(&active->guard);s->phase=result?0:2;fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32((uint32_t)result,0);
 }
 static void api_clear(void){uint32_t key=fnv_cpu_argument_u32(0);struct stream *s=acquire(key);if(!s){fnv_cpu_return_u32((uint32_t)OV_EINVAL,0);return;}
@@ -80,6 +88,7 @@ static void api_read(void){
     if(!n || n>1048576 || endian>1 || (word!=1 && word!=2) || sign>1){fnv_cpu_return_u32((uint32_t)OV_EINVAL,0);return;}
     unsigned char *p=checked(at,n,1),*out=section?checked(section,4,1):NULL;struct stream *s=acquire(key);if(!s){fnv_cpu_return_u32((uint32_t)OV_EINVAL,0);return;}
     int bitstream=0;long result=ov_read(&s->file,(char*)p,(int)n,(int)endian,(int)word,(int)sign,&bitstream);if(out && result>0)wr(out,(uint32_t)bitstream);
+    atomic_fetch_add_explicit(&metric_reads,1,memory_order_relaxed);if(result>0)atomic_fetch_add_explicit(&metric_decoded,(uint64_t)result,memory_order_relaxed);else if(result<0)atomic_store_explicit(&metric_last_error,(int)result,memory_order_relaxed);
     release(s);fnv_cpu_return_u32((uint32_t)result,0);
 }
 static void api_info(void){

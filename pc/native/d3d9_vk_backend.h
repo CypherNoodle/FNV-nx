@@ -33,6 +33,8 @@ struct fnv_vk_stats {
     uint64_t layout_creates,layout_hits,draw_reasons[16];
     struct fnv_shader_pair_census missing_pairs;
     uint64_t program_lookup_hits,program_lookup_scans;
+    uint64_t gpu_samples,gpu_sample_ns,gpu_draw_ns,gpu_other_ns,gpu_query_failures;
+    uint32_t gpu_sample_stride,gpu_timestamp_bits;
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
@@ -45,6 +47,9 @@ struct fnv_vk_stats {
  * No fake shader/draw provider: unsupported callback extensions remain null.
  * Backend methods serialize internally; no callbacks/reentry under its lock. */
 uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr,const struct fnv_vk_config *,struct fnv_vk_backend **,VkResult *failure);
+/* Optional sampled command-buffer GPU timestamps. Configure before submissions;
+ * unavailable support leaves rendering intact. No extra waits or submissions. */
+uint32_t fnv_vk_backend_gpu_timing(struct fnv_vk_backend *,uint32_t stride);
 /* Optional constant-buffer reuse per retired command frame, with persistent
  * mapping and noncoherent flushes. Enable/disable only outside a scene after
  * all queued/submitted work completes. Disabling releases the retained owners. */
