@@ -4,8 +4,10 @@ static void release_draw(struct fnv_vk_backend *d,struct draw_resources *r){
     if(!r)return;
     if(r->pipeline)d->v.DestroyPipeline(d->device,r->pipeline,NULL);
     if(r->descriptors)d->v.DestroyDescriptorPool(d->device,r->descriptors,NULL);
-    if(r->layout)d->v.DestroyPipelineLayout(d->device,r->layout,NULL);
-    for(unsigned i=0;i<4;++i)if(r->sets[i])d->v.DestroyDescriptorSetLayout(d->device,r->sets[i],NULL);
+    if(!r->shared_layout){
+        if(r->layout)d->v.DestroyPipelineLayout(d->device,r->layout,NULL);
+        for(unsigned i=0;i<4;++i)if(r->sets[i])d->v.DestroyDescriptorSetLayout(d->device,r->sets[i],NULL);
+    }
     for(unsigned i=0;i<16;++i){if(r->samplers[i])d->v.DestroySampler(d->device,r->samplers[i],NULL);
         release_version(d,r->vertices[i]);release_texture_version(d,r->textures[i]);}
     release_version(d,r->indices);for(unsigned i=0;i<2;++i)release_version(d,r->ubo[i]);
@@ -106,8 +108,15 @@ static uint32_t draw_state(struct fnv_vk_backend *d,enum fnv_d3d9_state_kind kin
     fields[name-1]=values[0];memcpy(&next,fields,sizeof(fields));VkSamplerCreateInfo test;
     uint32_t hr=fnv_d3d9_vk_sampler(&next,32,d->properties.limits.maxSamplerLodBias,&test);if(!hr)d->sampler_state[sampler]=next;return hr;
 }
-static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources *r,const struct program_entry *program){
-    uint32_t samplers=0;for(unsigned i=0;i<16;++i)samplers+=(program->mask>>i)&1;
+static uint32_t layout_key(const struct draw_resources *r,const struct program_entry *program){
+    return program->mask|((uint32_t)(r->ubo[0]!=NULL)<<16)|((uint32_t)(r->ubo[1]!=NULL)<<17);
+}
+static uint32_t draw_layout(struct fnv_vk_backend *d,struct draw_resources *r,const struct program_entry *program){
+    if(d->reuse_layouts)for(unsigned i=0;i<16;++i){struct layout_cache_entry *e=d->layout_cache+i;
+        if(e->layout && e->key==layout_key(r,program)){
+            r->layout=e->layout;memcpy(r->sets,e->sets,sizeof(r->sets));r->shared_layout=1;d->layout_hits++;return 0;
+        }
+    }
     for(uint32_t set=0;set<4;++set){VkDescriptorSetLayoutBinding bindings[16];uint32_t count=0;
         if(set==1 || set==3){unsigned stage=set==3;if(r->ubo[stage])bindings[count++]=(VkDescriptorSetLayoutBinding){0,VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1,stage?VK_SHADER_STAGE_FRAGMENT_BIT:VK_SHADER_STAGE_VERTEX_BIT,NULL};}
         if(set==2)for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i))bindings[count++]=(VkDescriptorSetLayoutBinding){i,VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1,VK_SHADER_STAGE_FRAGMENT_BIT,NULL};
@@ -116,6 +125,11 @@ static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources 
     }
     VkPipelineLayoutCreateInfo lci={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.setLayoutCount=4,.pSetLayouts=r->sets};
     VkPipelineLayout layout=VK_NULL_HANDLE;uint32_t hr=result(d,d->v.CreatePipelineLayout(d->device,&lci,NULL,&layout));if(hr)return hr;r->layout=layout;
+    d->layout_creates++;return 0;
+}
+static uint32_t draw_descriptors(struct fnv_vk_backend *d,struct draw_resources *r,const struct program_entry *program){
+    uint32_t hr=draw_layout(d,r,program);if(hr)return hr;
+    uint32_t samplers=0;for(unsigned i=0;i<16;++i)samplers+=(program->mask>>i)&1;
     VkDescriptorPoolSize sizes[2];uint32_t size_count=0,ubos=(r->ubo[0]!=NULL)+(r->ubo[1]!=NULL);
     if(ubos)sizes[size_count++]=(VkDescriptorPoolSize){VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,ubos};
     if(samplers)sizes[size_count++]=(VkDescriptorPoolSize){VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,samplers};
@@ -173,21 +187,24 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     struct declaration_resource *decl=find_declaration(d,d->declaration);struct surface *color=find(d,d->color),*depth=find(d,d->depth);
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(fixed && (d->bound_shaders[0] || (screen?(d->bound_shaders[1] || d->lighting):fixed_bytes==64?d->lighting:(!d->lighting || d->specular || d->color_vertex))))goto done;
-    if(!d->in_scene || !vs || !ps || !decl || !color || (primitive<4 || primitive>6) || (d->depth_state.enable && !depth))goto done;
+    if(!d->in_scene || (primitive<4 || primitive>6))goto done;
+    d->last_draw_stage=1;if(!vs || !ps || !decl)goto done;
+    d->last_draw_stage=2;if(!color || (d->depth_state.enable && !depth))goto done;
+    d->last_draw_stage=3;
     if(d->viewport[2]>d->properties.limits.maxViewportDimensions[0] || d->viewport[3]>d->properties.limits.maxViewportDimensions[1] ||
        (double)d->viewport[0]+.5<d->properties.limits.viewportBoundsRange[0] || (double)d->viewport[1]+.5<d->properties.limits.viewportBoundsRange[0] ||
        (double)d->viewport[0]+d->viewport[2]+.5>d->properties.limits.viewportBoundsRange[1] || (double)d->viewport[1]+d->viewport[3]+.5>d->properties.limits.viewportBoundsRange[1])goto done;
-    struct program_entry *program=d->programs;while(program && (!same_shader_code(program->stages[0],vs->entry) || !same_shader_code(program->stages[1],ps->entry)))program=program->next;
+    d->last_draw_stage=4;struct program_entry *program=d->programs;while(program && (!same_shader_code(program->stages[0],vs->entry) || !same_shader_code(program->stages[1],ps->entry)))program=program->next;
     if(!program || (fixed && (program->stages[0]!=vs->entry || program->stages[1]!=ps->entry)))goto done;
     struct fnv_geometry_input geometry={.elements=decl->elements,.element_count=decl->count,.indexed=(uint32_t)indexed,.primitive=primitive,
         .base_bits=base,.min_vertex=min_vertex,.vertices=vertices,.start=start,.primitives=primitives};
     for(unsigned i=0;i<16;++i){struct buffer_resource *b=up_vertex?(i?NULL:up_vertex):find_buffer(d,streams[i].id);
         geometry.streams[i]=(struct fnv_geometry_stream){b?b->bytes:0,streams[i].offset,streams[i].stride,1};}
     struct buffer_resource *ib=up_vertex?up_index:find_buffer(d,d->indices);
-    if(indexed){if(!ib)goto done;geometry.indices=ib->shadow;geometry.index_bytes=ib->bytes;geometry.index_size=ib->format==101?2:4;}
-    unsigned geometry_phase=gpu_phase(d,FNV_VK_PHASE_GEOMETRY);
+    d->last_draw_stage=5;if(indexed){if(!ib)goto done;geometry.indices=ib->shadow;geometry.index_bytes=ib->bytes;geometry.index_size=ib->format==101?2:4;}
+    d->last_draw_stage=6;unsigned geometry_phase=gpu_phase(d,FNV_VK_PHASE_GEOMETRY);
     struct fnv_geometry_access access;hr=fnv_d3d9_geometry_validate(&geometry,&access);(void)gpu_phase(d,geometry_phase);if(hr)goto done;
-    VkVertexInputAttributeDescription attributes[32];VkVertexInputBindingDescription bindings[16];uint32_t binding_count=0,stream_mask=0;
+    d->last_draw_stage=7;VkVertexInputAttributeDescription attributes[32];VkVertexInputBindingDescription bindings[16];uint32_t binding_count=0,stream_mask=0;
     for(uint32_t i=0;i<program->count;++i){uint32_t found=decl->count;
         for(uint32_t j=0;j<decl->count-1;++j)if(decl->elements[j*8+6]==program->inputs[i].usage && decl->elements[j*8+7]==program->inputs[i].index){found=j;break;}
         if(found==decl->count){hr=FNV_VK_INVALID;goto done;}
@@ -197,8 +214,8 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
         attributes[i]=(VkVertexInputAttributeDescription){program->inputs[i].location,stream,decl->formats[found],offset};stream_mask|=1u<<stream;
     }
     for(unsigned i=0;i<16;++i)if(stream_mask&(1u<<i))bindings[binding_count++]=(VkVertexInputBindingDescription){i,streams[i].stride,VK_VERTEX_INPUT_RATE_VERTEX};
-    VkSamplerCreateInfo sampler_info[16];struct texture_resource *sampled[16]={0};
-    for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
+    d->last_draw_stage=8;VkSamplerCreateInfo sampler_info[16];struct texture_resource *sampled[16]={0};
+    for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){d->last_draw_stage=8;struct texture_resource *t=find_texture(d,d->texture_bindings[i]);
         int cube=!!(program->cube_mask&(1u<<i));
         if(!d->texture_bindings[i])t=default_sampled_texture(d,cube,0);
         else if(t && ((t->faces==6)!=cube))t=default_sampled_texture(d,cube,1);
@@ -209,16 +226,16 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
         }
         if(t && t->dirty){hr=draw_slot(d,&watch);if(hr)goto done;hr=texture_flush(d,t);if(hr)goto done;}
         if(!t || !t->version->initialized){hr=FNV_VK_INVALID;goto done;}
-        hr=fnv_d3d9_vk_sampler(d->sampler_state+i,t->levels,d->properties.limits.maxSamplerLodBias,sampler_info+i);if(hr)goto done;
+        d->last_draw_stage=9;hr=fnv_d3d9_vk_sampler(d->sampler_state+i,t->levels,d->properties.limits.maxSamplerLodBias,sampler_info+i);if(hr)goto done;
         if(sampler_info[i].magFilter==VK_FILTER_LINEAR || sampler_info[i].minFilter==VK_FILTER_LINEAR || sampler_info[i].mipmapMode==VK_SAMPLER_MIPMAP_MODE_LINEAR){
             VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,bc_format(t->format)?bc_format(t->format):t->usage==1?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_R8G8B8A8_UNORM,&props);
             if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)){hr=FNV_VK_INVALID;goto done;}}
     }
-    VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&d->depth_state,&depth_info);if(hr)goto done;
+    d->last_draw_stage=10;VkPipelineDepthStencilStateCreateInfo depth_info;hr=fnv_d3d9_vk_depth(&d->depth_state,&depth_info);if(hr)goto done;
     VkPipelineColorBlendAttachmentState blend_attachment;float blend_constants[4];hr=fnv_d3d9_vk_blend(&d->blend_state,&blend_attachment,blend_constants);if(hr)goto done;
     if(blend_attachment.blendEnable){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,VK_FORMAT_B8G8R8A8_UNORM,&props);
         if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)){hr=FNV_VK_INVALID;goto done;}}
-    if(d->count && (hr=draw_slot(d,&watch))!=0)goto done;
+    d->last_draw_stage=11;if(d->count && (hr=draw_slot(d,&watch))!=0)goto done;
     if((hr=flush_locked(d))!=0 || (hr=draw_slot(d,&watch))!=0)goto done;
     for(unsigned i=0;i<d->config.frames;++i)if(!d->frames[i].pending){f=d->frames+i;break;}
     if(!f){hr=FNV_VK_BUSY;goto done;}
@@ -228,11 +245,11 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     if(indexed){r->indices=ib->version;r->indices->refs++;draw_pin(d,r,ib->id);}
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){struct texture_resource *t=sampled[i];
         r->textures[i]=t->version;r->textures[i]->refs++;draw_pin(d,r,t->id);}
-    const struct fnv_uniform_plan *plans[2]={&program->stages[0]->plan,&program->stages[1]->plan};
+    d->last_draw_stage=12;const struct fnv_uniform_plan *plans[2]={&program->stages[0]->plan,&program->stages[1]->plan};
     struct fnv_uniform_draw snapshot;hr=(automatic || screen)?fnv_uniform_state_prepare_fixed(d->uniforms,fixed,fixed_bytes,&snapshot):fixed?fnv_uniform_state_prepare_vertex(d->uniforms,fixed,fixed_bytes,&snapshot):fnv_uniform_state_prepare_program(d->uniforms,plans,&snapshot);if(hr)goto rollback;
     for(unsigned i=0;i<2 && !hr;++i)if(snapshot.bytes[i])hr=draw_uniform(d,f,i,snapshot.bytes[i],snapshot.data[i],r->ubo+i);
     {uint32_t cancel=fnv_uniform_state_cancel(d->uniforms,snapshot.ticket);if(cancel && !hr)hr=cancel;}if(hr)goto rollback;
-    hr=draw_descriptors(d,r,program);if(hr)goto rollback;
+    d->last_draw_stage=13;hr=draw_descriptors(d,r,program);if(hr)goto rollback;
     VkDescriptorSet descriptors[3];VkDescriptorSetAllocateInfo ai={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,.descriptorPool=r->descriptors,.descriptorSetCount=3,.pSetLayouts=r->sets+1};
     hr=result(d,d->v.AllocateDescriptorSets(d->device,&ai,descriptors));if(hr)goto rollback;
     VkDescriptorBufferInfo buffers[2];VkDescriptorImageInfo images[16];VkWriteDescriptorSet writes[18];uint32_t write_count=0;
@@ -241,7 +258,7 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     for(unsigned i=0;i<16;++i)if(program->mask&(1u<<i)){VkSampler sampler=VK_NULL_HANDLE;hr=result(d,d->v.CreateSampler(d->device,sampler_info+i,NULL,&sampler));if(hr)goto rollback;r->samplers[i]=sampler;
         images[i]=(VkDescriptorImageInfo){sampler,r->textures[i]->view,VK_IMAGE_LAYOUT_GENERAL};writes[write_count++]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=descriptors[1],.dstBinding=i,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=images+i};}
     d->v.UpdateDescriptorSets(d->device,write_count,writes,0,NULL);
-    f->count=1;memset(f->commands,0,sizeof(*f->commands));hr=make_pass(d,f,0,color,depth);if(hr)goto rollback;
+    d->last_draw_stage=14;f->count=1;memset(f->commands,0,sizeof(*f->commands));hr=make_pass(d,f,0,color,depth);if(hr)goto rollback;
     float min_depth,max_depth;memcpy(&min_depth,d->viewport+4,4);memcpy(&max_depth,d->viewport+5,4);
     /* D3D9 samples integer pixel centers; Vulkan samples half-integers.
      * Move the post-projection viewport by half a pixel in framebuffer space.
@@ -281,9 +298,12 @@ static uint32_t draw_locked_body(struct fnv_vk_backend *d,int indexed,uint32_t p
     if(indexed){d->v.CmdBindIndexBuffer(f->cmd,r->indices->buffer,0,ib->format==101?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32);
         int64_t signed_base=base&0x80000000u?(int64_t)base-0x100000000ll:base;d->v.CmdDrawIndexed(f->cmd,access.count,1,start,(int32_t)signed_base,0);}
     else d->v.CmdDraw(f->cmd,access.count,1,start,0);
-    d->v.CmdEndRenderPass(f->cmd);hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}
+    d->last_draw_stage=15;d->v.CmdEndRenderPass(f->cmd);hr=submit_frame(d,f);if(hr){d->lost=1;goto done;}
     if(d->reuse_uniforms)for(unsigned s=0;s<2;++s)if(r->ubo[s] && f->uniform_cache[s]!=r->ubo[s]){
         release_version(d,f->uniform_cache[s]);f->uniform_cache[s]=r->ubo[s];r->ubo[s]->refs++;
+    }
+    if(d->reuse_layouts && !r->shared_layout)for(unsigned i=0;i<16;++i){struct layout_cache_entry *e=d->layout_cache+i;
+        if(!e->layout){e->key=layout_key(r,program);e->layout=r->layout;memcpy(e->sets,r->sets,sizeof(e->sets));r->shared_layout=1;break;}
     }
     if(color->texture)color->texture->initialized=1;d->draws++;goto done;
 rollback:
@@ -292,8 +312,9 @@ done:return hr;
 }
 
 static uint32_t draw_locked(struct fnv_vk_backend *d,int indexed,uint32_t primitive,uint32_t base,uint32_t min_vertex,uint32_t vertices,uint32_t start,uint32_t primitives,struct buffer_resource *up_vertex,struct buffer_resource *up_index,uint32_t up_stride,const float *fixed,uint32_t fixed_bytes){
-    unsigned previous=gpu_phase(d,FNV_VK_PHASE_DRAW);
+    unsigned previous=gpu_phase(d,FNV_VK_PHASE_DRAW);d->last_draw_stage=0;
     uint32_t hr=draw_locked_body(d,indexed,primitive,base,min_vertex,vertices,start,primitives,up_vertex,up_index,up_stride,fixed,fixed_bytes);
+    if(hr && d->last_draw_stage<16)d->draw_reasons[d->last_draw_stage]++;
     d->draw_attempts++;d->draw_invalid+=hr==FNV_VK_INVALID;d->draw_unsupported+=hr==0x8876086au;d->draw_busy+=hr==FNV_VK_BUSY;
     (void)gpu_phase(d,previous);return hr;
 }

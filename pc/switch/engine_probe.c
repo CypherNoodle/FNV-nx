@@ -290,7 +290,8 @@ static int initialize(void) {
     report("Adapter %.511s / %.511s vendor=%04lX device=%04lX\n",adapter,adapter+512,(unsigned long)load32(adapter+1064),(unsigned long)load32(adapter+1068));
     REQUIRE(!fnv_vk_backend_presentation_format(graphics,22) && !fnv_vk_backend_draw_wait(graphics,10000000000ull),"graphics presentation configuration");
     REQUIRE(!fnv_vk_backend_uniform_reuse(graphics,1),"retired-frame uniform reuse");
-    report("Renderer reuse: resource index, retired-frame mapped uniforms; audio silent-voice fast path\n");
+    REQUIRE(!fnv_vk_backend_layout_reuse(graphics,1),"immutable descriptor layout reuse");
+    report("Renderer reuse: resource index, retired-frame mapped uniforms, layouts=16; audio silent-voice fast path\n");
     struct fnv_display_backend db={NULL,enumerate_display};struct fnv_windows_display *display;
     REQUIRE(fnv_windows_display_create(process,&db,&display)==FNV_CPU_OK,"display provider");
     REQUIRE(fnv_windows_boot_ui_create(process,&image,&boot_ui)==FNV_CPU_OK,"window provider");
@@ -437,6 +438,15 @@ int main(void) {
                 report("Pipelines calls=%llu host_ms=%llu max_host_ms=%llu cache=device\n",(unsigned long long)pipelines.calls,(unsigned long long)(pipelines.host_ns/1000000),(unsigned long long)(pipelines.max_host_ns/1000000));
                 report("Reuse lookup_calls=%llu hits=%llu scan_steps=%llu uniform_allocs=%llu uniform_reuses=%llu\n",(unsigned long long)stats.lookup_calls,(unsigned long long)stats.lookup_hits,(unsigned long long)stats.lookup_scan_steps,(unsigned long long)stats.uniform_allocations,(unsigned long long)stats.uniform_reuses);
                 report("Draw attempts=%llu invalid=%llu unsupported=%llu busy=%llu\n",(unsigned long long)stats.draw_attempts,(unsigned long long)stats.draw_invalid,(unsigned long long)stats.draw_unsupported,(unsigned long long)stats.draw_busy);
+                report("Layouts creates=%llu hits=%llu\n",(unsigned long long)stats.layout_creates,(unsigned long long)stats.layout_hits);
+                static const char *draw_reasons[16]={"state","inputs","targets","viewport","program","indices","geometry","attributes","texture","sampler","depth_blend","queue","uniforms","descriptors","pipeline","submit"};
+                char reason_line[512]={0};size_t reason_used=0;
+                for(unsigned reason=0;reason<16;reason++){
+                    int added=snprintf(reason_line+reason_used,sizeof(reason_line)-reason_used," %s=%llu",draw_reasons[reason],(unsigned long long)stats.draw_reasons[reason]);
+                    if(added<0 || (size_t)added>=sizeof(reason_line)-reason_used)break;
+                    reason_used+=(size_t)added;
+                }
+                report("DrawReject%s\n",reason_line);
                 char phase_line[512]={0};size_t phase_used=0;
                 for(unsigned phase=0;phase<11;phase++){
                     int added=snprintf(phase_line+phase_used,sizeof(phase_line)-phase_used," %s_ms=%llu",phases[phase],(unsigned long long)(stats.host_phase_ns[phase]/1000000));
@@ -455,7 +465,10 @@ int main(void) {
                 ticks_result=svcGetInfo(main_ticks+core,InfoType_ThreadTickCount,thread.thread.handle,core);
                 if(R_FAILED(ticks_result))ticks_result=svcGetInfo(main_ticks+core,InfoType_ThreadTickCountDeprecated,thread.thread.handle,core);
             }
-            report("CPU main_ticks_rc=%08lX affinity=%llX preferred=%ld ticks_hz=%llu core0=%llu core1=%llu core2=%llu core3=%llu\n",(unsigned long)ticks_result,(unsigned long long)core_mask,(long)preferred_core,(unsigned long long)armGetSystemTickFreq(),(unsigned long long)main_ticks[0],(unsigned long long)main_ticks[1],(unsigned long long)main_ticks[2],(unsigned long long)main_ticks[3]);
+            u64 main_total=0;Result total_result=svcGetInfo(&main_total,InfoType_ThreadTickCount,thread.thread.handle,TickCountInfo_Total);
+            if(R_FAILED(total_result))total_result=svcGetInfo(&main_total,InfoType_ThreadTickCountDeprecated,thread.thread.handle,TickCountInfo_Total);
+            unsigned per_core_valid=R_SUCCEEDED(ticks_result) && (main_ticks[0] || main_ticks[1] || main_ticks[2] || main_ticks[3]);
+            report("CPU main_ticks_rc=%08lX per_core_valid=%u total_ticks_rc=%08lX total_ticks=%llu affinity=%llX preferred=%ld ticks_hz=%llu core0=%llu core1=%llu core2=%llu core3=%llu\n",(unsigned long)ticks_result,per_core_valid,(unsigned long)total_result,(unsigned long long)main_total,(unsigned long long)core_mask,(long)preferred_core,(unsigned long long)armGetSystemTickFreq(),(unsigned long long)main_ticks[0],(unsigned long long)main_ticks[1],(unsigned long long)main_ticks[2],(unsigned long long)main_ticks[3]);
             struct fnv_windows_diagnostics diagnostics;fnv_windows_try_diagnostics(process,&diagnostics);
             struct fnv_vm_counters memory={0};int vm_ready=fnv_vm_try_counters(vm,&memory);
             report("Providers available_mask=%02X vm_ready=%d vm_commit=%lu workers=%lu/%lu failures=%llu\n",diagnostics.available,vm_ready,(unsigned long)memory.committed_bytes,(unsigned long)diagnostics.workers.active,(unsigned long)diagnostics.workers.capacity,(unsigned long long)diagnostics.workers.failures);

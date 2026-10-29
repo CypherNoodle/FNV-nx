@@ -32,4 +32,15 @@ with tempfile.TemporaryDirectory(prefix='fnv-log-metrics-',dir=scratch) as tmp:
                       text.replace('affinity=7 ticks_hz=1000 core0=210','affinity=3 ticks_hz=1000 core0=210'),
                       text.replace('ticks_hz=1000 core0=210','ticks_hz=100 core0=210')):
         path.write_text(malformed);assert not summarize(path)['main_thread_cpu_intervals']
-print('PASS: missing snapshots, session resets, per-core rates and four invalid CPU-query cases')
+    zeros=text.replace('core0=10 core1=20 core2=30','core0=0 core1=0 core2=0').replace('core0=210 core1=320 core2=130','core0=0 core1=0 core2=0')
+    path.write_text(zeros);assert not summarize(path)['main_thread_cpu_intervals']
+    lines=zeros.splitlines()
+    for i,ticks in ((1,1000),(4,1800)):
+        lines[i]=lines[i].replace('affinity=7',f'per_core_valid=0 total_ticks_rc=00000000 total_ticks={ticks} affinity=7')
+    total='\n'.join(lines)+'\n'
+    path.write_text(total);r=summarize(path)
+    assert r['main_thread_cpu_intervals'][0]['main_thread_percent']==80
+    assert 'main_thread_percent_by_core' not in r['main_thread_cpu_intervals'][0]
+    path.write_text(total.replace('total_ticks=1000','total_ticks=0').replace('total_ticks=1800','total_ticks=0'))
+    assert not summarize(path)['main_thread_cpu_intervals']
+print('PASS: missing snapshots, session resets, invalid/zero core counters and total CPU fallback')

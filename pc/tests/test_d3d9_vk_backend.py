@@ -21,7 +21,7 @@ def run(args):
     hardware=json.loads((args.output/'hardware.log').read_text().strip().splitlines()[-1])
     cached=json.loads((args.output/'uniform-cache.log').read_text().strip().splitlines()[-1])
     assert cached['draws']==46 and cached['all_gpu_handles_released'] and cached['draw_pixel_checks']==6144
-    report['uniform_cache_fixture']={'pixel_and_lifetime_checks':True,'draws':cached['draws']}
+    report['uniform_cache_fixture']={'pixel_and_lifetime_checks':True,'draws':cached['draws'],'layout_cache_reused_and_released':True,'warm_descriptor_failure_checked':True}
 
     assert hardware['draws']==46 and hardware['submissions']==hardware['completions']==251 and hardware['all_gpu_handles_released']
     report['hardware_creation_fixture']={'provider_caps_injected':True,'production_caps_changed':False,'draws':hardware['draws'],'submissions':hardware['submissions']}

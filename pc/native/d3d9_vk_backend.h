@@ -29,6 +29,7 @@ struct fnv_vk_stats {
     uint64_t uniform_allocations,uniform_reuses;
     uint64_t host_phase_ns[11]; /* Exclusive wall-clock brackets, not GPU/CPU utilization. */
     uint64_t draw_attempts,draw_invalid,draw_unsupported,draw_busy;
+    uint64_t layout_creates,layout_hits,draw_reasons[16];
 };
 #define FNV_VK_INVALID 0x8876086cu
 #define FNV_VK_OOM 0x8007000eu
@@ -45,6 +46,9 @@ uint32_t fnv_vk_backend_create(PFN_vkGetInstanceProcAddr,const struct fnv_vk_con
  * mapping and noncoherent flushes. Enable/disable only outside a scene after
  * all queued/submitted work completes. Disabling releases the retained owners. */
 uint32_t fnv_vk_backend_uniform_reuse(struct fnv_vk_backend *,int enabled);
+/* Bounded immutable descriptor/pipeline-layout cache. Same idle-only toggle
+ * contract as uniform_reuse. GPU pipeline objects remain per draw. */
+uint32_t fnv_vk_backend_layout_reuse(struct fnv_vk_backend *,int enabled);
 /* Exclusive initialization, before COM construction or exposing the backbuffer.
  * Select ARGB8 (21, default) or XRGB8 (22) for the implicit presentation surface.
  * Storage remains BGRA8; X is unspecified and WSI uses opaque composition.

@@ -57,7 +57,9 @@ struct draw_resources {
     uintptr_t ids[40];uint32_t count;
     struct buffer_version *vertices[16],*indices,*ubo[2];struct texture_version *textures[16];
     VkPipeline pipeline;VkPipelineLayout layout;VkDescriptorSetLayout sets[4];VkDescriptorPool descriptors;VkSampler samplers[16];
+    uint32_t shared_layout;
 };
+struct layout_cache_entry {uint32_t key;VkPipelineLayout layout;VkDescriptorSetLayout sets[4];};
 struct stream_binding {uintptr_t id;uint32_t offset,stride;};
 struct clear_command {
     uintptr_t color,depth;uint32_t flags,argb,z,stencil,count;
@@ -99,7 +101,27 @@ struct fnv_vk_backend {
     struct fnv_resource_lookup lookups;
     uint32_t reuse_uniforms;uint64_t uniform_allocations,uniform_reuses;
     uint64_t phase_totals[11],draw_attempts,draw_invalid,draw_unsupported,draw_busy;
+    struct layout_cache_entry layout_cache[16];uint32_t reuse_layouts,last_draw_stage;
+    uint64_t layout_creates,layout_hits,draw_reasons[16];
 };
+static void clear_layout_cache(struct fnv_vk_backend *d){
+    for(unsigned i=0;i<16;++i){struct layout_cache_entry *e=d->layout_cache+i;
+        if(e->layout)d->v.DestroyPipelineLayout(d->device,e->layout,NULL);
+        for(unsigned j=0;j<4;++j)if(e->sets[j])d->v.DestroyDescriptorSetLayout(d->device,e->sets[j],NULL);
+        memset(e,0,sizeof(*e));
+    }
+}
+uint32_t fnv_vk_backend_layout_reuse(struct fnv_vk_backend *d,int enabled){
+    if(!d || (enabled!=0 && enabled!=1))return FNV_VK_INVALID;
+    fnv_host_mutex_lock(&d->guard);uint32_t hr=0;
+    if(d->lost || !d->device_refs)hr=FNV_VK_LOST;
+    else if(d->in_scene || d->count)hr=FNV_VK_BUSY;
+    else{
+        for(unsigned i=0;i<d->config.frames;++i)if(d->frames[i].pending)hr=FNV_VK_BUSY;
+        if(!hr){d->reuse_layouts=(uint32_t)enabled;if(!enabled)clear_layout_cache(d);}
+    }
+    fnv_host_mutex_unlock(&d->guard);return hr;
+}
 static unsigned gpu_phase(struct fnv_vk_backend *d,unsigned phase){
     unsigned previous=atomic_load_explicit(&d->phase,memory_order_relaxed);uint64_t now=0;(void)fnv_host_now_ns(&now);
     uint64_t before=atomic_load_explicit(&d->phase_ns,memory_order_relaxed);
@@ -621,6 +643,7 @@ static uint32_t stats_locked(struct fnv_vk_backend *d,struct fnv_vk_stats *out){
     s.uniform_allocations=d->uniform_allocations;s.uniform_reuses=d->uniform_reuses;
     memcpy(s.host_phase_ns,d->phase_totals,sizeof(s.host_phase_ns));
     s.draw_attempts=d->draw_attempts;s.draw_invalid=d->draw_invalid;s.draw_unsupported=d->draw_unsupported;s.draw_busy=d->draw_busy;
+    s.layout_creates=d->layout_creates;s.layout_hits=d->layout_hits;memcpy(s.draw_reasons,d->draw_reasons,sizeof(s.draw_reasons));
     s.presentation_requests=d->wsi.presents;s.acquire_timeouts=d->wsi.timeouts;s.swapchain_images=d->wsi.count;s.present_mode=(uint32_t)d->wsi.mode;
     for(uint32_t i=0;i<d->config.resource_capacity;++i){s.live_shaders+=d->shaders[i].id!=0;s.live_declarations+=d->declarations[i].id!=0;}
     s.buffer_versions=d->buffer_versions;s.texture_versions=d->texture_versions;
@@ -796,6 +819,7 @@ static uint32_t destroy_storage(struct fnv_vk_backend *d){
         release_texture_version(d,d->mismatch_texture.version);release_texture_version(d,d->mismatch_cube.version);
         if(d->shaders)for(uint32_t i=0;i<d->config.resource_capacity;++i)if(d->shaders[i].module)d->v.DestroyShaderModule(d->device,d->shaders[i].module,NULL);
         for(struct shader_catalog *e=d->catalog;e;e=e->next)if(e->variant_module)d->v.DestroyShaderModule(d->device,e->variant_module,NULL);
+        clear_layout_cache(d);
         if(d->pipeline_cache)d->v.DestroyPipelineCache(d->device,d->pipeline_cache,NULL);
         if(d->v.DestroyDevice)d->v.DestroyDevice(d->device,NULL);
     }

@@ -128,6 +128,7 @@ int FNV_VK_HOST_MAIN(int argc,char **argv){
     assert(!fnv_cpu_detach() && !fnv_d3d9_com_destroy(com));assert(!stats().device_references && !stats().allocated_bytes && !stats().live_surfaces && !stats().live_shaders && !stats().live_declarations);
     assert(!fnv_cpu_unregister_native(cpu,dummy_token,1) && !fnv_cpu_destroy(cpu));assert(VirtualFree(arena,0,MEM_RELEASE));
     struct fnv_vk_stats final=stats();assert(final.draws==46);assert(final.submissions==final.completions && !final.pending_frames && !final.queued_commands);
+    uint64_t rejected=0;for(unsigned i=0;i<16;++i)rejected+=final.draw_reasons[i];assert(rejected==final.draw_attempts-final.draws);
     uint32_t destroyed=FNV_VK_BUSY;for(unsigned i=0;i<100 && destroyed==FNV_VK_BUSY;++i){destroyed=fnv_vk_backend_destroy(gpu);if(destroyed==FNV_VK_BUSY)Sleep(1);}assert(!destroyed);
     if(present_window){DestroyWindow(present_window);UnregisterClassW(L"FNVCOMPresentProbe",GetModuleHandleW(NULL));}
     no_live_handles();exercise_draw_submit_faults(&cfg,argv[4],argv[5]);exercise_texture_submit_faults(&cfg);unsigned fault_cases=exercise_faults(&cfg);assert(fault_cases==9);

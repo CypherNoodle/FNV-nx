@@ -18,7 +18,7 @@ def summarize(path):
     previous = None
     heartbeat = None
     for line in lines:
-        if line.startswith(('FNV PC engine ', 'SoftFloat state=')):
+        if line.startswith(('FNV PC engine ', 'SoftFloat state=', 'Renderer reuse:')):
             markers.append(line)
         fields = dict(re.findall(r'(\w+)=([^\s]+)', line))
         if line.startswith('Heartbeat '):
@@ -27,10 +27,10 @@ def summarize(path):
                           'submit_calls', 'submit_ms')}
             samples.append(dict(elapsed_ms=heartbeat['elapsed_ms'],groups={}))
         group=line.split(' ',1)[0]
-        if samples and group in ('Reuse','Draw','HostPhases','Audio','Audout','CPU','IO'):
+        if samples and group in ('Reuse','Draw','DrawReject','Layouts','HostPhases','Audio','Audout','CPU','IO'):
             values={}
             for k,v in fields.items():
-                try:values[k]=int(v,16 if k in ('main_ticks_rc','affinity') else 10)
+                try:values[k]=int(v,16 if k.endswith('_rc') or k=='affinity' else 10)
                 except ValueError:pass
             samples[-1]['groups'][group]=values
         if 'hr' in fields and fields['hr'].lower() != '00000000':
@@ -64,15 +64,25 @@ def summarize(path):
     for before,after in zip(samples,samples[1:]):
         a,b=before['groups'].get('CPU',{}),after['groups'].get('CPU',{})
         dt=after['elapsed_ms']-before['elapsed_ms']
-        if dt<=0 or not a or not b or a.get('main_ticks_rc')!=0 or b.get('main_ticks_rc')!=0:continue
+        if dt<=0 or not a or not b:continue
         hz=b.get('ticks_hz',0)
         if not hz or hz!=a.get('ticks_hz') or a.get('affinity')!=b.get('affinity'):continue
         keys=['core'+str(i) for i in range(4)]
-        if any(k not in a or k not in b or b[k]<a[k] for k in keys):continue
-        rates={k:(b[k]-a[k])*100000/(hz*dt) for k in keys}
-        cpu_windows.append(dict(start_ms=before['elapsed_ms'],end_ms=after['elapsed_ms'],
-                                main_thread_percent_by_core=rates,
-                                main_thread_percent=sum(rates.values())))
+        rates=None;total=None
+        if (a.get('main_ticks_rc')==0 and b.get('main_ticks_rc')==0 and
+                a.get('per_core_valid',1) and b.get('per_core_valid',1) and
+                all(k in a and k in b and b[k]>=a[k] for k in keys) and
+                (any(a[k] for k in keys) or any(b[k] for k in keys))):
+            rates={k:(b[k]-a[k])*100000/(hz*dt) for k in keys}
+        if a.get('total_ticks_rc')==0 and b.get('total_ticks_rc')==0:
+            if 'total_ticks' not in a or 'total_ticks' not in b or b['total_ticks']<a['total_ticks']:continue
+            if a['total_ticks'] or b['total_ticks']:
+                total=(b['total_ticks']-a['total_ticks'])*100000/(hz*dt)
+        if total is None and rates is None:continue
+        row=dict(start_ms=before['elapsed_ms'],end_ms=after['elapsed_ms'],
+                 main_thread_percent=total if total is not None else sum(rates.values()))
+        if rates is not None:row['main_thread_percent_by_core']=rates
+        cpu_windows.append(row)
     return dict(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data),
                 markers=markers, last_snapshot=previous, intervals=windows,
                 metric_samples=samples,main_thread_cpu_intervals=cpu_windows,
