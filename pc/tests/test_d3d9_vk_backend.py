@@ -9,6 +9,8 @@ from test_d3d9_com import test,SLOTS
 VK_SLOTS=SLOTS+[(28,9),(29,9),(12,2),(37,3),(38,3),(39,2),(40,2),(43,7),(10,1),(47,2),(48,2),
         (75,2),(76,2),(57,3),(58,3),(41,1),(42,1),(26,7),(27,7),(11,5),(12,1),(100,5),(104,2),(102,3),(101,5),(105,2),(23,9),(19,5),(20,2),(65,3),(64,3),(13,1),(17,3),(92,2),(93,2),(107,2),(108,2),(86,3),(87,2),(88,2),(4,3),(82,7),(81,4),(69,4),(68,4),(None,1),(4,1),(6,3),(7,5),(8,3),(9,6),(10,7),(14,4),(16,7),(6,2),(9,2),(7,2),(15,2),(3,2),(11,7),(12,6),(17,5),(16,2),(3,1),(83,5),(84,9),(89,2),(90,2),(60,1),(61,2),(4,1),(5,1),(59,3),(5,4),(44,3),(45,3),(46,3),(49,2),(50,2),(51,3),(52,3),(53,3),(54,3)]
 
+VK_SLOTS += [(36,7),(32,3),(13,4),(14,1),(18,3)]
+
 def run(args):
     pc=Path(__file__).resolve().parents[1];headers=args.headers.resolve();linked=args.linked_shaders.resolve()
     extra=[pc/'native/resource_lookup.h',Path(__file__).resolve(),pc/'tests/vk_backend_lights_fixture.h',pc/'native/d3d9_material_methods.inc',pc/'tests/vk_backend_material_fixture.h',pc/'native/d3d9_fixed_vertex.h',pc/'tests/vk_backend_fixed_dispatch_fixture.h',pc/'native/d3d9_transform_state.h',pc/'native/d3d9_transform_methods.inc',pc/'native/d3d9_state_blocks.inc',pc/'tests/vk_backend_transforms_fixture.h',pc/'native/d3d9_factory.inc',pc/'native/d3d9_reset.inc',pc/'native/d3d9_vk_state_blocks.inc',pc/'native/d3d9_vk_up.inc',pc/'native/d3d9_vk_reset.inc',pc/'native/d3d9_vk_present.inc',pc/'native/d3d9_vk_draw.inc',pc/'native/d3d9_geometry.h',pc/'native/d3d9_vk_state.h',pc/'native/d3d9_vk_shaders.inc',pc/'native/d3d9_uniform_state.h',pc/'native/d3d9_uniform_pack.h',pc/'native/d3d9_vk_textures.inc',pc/'native/d3d9_texture_upload.h',pc/'native/d3d9_vk_backend.h',pc/'native/host_clock.h',pc/'native/host_mutex.h',pc/'tests/vk_backend_fault_proxy.h',pc/'tests/vk_backend_buffers_fixture.h',pc/'tests/vk_backend_textures_fixture.h',pc/'tests/vk_backend_shaders_fixture.h',pc/'tests/vk_backend_draw_fixture.h',pc/'tests/vk_backend_render_states_fixture.h',pc/'tests/vk_backend_factory_fixture.h',pc/'tests/vk_backend_com_present_fixture.h',pc/'tests/vk_backend_reset_fixture.h',pc/'tests/vk_backend_bc_fixture.h',pc/'tests/vk_backend_up_fixture.h',pc/'tests/vk_backend_fvf_fixture.h',pc/'tests/vk_backend_stateblocks_fixture.h',pc/'tests/vk_backend_stateblock_shaders_fixture.h',pc/'tests/vk_backend_stateblock_textures_fixture.h',
@@ -23,9 +25,9 @@ def run(args):
     assert cached['draws']==46 and cached['all_gpu_handles_released'] and cached['draw_pixel_checks']==6144
     report['uniform_cache_fixture']={'pixel_and_lifetime_checks':True,'draws':cached['draws'],'layout_cache_reused_and_released':True,'warm_descriptor_failure_checked':True}
 
-    assert hardware['draws']==46 and hardware['submissions']==hardware['completions']==251 and hardware['all_gpu_handles_released']
+    assert hardware['draws']==46 and hardware['submissions']==hardware['completions']==255 and hardware['all_gpu_handles_released']
     report['hardware_creation_fixture']={'provider_caps_injected':True,'production_caps_changed':False,'draws':hardware['draws'],'submissions':hardware['submissions']}
-    assert wsi['com_wsi_presents']==4 and wsi['com_present_checks']==9 and wsi['submissions']==wsi['completions']==256
+    assert wsi['com_wsi_presents']==4 and wsi['com_present_checks']==9 and wsi['submissions']==wsi['completions']==260
     report['translated_com_present']={k:wsi[k] for k in ('com_wsi_presents','com_present_checks','submissions','completions')}
     for result in (report,wsi):
         assert result['reset_checks']==35 and result['successful_resets']==6 and result['reset_timeout_checked']

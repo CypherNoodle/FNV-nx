@@ -127,6 +127,36 @@ def run(a):
         native_proof=pin(native_delta);native_report,native_replacements,native_dependencies=verify_native_delta(native_proof,cfg.runtime_validation)
         for name,digest in native_report['source_sha256'].items():pin(name,digest)
         for path in native_replacements.values():pin(path)
+    media_proof=getattr(a,'media_proof',None);media_replacements={}
+    if media_proof:
+        candidate=json.loads(pin(media_proof).read_text());libraries={'avformat','avcodec','avutil','swscale','swresample'}
+        old_rows={Path(row['path']).name:row for row in runtime['archives'] if Path(row['path']).name in {'lib'+n+'.a' for n in libraries}}
+        if len(old_rows)!=5:raise ValueError('Ambiguous baseline media libraries')
+        roots={Path(row['path']).parent.parent for row in old_rows.values()}
+        if len(roots)!=1:raise ValueError('Mixed baseline media profiles')
+        old_root=roots.pop();old=json.loads(pin(old_root/'validation.json').read_text())
+        if (candidate.get('status')!='PASS' or candidate.get('target')!='switch' or candidate.get('arm64_neon') is not True or
+            candidate.get('external_sources_unchanged') is not True or candidate.get('commit')!=old.get('commit') or
+            candidate.get('source_root')!=old.get('source_root') or candidate.get('source_sha256')!=old.get('source_sha256') or
+            candidate.get('compiler_sha256')!=sha(cc) or set(candidate.get('library_sha256',{}))!=libraries):
+            raise ValueError('Unverified media source/compiler/profile')
+        expected_flags=[]
+        for flag in old['configure_flags']:
+            if flag=='--disable-asm':continue
+            if flag.startswith('--extra-cflags='):flag+=' -march=armv8-a+simd -mtune=cortex-a57'
+            expected_flags.append(flag)
+        if candidate['configure_flags']!=expected_flags+['--enable-asm','--enable-inline-asm','--enable-neon']:
+            raise ValueError('Unexpected media configure flags')
+        for name,digest in candidate['source_sha256'].items():pin(Path(candidate['source_root'])/name,digest)
+        media_root=Path(media_proof).resolve().parent
+        config=pin(media_root/'config.h',candidate['config_sha256']).read_text()
+        if not all(re.search(r'^#define '+name+r' 1$',config,re.M) for name in ('HAVE_NEON','HAVE_INLINE_ASM')):
+            raise ValueError('Media NEON configuration absent')
+        for name in sorted(libraries):
+            row=old_rows['lib'+name+'.a'];original=pin(row['path'],old['library_sha256'][name])
+            if sha(original)!=row['sha256']:raise ValueError('Media baseline archive mismatch')
+            replacement=pin(media_root/('lib'+name)/('lib'+name+'.a'),candidate['library_sha256'][name])
+            media_replacements[str(original)]=replacement
     # Recreate the delivered binary before admitting any diagnostic change.
     if getattr(a,'reuse_baseline',False):
         baseline_proof=pin(cfg.baseline_output/'validation.json')
@@ -152,6 +182,7 @@ def run(a):
         baseline_cfg=SimpleNamespace(**vars(cfg),output=cfg.baseline_output,hardware_revision='hw15',experimental_caps=True)
         baseline=package(baseline_cfg,partial=Path(cpu['runtime_object']),**context)
     if baseline['nro_sha256']!=sha(base):raise ValueError('Baseline NRO did not reproduce exactly; no delta admitted')
+    context['archives']=[media_replacements.get(str(p.resolve()),p) for p in archives]
     if not getattr(a,'reuse_baseline',False):
         baseline['admission']='exact-nro-artifact-recovery-v1';baseline['fresh_historical_source_audit']=False
         (cfg.baseline_output/'validation.json').write_text(json.dumps(baseline,indent=2)+'\n')
@@ -177,7 +208,7 @@ def run(a):
     relink(cpu_rsp,cpu['runtime_object'],cpu['runtime_sha256'],'cpu-baseline')
     core_replacements={str(old_core[Path(r['object']).name][0].resolve()):Path(r['object']) for r in core['objects']
         if Path(r['object']).name in changed}
-    native=relink(native_rsp,runtime['runtime_object'],None,'native-delta',{**core_replacements,**native_replacements})
+    native=relink(native_rsp,runtime['runtime_object'],None,'native-delta',{**core_replacements,**native_replacements,**media_replacements})
     replacements={str(Path(runtime['runtime_object']).resolve()):native}
     tail=getattr(a,'tail_proof',None)
     if tail:
@@ -239,6 +270,7 @@ def run(a):
         replacement_core_sha256=sha(cfg.x87_core),tail_optimization_proof_sha256=sha(tail) if tail else None,
         own_entry_source_deltas=entry_deltas,
         native_performance_proof_sha256=sha(native_delta) if native_delta else None,
+        media_proof_sha256=sha(media_proof) if media_proof else None,media_arm64_neon=bool(media_proof),
         inline_proof_sha256=sha(inline_proof) if inline_proof else None,
         inline_units=context['cpu'].get('inline_units',0),inline_calls_removed=context['cpu'].get('inline_calls_removed',0),
         program_bundle_proof_sha256=sha(extension) if extension else None,
@@ -255,6 +287,7 @@ if __name__=='__main__':
     p.add_argument('--hardware-revision',default='hw18',help='Stable log label; exact builds are identified by hashes')
     p.add_argument('--private-state-proof',type=Path)
     p.add_argument('--native-performance-proof',type=Path)
+    p.add_argument('--media-proof',type=Path,help='Same-source ARM64 NEON media libraries with exact compiler/configuration hashes')
     p.add_argument('--inline-proof',type=Path)
     p.add_argument('--program-bundle',type=Path,help='Reconstructed additive shader bundle; base rows must remain unchanged')
     p.add_argument('--replace-output',action='store_true',help='Reuse only local/pc-engine-current-build after verifying the preserved active NRO/ELF')

@@ -49,8 +49,8 @@ static void exercise_textures(void){
     uint32_t t=make_texture(4,4,0,512,21,0);uintptr_t id=texture_id;unsigned pitch;
     uintptr_t rejected=0x1234;struct fnv_vk_stats before=stats();
     assert(provider.create_texture(gpu,4,4,1,0,0x32545844,1,&rejected)==FNV_VK_INVALID && rejected==0x1234);
-    /* Render targets now support A8R8G8B8, but not X8R8G8B8. */
-    assert(provider.create_texture(gpu,4,4,1,1,22,0,&rejected)==FNV_VK_INVALID);
+    /* Opaque RGB targets use a separate alpha-one sampling view. */
+    uintptr_t opaque_rt=0;assert(!provider.create_texture(gpu,4,4,1,1,22,0,&opaque_rt));provider.release(gpu,opaque_rt);
     assert(provider.create_texture(gpu,4,4,1,0,21,2,&rejected)==FNV_VK_INVALID);
     /* Failed GPU-only target allocation must not publish a handle or leak memory. */
     for(unsigned fault=0;fault<3;++fault){

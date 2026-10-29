@@ -73,8 +73,11 @@ static struct sound_object *acquire(uint32_t self,int kind){
 }
 static void finish(uint32_t hr,unsigned bytes){fnv_host_mutex_unlock(&active->guard);fnv_cpu_return_u32(hr,bytes);}
 static uint32_t allocate(unsigned kind,unsigned parent){
-    if(active->count==CAPACITY || (parent && active->objects[parent-1].refs==UINT32_MAX))return 0;
-    unsigned i=active->count++;struct sound_object *o=active->objects+i;
+    if(parent && active->objects[parent-1].refs==UINT32_MAX)return 0;
+    unsigned i=0;while(i<active->count && active->objects[i].refs)i++;
+    if(i==CAPACITY)return 0;
+    if(i==active->count)active->count++;
+    struct sound_object *o=active->objects+i;memset(o,0,sizeof(*o));
     o->refs=o->base_refs=1;o->kind=kind;o->parent=parent;o->gain[0]=o->gain[1]=65536;
     o->rate=o->frequency=48000;o->channels=2;o->bits=16;
     if(parent)active->objects[parent-1].refs++;
@@ -123,8 +126,8 @@ static int format(const unsigned char *p,uint32_t *rate,uint32_t *channels,uint3
     return half(p)==1 && (*channels==1||*channels==2) && (*bits==8||*bits==16) && *rate>=8000 && *rate<=48000 &&
         half(p+12)==*channels*(*bits/8) && rd(p+8)==*rate*half(p+12) && !half(p+16);
 }
-/* Identities remain retired, but staging ranges may be reused after final
- * Release: no live Lock or COM identity then refers to the retired storage. */
+/* Final Release permits COM identity and staging reuse. Live child/interface
+ * references keep refs nonzero, so their storage cannot be recycled. */
 static uint32_t staging_offset(uint32_t bytes){
     uint32_t at=4096;
     for(unsigned pass=0;pass<=active->count;pass++){
@@ -166,16 +169,17 @@ static void create_buffer(void){
     if(bytes && !staging){free(samples);finish(NOMEM,16);return;}
     uint32_t at=allocate(1,(unsigned)(root-active->objects)+1);
     if(!at){free(samples);finish(NOMEM,16);return;}
-    struct sound_object *o=active->objects+active->count-1;o->flags=flags;o->bytes=bytes;o->rate=o->frequency=rate;o->channels=channels;o->bits=bits;o->samples=samples;
+    unsigned slot=(at-active->config.arena_address-512)/8;
+    struct sound_object *o=active->objects+slot;o->flags=flags;o->bytes=bytes;o->rate=o->frequency=rate;o->channels=channels;o->bits=bits;o->samples=samples;
     if((flags&0x11)==0x11){
         o->listener[8]=o->listener[10]=o->listener[12]=o->listener[13]=o->listener[14]=1;
         memcpy(o->listener_pending,o->listener,sizeof(o->listener));
-        wr(active->memory+512+(active->count-1)*8+4,active->config.arena_address+36*4);
+        wr(active->memory+512+slot*8+4,active->config.arena_address+36*4);
     }
     if((flags&0x11)==0x10){
         o->spatial[6]=o->spatial[7]=360;o->spatial[10]=o->spatial[12]=0x3f800000u;
         float max_distance=1000000000.f;memcpy(o->spatial+13,&max_distance,4);memcpy(o->spatial_pending,o->spatial,sizeof(o->spatial));
-        wr(active->memory+512+(active->count-1)*8+4,active->config.arena_address+54*4);
+        wr(active->memory+512+slot*8+4,active->config.arena_address+54*4);
     }
     if(bytes){o->address=active->config.arena_address+staging;memset(active->memory+staging,bits==8?128:0,bytes);if(staging+bytes>active->used)active->used=staging+bytes;}
     wr(p,at);finish(0,16);

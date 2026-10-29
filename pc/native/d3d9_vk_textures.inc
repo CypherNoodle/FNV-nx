@@ -39,10 +39,10 @@ static uint32_t make_texture_version(struct fnv_vk_backend *d,const struct textu
     if(!hr){VkImageViewCreateInfo vi={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,.image=v->image,.viewType=t->faces==6?VK_IMAGE_VIEW_TYPE_CUBE:VK_IMAGE_VIEW_TYPE_2D,
         .format=format,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,t->levels,0,v->layers}};
         VkImageView view=VK_NULL_HANDLE;hr=result(d,d->v.CreateImageView(d->device,&vi,NULL,&view));if(!hr)v->view=view;
-        if(!hr && t->format==114){
+        if(!hr && (t->format==114 || (t->format==22 && t->usage==1))){
             /* Windows D3D9 HAL samples R32F as (R,1,1,1). Keep the attachment
              * view identity mapped; Vulkan attachment views cannot swizzle. */
-            vi.components=(VkComponentMapping){VK_COMPONENT_SWIZZLE_R,VK_COMPONENT_SWIZZLE_ONE,VK_COMPONENT_SWIZZLE_ONE,VK_COMPONENT_SWIZZLE_ONE};
+            vi.components=(VkComponentMapping){VK_COMPONENT_SWIZZLE_R,t->format==114?VK_COMPONENT_SWIZZLE_ONE:VK_COMPONENT_SWIZZLE_G,t->format==114?VK_COMPONENT_SWIZZLE_ONE:VK_COMPONENT_SWIZZLE_B,VK_COMPONENT_SWIZZLE_ONE};
             view=VK_NULL_HANDLE;hr=result(d,d->v.CreateImageView(d->device,&vi,NULL,&view));if(!hr)v->sample_view=view;
         }
     }
@@ -55,7 +55,7 @@ static uint32_t create_texture_shape(void *ctx,uint32_t w,uint32_t h,uint32_t le
        (format!=20 && format!=21 && format!=22 && format!=23 && format!=28 && format!=50 && format!=114 && !bc_format(format)))return FNV_VK_INVALID;
     uint32_t max=1;for(uint32_t n=w>h?w:h;n>1;n>>=1)max++;
     if(!levels)levels=max;
-    if(usage==1 && ((format!=21 && format!=114) || levels!=1 || pool))return FNV_VK_INVALID;
+    if(usage==1 && ((format!=21 && format!=22 && format!=114) || levels!=1 || pool))return FNV_VK_INVALID;
     if(levels>max || levels>16)return FNV_VK_INVALID;
     fnv_host_mutex_lock(&d->guard);uint32_t hr=FNV_VK_INVALID;
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}

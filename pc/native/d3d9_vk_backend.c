@@ -524,7 +524,8 @@ static uint32_t create_surface(void *ctx,int depth,uint32_t w,uint32_t h,uint32_
 static uint32_t describe(void *ctx,uintptr_t id,uint32_t values[8]){
     struct fnv_vk_backend *d=ctx;if(!values)return FNV_VK_INVALID;fnv_host_mutex_lock(&d->guard);struct surface *s=find(d,id);uint32_t hr=FNV_VK_INVALID;
     if(s && s->shadow_alias){struct texture_resource *t=find_texture(d,s->parent_texture);if(t){const uint32_t v[8]={t->format,1,t->usage,t->pool,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}}
-    else if(s){const uint32_t v[8]={s->depth?75u:s->format==VK_FORMAT_R32_SFLOAT?114u:s->id==d->back && d->presentation_format?d->presentation_format:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}
+    else if(s){struct texture_resource *parent=s->parent_texture?find_texture(d,s->parent_texture):NULL;
+        const uint32_t v[8]={parent?parent->format:s->depth?75u:s->format==VK_FORMAT_R32_SFLOAT?114u:s->id==d->back && d->presentation_format?d->presentation_format:21u,1,s->depth?2u:1u,0,0,0,s->width,s->height};memcpy(values,v,32);hr=0;}
     fnv_host_mutex_unlock(&d->guard);return hr;
 }
 uint32_t fnv_vk_backend_presentation_format(struct fnv_vk_backend *d,uint32_t format){
@@ -1004,7 +1005,7 @@ uint32_t fnv_vk_backend_check_format(struct fnv_vk_backend *d,uint32_t usage,uin
     if(d->lost || !d->device_refs){hr=FNV_VK_LOST;goto done;}
     if(type==1 && usage==1 && format==21){vk_format=texture_vk_format(format,1);flags=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
     else if(type==1 && usage==2 && format==75){vk_format=VK_FORMAT_D24_UNORM_S8_UINT;flags=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;}
-    else if(type==3 && (usage==1 || usage==(1u|0x20000u)) && (format==21 || format==114)){
+    else if(type==3 && (usage==1 || usage==(1u|0x20000u)) && (format==21 || format==22 || format==114)){
         vk_format=texture_vk_format(format,1);flags=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if(usage&0x20000u){VkFormatProperties props;d->v.GetPhysicalDeviceFormatProperties(d->physical,vk_format,&props);if(!(props.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT))goto done;}
     }

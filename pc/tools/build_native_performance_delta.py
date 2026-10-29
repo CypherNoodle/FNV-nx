@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 
 UNITS=('d3d9_vk_backend.c','d3d9_com.c','dsound8.c','audio_horizon.c','windows_vorbis.c','bink_decoder.c','bink_movie.c')
-CHANGED_BASELINE_DEPENDENCIES=('d3d9_vk_backend.h','d3d9_vk_draw.inc','d3d9_vk_textures.inc','dsound8.h','media_horizon.h','windows_vorbis.h','bink_decoder.h','bink_movie.h')
+CHANGED_BASELINE_DEPENDENCIES=('d3d9_vk_backend.h','d3d9_com.h','d3d9_vk_draw.inc','d3d9_vk_textures.inc','dsound8.h','media_horizon.h','windows_vorbis.h','bink_decoder.h','bink_movie.h')
 
 def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 

@@ -169,6 +169,7 @@ int main(int argc,char **argv){
         memset(arena+DESC-BASE,0,36);put(DESC,36);put(DESC+4,0);put(DESC+8,512);put(DESC+16,FORMAT);
         uint32_t a[]={root,DESC,OUTPUT_AT,0};call(CREATE,a,4,1);goto finish;}
     /* ABI comparisons use a real Windows device, never play native buffers. */
+    for(unsigned cycle=0;cycle<600;cycle++){uint32_t recycled=make(root,0,512);release(recycled);}
     IDirectSound8 *native=NULL;HRESULT native_result=DirectSoundCreate8(NULL,&native,NULL);
     assert(native_result==S_OK&&native);assert(IDirectSound8_SetCooperativeLevel(native,window,DSSCL_PRIORITY)==S_OK);
     uint32_t self[]={root};assert(call(ADDREF,self,1,0)==IDirectSound8_AddRef(native));assert(call(RELEASE,self,1,0)==IDirectSound8_Release(native));

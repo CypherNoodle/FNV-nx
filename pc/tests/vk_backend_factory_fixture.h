@@ -114,6 +114,7 @@ static void exercise_factory(void){
         else if(failure==8)params[13]=0x80000000;else if(failure==9)params[8]=0;else params[12]=30;
         memcpy(ptr(DATA),params,56);put(GUEST_OUT,0xa5a5a5a5);assert(call(F_DEVICE,7,args)!=0 && !get(GUEST_OUT));assert(!memcmp(ptr(DATA),params,56));factory_checks++;
     }
+    struct fnv_d3d9_surface_io io={gpu,surface_read,surface_write};fnv_d3d9_com_surface_io(com,&io);
     if(hardware_requested){create[4]=0x46;caps_hwtl=1;actual_caps.DevCaps|=D3DDEVCAPS_HWTRANSFORMANDLIGHT;}
     memcpy(ptr(DATA),present,56);assert(!call(F_DEVICE,7,create));assert(get(GUEST_OUT)==device_at && get(DATA)==32 && get(DATA+4)==32 && get(DATA+8)==21 && get(DATA+12)==1);factory_checks++;
     uint32_t repeated[14];memcpy(repeated,ptr(DATA),56);assert(call(F_DEVICE,7,create)==FNV_VK_INVALID && !get(GUEST_OUT) && !memcmp(repeated,ptr(DATA),56));factory_checks++;

@@ -49,6 +49,14 @@ int main(void){
     float cleared[16];CHECK(!fnv_vk_backend_read_texture(b,rt_texture,0,cleared,sizeof(cleared),5000000000ull));
     for(unsigned i=0;i<16;i++)CHECK(cleared[i]==64.0f/255.0f);
     CHECK(!p.set_target(b,0,0,old_target));p.release(b,old_target);p.release(b,rt_surface);p.release(b,rt_texture);
+    CHECK(!p.create_texture(b,4,4,1,1,22,0,&rt_texture));CHECK(!p.texture_surface(b,rt_texture,0,&rt_surface));
+    CHECK(!p.surface_desc(b,rt_surface,desc) && desc[0]==22);
+    CHECK(!p.get_target(b,0,0,&old_target));CHECK(!p.set_target(b,0,0,rt_surface));
+    CHECK(!p.clear(b,0,NULL,1,0x00123456,0,0));CHECK(!fnv_vk_backend_flush(b));CHECK(!fnv_vk_backend_wait(b,5000000000ull));
+    uint32_t opaque[16];CHECK(!fnv_vk_backend_read_color(b,rt_surface,opaque,sizeof(opaque),5000000000ull));
+    for(unsigned i=0;i<16;i++)CHECK((opaque[i]&0xffffff)==0x123456);
+    CHECK(!p.set_target(b,0,0,old_target));p.release(b,old_target);p.release(b,rt_surface);p.release(b,rt_texture);
+    puts("X8R8G8B8: render target descriptor and GPU clear/readback PASS");
     puts("R32F: float bits, partial update, target descriptor and GPU clear PASS");
     }
 

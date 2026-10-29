@@ -4,6 +4,7 @@
 #include "d3d9_com_host.c"
 #undef main
 #include "d3d9_vk_backend.h"
+#include "d3d9_com_diag.h"
 #include "d3d9_fvf.h"
 #include "vk_backend_fault_proxy.h"
 enum {RT=20,DS,DESC,SET_RT,GET_RT,SET_DS,GET_DS,CLEAR,TYPE,SET_VIEW,GET_VIEW,SET_SCISSOR,GET_SCISSOR,SET_RENDER,GET_RENDER,BEGIN,END};
@@ -29,6 +30,41 @@ static void target(uint32_t color,uint32_t depth){
 }
 static void clear_color(uint32_t color){uint32_t args[]={device_at,0,0,1,color,0x3f000000,0};assert(!call(CLEAR,7,args));}
 static uintptr_t native_color(void){uintptr_t id=0;assert(!provider.get_target(gpu,0,0,&id));provider.release(gpu,id);return id;}
+static unsigned readback_fail;
+static uint32_t surface_read(void *ctx,uintptr_t handle,void *data,size_t bytes,uint64_t timeout){
+    if(readback_fail){memset(data,0xa5,bytes);return FNV_VK_BUSY;}
+    return fnv_vk_backend_read_color(ctx,handle,data,bytes,timeout);
+}
+static uint32_t surface_write(void *ctx,uintptr_t handle,const void *data,size_t bytes,uint64_t timeout){
+    return fnv_vk_backend_write_color(ctx,handle,data,bytes,timeout);
+}
+static uint32_t make_texture(unsigned,unsigned,unsigned,unsigned,unsigned,unsigned);
+static void exercise_readback(uint32_t back,uint32_t depth){
+    enum {OFFSCREEN=103,READBACK,LOCK_SURFACE,UNLOCK_SURFACE,TEXTURE_SURFACE};
+    uint64_t refs=stats().device_references;
+    uint32_t args[]={device_at,16,16,21,2,GUEST_OUT,0};assert(!call(OFFSCREEN,7,args));uint32_t cpu_surface=get(GUEST_OUT);
+    assert(call(ADDREF,1,&cpu_surface)==2 && release(cpu_surface)==1);
+    uint32_t desc[]={cpu_surface,DATA};assert(!call(DESC,2,desc) && get(DATA)==21 && get(DATA+12)==2 && get(DATA+24)==16);
+    uint32_t rt=surface(0,16);target(rt,0);clear_color(0xff123456);
+    uint32_t copy[]={device_at,rt,cpu_surface};assert(!call(READBACK,3,copy));
+    uint32_t lock[]={cpu_surface,DATA,0,0x810};assert(!call(LOCK_SURFACE,4,lock) && get(DATA)==64);
+    uint32_t pixels_at=get(DATA+4);for(unsigned i=0;i<256;i++)assert(get(pixels_at+i*4)==0xff123456);
+    assert(call(READBACK,3,copy)==FNV_VK_INVALID);assert(!call(UNLOCK_SURFACE,1,&cpu_surface));
+    readback_fail=1;assert(call(READBACK,3,copy)==FNV_VK_BUSY);readback_fail=0;
+    assert(!call(LOCK_SURFACE,4,lock));for(unsigned i=0;i<256;i++)assert(get(pixels_at+i*4)==0xff123456);
+    assert(!call(UNLOCK_SURFACE,1,&cpu_surface));
+    copy[1]=back;assert(call(READBACK,3,copy)==FNV_VK_INVALID);
+    target(back,depth);assert(!release(rt) && !release(cpu_surface));assert(stats().device_references==refs);
+    args[3]=22;assert(!call(OFFSCREEN,7,args));cpu_surface=get(GUEST_OUT);
+    uint32_t texture=make_texture(16,16,1,1,22,0);uint32_t level[]={texture,0,GUEST_OUT};assert(!call(TEXTURE_SURFACE,3,level));rt=get(GUEST_OUT);
+    desc[0]=rt;assert(!call(DESC,2,desc) && get(DATA)==22);
+    target(rt,0);assert(!call(BEGIN,1,&device_at));clear_color(0xffabcdef);copy[1]=rt;copy[2]=cpu_surface;
+    assert(!call(READBACK,3,copy));assert(!call(END,1,&device_at));
+    lock[0]=cpu_surface;lock[3]=0x800;assert(!call(LOCK_SURFACE,4,lock));pixels_at=get(DATA+4);
+    for(unsigned i=0;i<256;i++)assert((get(pixels_at+i*4)&0xffffff)==0xabcdef);
+    assert(!call(UNLOCK_SURFACE,1,&cpu_surface));target(back,depth);
+    assert(!release(rt) && !release(texture) && !release(cpu_surface));assert(stats().device_references==refs);
+}
 static void pixels(uint32_t base,uint32_t patch,unsigned w,unsigned h,unsigned x0,unsigned y0,unsigned x1,unsigned y1){
     unsigned char *data=malloc((size_t)w*h*4+16);assert(data);memset(data,0xa5,(size_t)w*h*4+16);
     assert(!fnv_vk_backend_read_color(gpu,native_color(),data,(size_t)w*h*4,10000000000ull));
@@ -90,6 +126,7 @@ int FNV_VK_HOST_MAIN(int argc,char **argv){
     struct fnv_cpu_state initial;fnv_cpu_state_init(&initial,BASE+ARENA-4096,0);assert(!fnv_cpu_attach(cpu,&initial));exercise_factory();exercise_transforms();exercise_material();exercise_lights();exercise_reset();exercise_com_present();
     uint32_t back_args[]={device_at,0,GUEST_OUT},ds_args[]={device_at,GUEST_OUT};assert(!call(GET_RT,3,back_args));uint32_t back=get(GUEST_OUT);
     assert(!call(GET_DS,2,ds_args));uint32_t auto_ds=get(GUEST_OUT);
+    exercise_readback(back,auto_ds);
     uint32_t rt=surface(0,16),ds=surface(1,16);target(rt,ds);uintptr_t old_color=native_color();
     uint32_t desc[]={rt,DATA};assert(!call(DESC,2,desc) && get(DATA)==21 && get(DATA+24)==16 && call(TYPE,1,&rt)==1);
     uint32_t view[]={device_at,DATA};assert(!call(GET_VIEW,2,view) && get(DATA+8)==16 && get(DATA+12)==16);
