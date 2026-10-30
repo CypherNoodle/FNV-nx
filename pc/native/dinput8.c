@@ -200,6 +200,8 @@ static int32_t delta(int64_t now,int64_t last){
     uint64_t v=(uint64_t)last-(uint64_t)now;return v>=UINT64_C(2147483648)?INT32_MIN:-(int32_t)v;
 }
 static void api_state(void){
+    if(!current())return;
+    if(active->config.service_text)active->config.service_text(active->config.context);
     uint32_t self=fnv_cpu_argument_u32(0),bytes=fnv_cpu_argument_u32(1),out=fnv_cpu_argument_u32(2);if(!current())return;
     unsigned char *p=range(out,bytes,1);if(!p)return;
     struct di_object before={0};fnv_host_mutex_lock(&active->guard);int i=index_of(self);

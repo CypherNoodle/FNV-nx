@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #ifdef _WIN32
+#include <windows.h>
 #include <io.h>
 #include <direct.h>
 #include <share.h>
@@ -96,5 +97,20 @@ static inline int fnv_host_file_close(FILE *stream){
 static inline uint32_t fnv_host_file_error(int value){
     switch(value){case ENOENT:return 2;case ENOTDIR:return 3;case EACCES:return 5;case EEXIST:return 80;case EMFILE:case ENFILE:return 4;
         case ENOSPC:return 112;case ENOMEM:return 8;case EINVAL:return 87;default:return 1117;}
+}
+/* No replacement of an existing destination. libnx rename delegates to the
+ * filesystem's RenameFile operation, which fails if the destination exists. */
+static inline uint32_t fnv_host_file_move(const char *source,const char *target){
+#if defined(_WIN32) && !defined(__SWITCH__)
+    return MoveFileA(source,target)?0:(uint32_t)GetLastError();
+#elif defined(__SWITCH__)
+    errno=0;if(!rename(source,target))return 0;
+    return errno==EEXIST?183:fnv_host_file_error(errno);
+#else
+    /* Only regular files reach this helper. link is an exclusive create. */
+    errno=0;if(link(source,target))return errno==EEXIST?183:fnv_host_file_error(errno);
+    if(!unlink(source))return 0;
+    int saved=errno;if(unlink(target))return 1117;return fnv_host_file_error(saved);
+#endif
 }
 #endif

@@ -23,13 +23,27 @@
 static unsigned char *arena;
 static HWND native_window;
 static int focus_value=1;
-static unsigned enum_count,enum_limit;
+static unsigned enum_count,enum_limit,text_services;
+static struct fnv_dinput8 *text_service_input;
 static void put(uint32_t at,uint32_t v){memcpy(arena+at-BASE,&v,4);}
 static uint32_t get(uint32_t at){uint32_t v;memcpy(&v,arena+at-BASE,4);return v;}
 static void observe(void){
-    uint32_t at=fnv_cpu_argument_u32(0),context=fnv_cpu_argument_u32(1);assert(context==0x1234 && get(at)==580);
+    uint32_t at=fnv_cpu_argument_u32(0),context=fnv_cpu_argument_u32(1);
+    if(context==0x5678){assert(at==0x12345678);fnv_cpu_return_u32(0x9876,8);return;}
+    assert(context==0x1234 && get(at)==580);
     assert(get(at+36)==18 || get(at+36)==19);assert(strstr((char *)arena+at+40-BASE,"FNV virtual "));
     enum_count++;fnv_cpu_return_u32(enum_count<enum_limit,8);
+}
+/* Real translated callback from the input service, preserving its native caller.
+ * The first update also checks that the provider lock is not held here. */
+static void service_text(void *unused){
+    (void)unused;struct fnv_cpu_state before,after;
+    assert(fnv_cpu_get_state(&before)==FNV_CPU_OK);
+    if(!text_services){const struct fnv_di_snapshot neutral={0};assert(fnv_dinput8_update(text_service_input,&neutral)==FNV_CPU_OK);}
+    uint32_t frame=before.gpr[4]-128;put(frame,0);put(frame+4,0x12345678);put(frame+8,0x5678);
+    assert(fnv_cpu_invoke_stdcall(0x401c00,frame,8)==0x9876);
+    assert(fnv_cpu_get_state(&after)==FNV_CPU_OK && !memcmp(&before,&after,sizeof(before)));
+    text_services++;
 }
 static int input_focus(void *context,uint32_t hwnd){(void)context;assert(hwnd==0xb0000001);return focus_value;}
 static int valid_window(void *context,uint32_t hwnd){(void)context;return hwnd==0xb0000001 && IsWindow(native_window);}
@@ -54,8 +68,8 @@ int main(int argc,char **argv){
     struct fnv_native_image image;assert(fnv_native_load_image(argv[1],arena,BYTES,&image)==FNV_NATIVE_OK);
     struct fnv_windows_config c={0};c.cpu.memory=arena;c.cpu.guest_base=BASE;c.cpu.memory_bytes=BYTES;c.cpu.code_low=BASE+0x1000;c.cpu.code_high=BASE+image.size;c.image_bytes=image.size;c.process_id=11;c.peb_address=BASE+0x8000;
     struct fnv_windows_process *process;assert(fnv_windows_create(&c,&process)==FNV_CPU_OK);
-    struct fnv_dinput8_config cfg={0};cfg.instance=BASE;cfg.objects_address=BASE+0x40000;cfg.objects_bytes=4096;cfg.keyboard=cfg.mouse=1;cfg.valid_window=valid_window;if(argc==2)cfg.has_input_focus=input_focus;
-    struct fnv_dinput8 *di;assert(fnv_dinput8_create(process,&cfg,&di)==FNV_CPU_OK);
+    struct fnv_dinput8_config cfg={0};cfg.instance=BASE;cfg.objects_address=BASE+0x40000;cfg.objects_bytes=4096;cfg.keyboard=cfg.mouse=1;cfg.valid_window=valid_window;cfg.service_text=service_text;if(argc==2)cfg.has_input_focus=input_focus;
+    struct fnv_dinput8 *di;assert(fnv_dinput8_create(process,&cfg,&di)==FNV_CPU_OK);text_service_input=di;
     size_t n,bound;const struct fnv_cpu_export *e=fnv_dinput8_exports(&n);struct fnv_cpu_export catalog[2];assert(n==1);catalog[0]=e[0];catalog[1]=(struct fnv_cpu_export){"di-test.dll","Observe",0,0,observe};
     struct fnv_native_import imports[FNV_NATIVE_MAX_IMPORTS];assert(fnv_windows_bind_imports(process,&image,imports,FNV_NATIVE_MAX_IMPORTS,catalog,2,&bound)==FNV_NATIVE_OK && bound==2);
     struct fnv_windows_thread_config t={0};t.thread_id=22;t.teb_address=BASE+0x10000;t.tls_expansion_address=t.teb_address+4096;t.stack_low=BASE+0x14000;t.stack_high=BASE+0x1c000;
@@ -182,5 +196,6 @@ put(COUNT_AT,8);assert(!call(13,read_events,5,0) && get(EVENTS+12)==sequence);
 finish:
     assert(fnv_windows_thread_detach()==FNV_CPU_OK && fnv_dinput8_destroy(di)==FNV_CPU_OK && fnv_windows_destroy(process)==FNV_CPU_OK && VirtualFree(arena,0,MEM_RELEASE));
     if(argc==3){puts("strict PASS");return 0;}
+    assert(text_services>=1000);
     puts("{\"status\":\"PASS\",\"keyboard_mouse_snapshots\":1000,\"windows_standard_formats\":3,\"foreground_loss_reacquire\":true,\"buffered_input_checked\":true,\"capability_layouts_checked\":true,\"engine_started\":false}");return 0;
 }

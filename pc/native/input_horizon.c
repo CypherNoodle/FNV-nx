@@ -3,6 +3,10 @@
 #include "host_mutex.h"
 #include <stdlib.h>
 struct fnv_horizon_pad {PadState pad;struct fnv_xinput *input;fnv_host_mutex guard;HidVibrationDeviceHandle vibration[2];int labels,ready;uint32_t style,id;uint16_t left,right;};
+enum fnv_cpu_result fnv_horizon_pad_clear(struct fnv_horizon_pad *p){
+    if(!p)return FNV_CPU_INVALID;
+    const struct fnv_gamepad neutral={0};return fnv_xinput_update(p->input,0,padIsConnected(&p->pad),&neutral);
+}
 static uint32_t rumble(void *context,uint32_t user,uint16_t left,uint16_t right){
     struct fnv_horizon_pad *p=context;if(user)return 1167;
     fnv_host_mutex_lock(&p->guard);uint32_t r=p->ready?0:50;

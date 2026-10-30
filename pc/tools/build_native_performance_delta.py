@@ -9,8 +9,8 @@ import json
 from pathlib import Path
 import subprocess
 
-UNITS=('d3d9_vk_backend.c','d3d9_com.c','dsound8.c','audio_horizon.c','windows_vorbis.c','bink_decoder.c','bink_movie.c','windows_thread.c')
-CHANGED_BASELINE_DEPENDENCIES=('d3d9_vk_backend.h','d3d9_com.h','d3d9_vk_draw.inc','d3d9_vk_textures.inc','dsound8.h','media_horizon.h','windows_vorbis.h','bink_decoder.h','bink_movie.h','windows_thread.h','windows_sync.inc','windows_calendar.inc')
+UNITS=('d3d9_vk_backend.c','d3d9_com.c','dsound8.c','audio_horizon.c','windows_vorbis.c','bink_decoder.c','bink_movie.c','windows_thread.c','dinput8.c','input_horizon.c')
+CHANGED_BASELINE_DEPENDENCIES=('d3d9_vk_backend.h','d3d9_com.h','d3d9_vk_draw.inc','d3d9_vk_textures.inc','dsound8.h','media_horizon.h','windows_vorbis.h','bink_decoder.h','bink_movie.h','windows_thread.h','windows_sync.inc','windows_calendar.inc','windows_files.inc','host_file.h','dinput8.h')
 
 def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 

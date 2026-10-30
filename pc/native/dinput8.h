@@ -13,6 +13,9 @@ struct fnv_dinput8_config {
     void *context;int (*valid_window)(void *,uint32_t);
     /* Native snapshot probe, no guest/reentry; 0/1 focus, -1 unavailable. */
     int (*has_input_focus)(void *,uint32_t);
+    /* Owner-thread UI service before GetDeviceState, outside provider locks.
+     * May invoke guest callbacks; must preserve caller CPU state. NULL disables. */
+    void (*service_text)(void *);
 };
 enum fnv_cpu_result fnv_dinput8_create(struct fnv_windows_process *,const struct fnv_dinput8_config *,struct fnv_dinput8 **);
 enum fnv_cpu_result fnv_dinput8_destroy(struct fnv_dinput8 *);

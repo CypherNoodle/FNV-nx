@@ -9,6 +9,7 @@
 #include "engine_profile.h"
 #include "d3d9_vk_progress.h"
 extern void _start(void);
+extern int fnv_engine_keyboard_is_open(void);
 /* No guest TLS, callbacks, provider stats, NWindow, audout or rumble calls. */
 static atomic_uint monitor_stage;
 static atomic_uint_fast64_t monitor_tick;
@@ -71,7 +72,7 @@ static void watch(void *unused){
             if(progress.submit_calls!=submits){submits=progress.submit_calls;last_submit=now;}
             u64 age=now>=stamp?armTicksToNs(now-stamp)/1000000:0;
             fprintf(output,"Watch elapsed_ms=%llu monitor=%s monitor_age_ms=%llu render_phase=%lu submit_calls=%llu fence_calls=%llu\n",(unsigned long long)(armTicksToNs(now-start)/1000000),stage<sizeof(names)/sizeof(*names)?names[stage]:"invalid",(unsigned long long)age,(unsigned long)progress.phase,(unsigned long long)progress.submit_calls,(unsigned long long)progress.wait_calls);
-            int stalled=age>=3000 || (submits>5000 && armTicksToNs(now-last_submit)>=10000000000ull);
+            int stalled=!fnv_engine_keyboard_is_open() && (age>=3000 || (submits>5000 && armTicksToNs(now-last_submit)>=10000000000ull));
             if(!stalled || !was_stalled)samples=0;
             if(stalled && samples<3){sample("monitor",monitor_handle);sample("guest-main",guest_handle);samples++;}
             was_stalled=stalled;

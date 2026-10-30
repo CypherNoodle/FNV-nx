@@ -206,6 +206,7 @@ static void file_release(struct fnv_windows_process *p,struct file_slot *f){
     fnv_host_mutex_unlock(&p->files_guard);if(finish)(void)file_finish_close(p,f);
 }
 static int file_share_compatible(uint32_t access,uint32_t share,const struct file_slot *other){
+    if(other->opening && !other->access && !other->share)return 0;
     return !(((access&0x80000000u) && !(other->share&1)) || ((access&0x40000000u) && !(other->share&2)) ||
              ((other->access&0x80000000u) && !(share&1)) || ((other->access&0x40000000u) && !(share&2)));
 }
@@ -336,6 +337,33 @@ static void api_file_delete_a(void){
     }
     if(error)fnv_windows_set_last_error(error);
     fnv_cpu_return_u32(value,4);
+}
+static void api_file_move_a(void){
+    uint32_t source=fnv_cpu_argument_u32(0),target=fnv_cpu_argument_u32(1),error=0,value=0;int src_profile=0,dst_profile=0;
+    struct fnv_windows_process *p=file_process();char src[512],src_key[512],dst[512],dst_key[512],src_full[1538],dst_full[1538];
+    struct file_slot *src_slot=NULL,*dst_slot=NULL;
+    error=(uint32_t)file_path_with_profile(p,source,0,src,src_key,&src_profile);
+    if(!error)error=(uint32_t)file_path_with_profile(p,target,0,dst,dst_key,&dst_profile);
+    if(!error && (!src_profile || !dst_profile))error=5;
+    if(!error){size_t n=strlen(p->file_root);
+        memcpy(src_full,p->file_root,n);src_full[n]='/';memcpy(src_full+n+1,src,strlen(src)+1);
+        memcpy(dst_full,p->file_root,n);dst_full[n]='/';memcpy(dst_full+n+1,dst,strlen(dst)+1);
+        src_slot=file_reserve_open(p,0,0,src_key,&error);
+    }
+    if(!error){struct fnv_host_entry entry;error=fnv_host_metadata(src_full,&entry);
+        if(!error && (entry.attributes&16u))error=50;
+        if(error==2){char *slash=strrchr(src_full,'/');if(slash){*slash=0;if(!fnv_host_file_directory(src_full))error=3;*slash='/';}}
+    }
+    if(!error && !strcmp(src_key,dst_key)){if(!strcmp(src,dst))value=1;else error=50;}
+    if(!error && !value)dst_slot=file_reserve_open(p,0,0,dst_key,&error);
+    if(!error && !value){struct fnv_host_entry entry;uint32_t exists=fnv_host_metadata(dst_full,&entry);
+        if(!exists)error=183;else if(exists!=2)error=exists;
+    }
+    if(!error && !value){char *slash=strrchr(dst_full,'/');if(slash){*slash=0;if(!fnv_host_file_directory(dst_full))error=3;*slash='/';}}
+    if(!error && !value)error=fnv_host_file_move(src_full,dst_full);
+    if(dst_slot)file_cancel_open(p,dst_slot);if(src_slot)file_cancel_open(p,src_slot);
+    if(error)fnv_windows_set_last_error(error);else value=1;
+    fnv_cpu_return_u32(value,8);
 }
 static int file_prepare_io(struct file_slot *f,uint32_t operation){
     if(f->last_io && f->last_io!=operation){

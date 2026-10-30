@@ -118,7 +118,7 @@ def run(a):
         frozen=frozen,original_stages=original_stages,catalog_codes=catalog_codes,pin=pin)
     declared=getattr(a,'entry_source_delta',None) or []
     if len(declared)!=len(set(declared)):raise ValueError('Duplicate entry source delta')
-    allowed={'engine_process_plan.c','engine_probe.c'}
+    allowed={'engine_process_plan.c','engine_probe.c','engine_watchdog.c'}
     if any(name not in allowed for name in declared):raise ValueError('Unsupported entry source delta')
     declared_paths={str((pc/'switch'/name).resolve()) for name in declared};entry_deltas={}
     native_delta=getattr(a,'native_performance_proof',None);native_replacements={};native_dependencies=set()
@@ -291,5 +291,5 @@ if __name__=='__main__':
     p.add_argument('--inline-proof',type=Path)
     p.add_argument('--program-bundle',type=Path,help='Reconstructed additive shader bundle; base rows must remain unchanged')
     p.add_argument('--replace-output',action='store_true',help='Reuse only local/pc-engine-current-build after verifying the preserved active NRO/ELF')
-    p.add_argument('--entry-source-delta',action='append',choices=('engine_process_plan.c','engine_probe.c'))
+    p.add_argument('--entry-source-delta',action='append',choices=('engine_process_plan.c','engine_probe.c','engine_watchdog.c'))
     run(p.parse_args())

@@ -121,6 +121,7 @@ static int identify(const char *path,const char *expected) {
     report("SHA256 %s %s bytes=%llu\n",path,hex,(unsigned long long)total);return !strcmp(hex,expected);
 }
 static uint32_t load32(const unsigned char *p){return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
+#include "engine_keyboard.h"
 /* Each guest owner samples its own stack. Never reads another thread's TLS or
  * mutates guest state. Native boundaries only: not a CPU utilization profiler. */
 static __attribute__((noinline)) void sample_native_record(uint32_t entry){
@@ -324,8 +325,10 @@ static int initialize(void) {
     struct fnv_boot_window_backend wb;REQUIRE(fnv_boot_horizon_backend(&window_binding,nwindowGetDefault(),&wb) && fnv_windows_boot_ui_set_backend(boot_ui,user32,&wb)==FNV_CPU_OK,"NWindow lease");
     uint32_t input_pool=pool(65536),mmio_pool=pool(0x11000),vorbis_pool=pool(0x11000*128),sound_pool=pool(16u<<20),movie_pool=pool(65536);
     REQUIRE(input_pool && mmio_pool && vorbis_pool && sound_pool && movie_pool,"media/input pools");
-    struct fnv_dinput8_config di={0};di.instance=image.base;di.objects_address=input_pool;di.objects_bytes=65536;di.keyboard=di.mouse=1;di.memory=vm;di.context=boot_ui;di.valid_window=valid_window;di.has_input_focus=input_focus;
+    struct fnv_dinput8_config di={0};di.instance=image.base;di.objects_address=input_pool;di.objects_bytes=65536;di.keyboard=di.mouse=1;di.memory=vm;di.context=boot_ui;di.valid_window=valid_window;di.has_input_focus=input_focus;di.service_text=keyboard_guest;
     REQUIRE(fnv_dinput8_create(process,&di,&dinput)==FNV_CPU_OK,"DirectInput provider");
+    native_keyboard.storage=pool(4096);REQUIRE(native_keyboard.storage,"native keyboard bridge");
+    report("Native keyboard enabled: automatic text editor; L+R+Plus reopens\n");
     REQUIRE(fnv_horizon_pad_open(process,1,&controller)==FNV_CPU_OK,"Switch XInput controller");
     struct fnv_mmio_config mc={mmio_pool,0x11000,vm};struct fnv_windows_mmio *mmio;
     REQUIRE(fnv_windows_mmio_create(process,&mc,&mmio)==FNV_CPU_OK,"MMIO provider");
@@ -442,7 +445,7 @@ int main(void) {
         fnv_engine_watchdog_stage(FNV_MON_PAD);padUpdate(&exit_pad);u64 buttons=padGetButtons(&exit_pad),combo=HidNpadButton_L|HidNpadButton_R|HidNpadButton_Minus;
         seen_buttons|=padGetButtonsDown(&exit_pad);
         if((buttons&combo)==combo){if(++exit_hold>=125)request_stop("user L+R+Minus");}else exit_hold=0;
-        if(!poll_input(&poll))request_stop("input backend failure");
+        if(!keyboard_host(padGetButtonsDown(&exit_pad),buttons) && !poll_input(&poll))request_stop("input backend failure");
         uint32_t audio_error=fnv_horizon_audio_error(audio);if(audio_error){report("Audio error=%lu\n",(unsigned long)audio_error);request_stop("audout failure");}
         /* Prepared NWindow geometry is immutable during this diagnostic.
          * Avoid VI IPC/NWindow locking every 8 ms; restart on dock-mode change. */

@@ -10,6 +10,7 @@ struct fnv_horizon_audio;
  * poll runs on one host thread once per frame, never in a guest GetState call. */
 enum fnv_cpu_result fnv_horizon_pad_open(struct fnv_windows_process *,int labels,struct fnv_horizon_pad **);
 enum fnv_cpu_result fnv_horizon_pad_poll(struct fnv_horizon_pad *);
+enum fnv_cpu_result fnv_horizon_pad_clear(struct fnv_horizon_pad *);
 enum fnv_cpu_result fnv_horizon_pad_close(struct fnv_horizon_pad *);
 /* Owns an audout session and dedicated event-driven worker. Caller retains the
  * queue until close. No other audout owner may run concurrently. No decoding,
